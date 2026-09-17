@@ -1,0 +1,13 @@
+.github/**
+.vscode/**
+src/**
+node_modules/**
+vscode-extension-samples/**
+esbuild.mjs
+eslint.config.mts
+tsconfig.json
+bun.lock
+.gitignore
+.vscodeignore
+**/*.map
+*.vsix

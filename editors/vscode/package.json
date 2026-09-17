@@ -1,0 +1,103 @@
+{
+  "name": "shuck",
+  "displayName": "Shuck",
+  "description": "Shuck shellscript; linter, formatter and LSP for VS Code",
+  "author": "fredrir",
+  "license": "MIT",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fredrir/shuck-vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/fredrir/shuck-vscode/issues"
+  },
+  "publisher": "fredrir",
+  "engines": {
+    "vscode": "^1.138.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "shell",
+    "shellscript",
+    "bash",
+    "zsh",
+    "sh",
+    "linter",
+    "formatter",
+    "language-server"
+  ],
+  "activationEvents": [
+    "onLanguage:shellscript"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Shuck",
+      "properties": {
+        "shuck.path": {
+          "type": "string",
+          "default": "shuck",
+          "description": "Path to the Shuck executable.",
+          "examples": [
+            "/usr/bin/shuck",
+            "$HOME/.cargo/bin/shuck"
+          ]
+        },
+        "shuck.enabledShells": {
+          "type": "array",
+          "default": [
+            "sh",
+            "bash",
+            "zsh"
+          ],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "sh",
+              "bash",
+              "zsh"
+            ]
+          },
+          "description": "Shell languages for which Shuck is enabled."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/node": "^22.20.3",
+    "@types/vscode": "^1.138.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "jiti": "^2.7.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.70.0"
+  },
+  "scripts": {
+    "vscode:prepublish": "bun run package",
+    "compile": "bun run check-types && bun run lint && bun run build",
+    "build": "node esbuild.mjs",
+    "watch": "bun run --parallel watch:esbuild watch:tsc",
+    "watch:esbuild": "node esbuild.mjs --watch",
+    "watch:tsc": "tsc --noEmit --watch",
+    "package": "bun run check-types && bun run lint && node esbuild.mjs --production",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "vsix": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies"
+  }
+}
