@@ -1,0 +1,41 @@
+use std::path::Path;
+
+use shucked_indexer::Indexer;
+use shucked_parser::parser::{Parser, ShellDialect as ParseShellDialect};
+
+use crate::{AmbientShellOptions, LinterFacts, LinterSemanticArtifacts, ShellDialect};
+
+pub(crate) fn with_facts_dialect(
+    source: &str,
+    _path: Option<&Path>,
+    parse_dialect: ParseShellDialect,
+    shell: ShellDialect,
+    visit: impl FnOnce(&shucked_parser::parser::ParseResult, &LinterFacts<'_>),
+) {
+    let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = LinterSemanticArtifacts::build(&output.file, source, &indexer);
+    let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
+        &output.file,
+        source,
+        &semantic,
+        &indexer,
+        shell,
+        AmbientShellOptions::default(),
+    );
+    visit(&output, &facts);
+}
+
+pub(crate) fn with_facts(
+    source: &str,
+    path: Option<&Path>,
+    visit: impl FnOnce(&shucked_parser::parser::ParseResult, &LinterFacts<'_>),
+) {
+    with_facts_dialect(
+        source,
+        path,
+        ParseShellDialect::Bash,
+        ShellDialect::Bash,
+        visit,
+    );
+}

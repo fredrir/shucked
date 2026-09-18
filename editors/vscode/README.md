@@ -1,37 +1,56 @@
-# Shuck for VS Code
+# Shucked for VS Code
 
-Vscode Extension for using Shuck for Linting, Formatting and LSP for shell scripts
+VS Code extension for **Shucked**: Industry-grade Shellscript & ZSH Language Server, Linter, and Formatter.
 
-> Requires the shuck binary installed and on `PATH`
+## Features
+
+- **Rich Language Features**: Diagnostics, code actions, completions, formatting, hovers, navigation, and symbol indexing powered by the Shucked language server.
+- **Platform Binary Discovery**: Automatically detects bundled platform binaries, workspace build targets, or system PATH binaries.
+- **Resilient Client Management**: Automatic crash-loop protection with exponential backoff and interactive error recovery.
+- **Multi-Root Workspace & Remote Ready**: Full support for Remote SSH, WSL, Dev Containers, and multi-root workspaces.
 
 ## Settings
 
-| Setting               | Default                 | Values                         |
-| --------------------- | ----------------------- | ------------------------------ |
-| `shuck.path`          | `shuck`                 | Path to the `shuck` executable |
-| `shuck.enabledShells` | `["sh", "bash", "zsh"]` | `sh`, `bash`, `zsh`            |
+| Setting                    | Default | Description                                                                                                                                             |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shucked.server.path`      | `""`    | Path to custom `shucked` executable. Bundled platform binaries are the standard supported mode; custom binary paths are unsupported and provided as-is. |
+| `shucked.server.extraArgs` | `[]`    | Extra CLI arguments passed to `shucked server`.                                                                                                         |
+| `shucked.trace.server`     | `"off"` | Traces communication between VS Code and the Shucked language server (`"off"`, `"messages"`, `"verbose"`).                                              |
 
-`shuck.path` expands `~`, `$VAR` and `${VAR}`.
+> `shucked.server.path` expands `~`, `$VAR`, and `${VAR}`.
 
-Settings changes restart the language server. A failed start surfaces a `Retry` action and logs to the `Shuck` output channel.
+## Commands
+
+- **Shucked: Restart Language Server** (`shucked.restartServer`)
+- **Shucked: Show Language Server Logs** (`shucked.showOutputChannel`)
+- **Shucked: Show Version** (`shucked.showVersion`)
+
+## Status Bar
+
+The status bar displays the current state of Shucked:
+- `$(sync~spin) Shucked: Starting` — Language server is starting.
+- `$(check) Shucked` — Ready and idle.
+- `$(sync~spin) Shucked: Indexing` — Indexing files or analyzing workspace.
+- `$(error) Shucked: Error` — An error occurred or the server failed to start (click to restart or view logs).
 
 ## Development
 
-| Task                  | Command               |
-| --------------------- | --------------------- |
-| Install               | `bun install`         |
-| Build                 | `bun run build`       |
-| Watch (esbuild + tsc) | `bun run watch`       |
-| Typecheck             | `bun run check-types` |
-| Lint                  | `bun run lint`        |
-| Package               | `bun run package`     |
-| VSIX                  | `bun run vsix`        |
-| Debug                 | F5 → `Run Extension`  |
+| Task                 | Command               |
+| -------------------- | --------------------- |
+| Install dependencies | `bun install`         |
+| Typecheck            | `bun run check-types` |
+| Lint                 | `bun run lint`        |
+| Build                | `bun run build`       |
+| Watch                | `bun run watch`       |
+| Package VSIX         | `bun run vsix`        |
 
-## Layout
+## Architecture
 
-| Path                | Contents                            |
-| ------------------- | ----------------------------------- |
-| `src/extension.ts`  | Language client entry point         |
-| `esbuild.mjs`       | Bundle config                       |
-| `dist/extension.js` | Bundled entry (`main`), git-ignored |
+| File               | Responsibility                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `src/extension.ts` | Extension activation, log channel creation, workspace event dispatching.              |
+| `src/binary.ts`    | Resolves binary through custom path, bundled binary, workspace artifacts, or PATH.    |
+| `src/client.ts`    | LanguageClient lifecycle, error handler, crash-loop detection, and progress handling. |
+| `src/status.ts`    | Status bar item state management and interactions.                                    |
+| `src/commands.ts`  | Command registrations (`restartServer`, `showOutputChannel`, `showVersion`).          |
+| `src/config.ts`    | Configuration watcher and live server reload.                                         |

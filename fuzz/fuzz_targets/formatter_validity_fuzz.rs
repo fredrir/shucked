@@ -6,7 +6,7 @@ mod common;
 mod formatter_validity_common;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use shuck_formatter::{FormatError, format_source};
+use shucked_formatter::{FormatError, format_source};
 
 fuzz_target!(|data: &[u8]| -> Corpus {
     let input = match common::filtered_input(data) {

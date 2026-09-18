@@ -1,0 +1,4195 @@
+mod branch;
+mod breaks;
+mod case;
+mod comments;
+mod compound;
+mod layout;
+mod sequence;
+
+use rustc_hash::FxHashMap as HashMap;
+
+use shucked_ast::{
+    AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, Assignment, AssignmentValue, BinaryCommand, BinaryOp,
+    BourneParameterExpansion, CaseCommand, CaseItem, Command, CommandSubstitutionSyntax,
+    CompoundCommand, ConditionalCommand, ConditionalExpr, CoprocCommand, DeclOperand, File,
+    ForCommand, ForeachCommand, FunctionDef, Heredoc, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, IfCommand, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
+    Pattern, PatternPart, Redirect, RedirectKind, RedirectTarget, RepeatCommand, SelectCommand,
+    Span, Stmt, StmtSeq, StmtTerminator, Subscript, TimeCommand, UntilCommand, VarRef,
+    WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    ZshGlobSegment,
+};
+use shucked_ast::{TextRange, TextSize};
+use shucked_indexer::{
+    CloseDelimiterKind, CommentIndex, IndexedComment, Indexer, IndexerOptions, LineIndex,
+};
+
+use crate::command::{
+    array_elem_parts, builtin_like_parts, case_item_body_upper_bound,
+    case_item_was_inline_in_source, case_terminator,
+    collect_binary_list_first as collect_binary_list_first_with, collect_pipeline_parts,
+    command_format_span, command_group_commands,
+    compound_close_span as command_compound_close_span, group_attachment_span_with_heredoc,
+    group_open_suffix, group_was_inline_in_source, if_close_span,
+    if_next_branch_region_with_body_end, matching_group_close, rendered_stmt_end_line_with_heredoc,
+    should_render_verbatim_with_heredoc, stmt_attachment_span_with_heredoc_and_compound_close,
+    stmt_format_span, stmt_group_attachment_or_verbatim_span_with_heredoc,
+    stmt_has_trailing_comment, stmt_render_start_line_with_heredoc, stmt_span,
+    stmt_start_after_operator, stmt_verbatim_span_with_source_map,
+    trim_unescaped_trailing_whitespace,
+};
+use crate::comments::{BranchPrefixComment, CommentAttachmentModel, SourceComment, SourceMap};
+use crate::options::{LineEnding, ResolvedShellFormatOptions};
+use crate::render_plan::CompoundBodySite;
+use crate::source::{SourceView, command_substitution_source_starts_with_body_line};
+use crate::visit::{self, AstVisitor};
+
+use self::branch::BranchFacts;
+use self::breaks::BreakFacts;
+use self::case::CaseFacts;
+use self::comments::CommentFacts;
+use self::compound::CompoundFacts;
+use self::layout::LayoutFacts;
+use self::sequence::{SequenceFactsStore, SequenceSite, SequenceSiteKey};
+
+pub(crate) use self::case::{CaseCommandFacts, CaseItemFacts};
+pub(crate) use self::comments::{BranchPrefixFacts, InlineCommentPlan};
+pub(crate) use self::layout::{StmtFacts, WordFacts};
+pub(crate) use self::sequence::SequenceFacts;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct FactSpan {
+    start: usize,
+    end: usize,
+}
+
+impl FactSpan {
+    fn new(span: Span) -> Self {
+        Self {
+            start: span.start.offset(),
+            end: span.end.offset(),
+        }
+    }
+
+    fn from_offsets(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+impl From<Span> for FactSpan {
+    fn from(span: Span) -> Self {
+        Self::new(span)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StmtSite<'a> {
+    stmt: &'a Stmt,
+    key: FactSpan,
+}
+
+impl<'a> StmtSite<'a> {
+    fn new(stmt: &'a Stmt) -> Self {
+        Self {
+            stmt,
+            key: FactSpan::from(stmt_span(stmt)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LayoutSummary {
+    contains_comments: bool,
+    contains_heredoc: bool,
+    contains_multiline_literal_source: bool,
+    contains_multistatement_pipeline_brace_group: bool,
+}
+
+impl LayoutSummary {
+    fn merge(&mut self, other: Self) {
+        self.contains_comments |= other.contains_comments;
+        self.contains_heredoc |= other.contains_heredoc;
+        self.contains_multiline_literal_source |= other.contains_multiline_literal_source;
+        self.contains_multistatement_pipeline_brace_group |=
+            other.contains_multistatement_pipeline_brace_group;
+    }
+
+    fn with_comments(mut self, contains_comments: bool) -> Self {
+        self.contains_comments |= contains_comments;
+        self
+    }
+}
+
+// Keep command-shape classification shared between the annotation-only pass and
+// the fact-building pass so new AST variants cannot drift between them.
+struct LayoutClassifier;
+
+enum LayoutCommand<'a> {
+    Simple {
+        assignments: &'a [Assignment],
+        name: &'a Word,
+        args: &'a [Word],
+    },
+    Builtin {
+        assignments: &'a [Assignment],
+        primary: Option<&'a Word>,
+        extra_args: &'a [Word],
+    },
+    Decl {
+        assignments: &'a [Assignment],
+        operands: &'a [DeclOperand],
+    },
+    Binary(&'a BinaryCommand),
+    Compound(&'a CompoundCommand),
+    Function(&'a FunctionDef),
+    AnonymousFunction(&'a AnonymousFunctionCommand),
+}
+
+enum LayoutCompoundCommand<'a> {
+    If(&'a IfCommand),
+    For(&'a ForCommand),
+    Repeat(&'a RepeatCommand),
+    Foreach(&'a ForeachCommand),
+    ArithmeticFor(&'a ArithmeticForCommand),
+    While(&'a WhileCommand),
+    Until(&'a UntilCommand),
+    Case(&'a CaseCommand),
+    Select(&'a SelectCommand),
+    Subshell(&'a StmtSeq),
+    BraceGroup(&'a StmtSeq),
+    Arithmetic(&'a ArithmeticCommand),
+    Time(&'a TimeCommand),
+    Conditional(&'a ConditionalCommand),
+    Coproc(&'a CoprocCommand),
+    Always(&'a AlwaysCommand),
+}
+
+impl LayoutClassifier {
+    fn command(command: &Command) -> LayoutCommand<'_> {
+        match command {
+            Command::Simple(command) => LayoutCommand::Simple {
+                assignments: command.assignments.as_ref(),
+                name: &command.name,
+                args: command.args.as_slice(),
+            },
+            Command::Builtin(command) => {
+                let (_, _, assignments, primary, extra_args) = builtin_like_parts(command);
+                LayoutCommand::Builtin {
+                    assignments,
+                    primary,
+                    extra_args,
+                }
+            }
+            Command::Decl(command) => LayoutCommand::Decl {
+                assignments: command.assignments.as_ref(),
+                operands: command.operands.as_slice(),
+            },
+            Command::Binary(command) => LayoutCommand::Binary(command),
+            Command::Compound(command) => LayoutCommand::Compound(command),
+            Command::Function(command) => LayoutCommand::Function(command),
+            Command::AnonymousFunction(command) => LayoutCommand::AnonymousFunction(command),
+        }
+    }
+
+    fn compound_command(command: &CompoundCommand) -> LayoutCompoundCommand<'_> {
+        match command {
+            CompoundCommand::If(command) => LayoutCompoundCommand::If(command),
+            CompoundCommand::For(command) => LayoutCompoundCommand::For(command),
+            CompoundCommand::Repeat(command) => LayoutCompoundCommand::Repeat(command),
+            CompoundCommand::Foreach(command) => LayoutCompoundCommand::Foreach(command),
+            CompoundCommand::ArithmeticFor(command) => {
+                LayoutCompoundCommand::ArithmeticFor(command)
+            }
+            CompoundCommand::While(command) => LayoutCompoundCommand::While(command),
+            CompoundCommand::Until(command) => LayoutCompoundCommand::Until(command),
+            CompoundCommand::Case(command) => LayoutCompoundCommand::Case(command),
+            CompoundCommand::Select(command) => LayoutCompoundCommand::Select(command),
+            CompoundCommand::Subshell(body) => LayoutCompoundCommand::Subshell(body),
+            CompoundCommand::BraceGroup(body) => LayoutCompoundCommand::BraceGroup(body),
+            CompoundCommand::Arithmetic(command) => LayoutCompoundCommand::Arithmetic(command),
+            CompoundCommand::Time(command) => LayoutCompoundCommand::Time(command),
+            CompoundCommand::Conditional(command) => LayoutCompoundCommand::Conditional(command),
+            CompoundCommand::Coproc(command) => LayoutCompoundCommand::Coproc(command),
+            CompoundCommand::Always(command) => LayoutCompoundCommand::Always(command),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct LayoutAnnotations {
+    sequences: HashMap<FactSpan, LayoutSummary>,
+    statements: HashMap<FactSpan, LayoutSummary>,
+    words: HashMap<FactSpan, LayoutSummary>,
+}
+
+impl LayoutAnnotations {
+    fn build_for_stmt(source: &str, stmt: &Stmt) -> Self {
+        let mut annotations = Self::default();
+        {
+            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
+            pass.visit_stmt(stmt);
+        }
+        annotations
+    }
+
+    fn build_for_word(source: &str, word: &Word) -> Self {
+        let mut annotations = Self::default();
+        {
+            let mut pass = LayoutAnnotationPass::new(source, &mut annotations);
+            pass.visit_word(word);
+        }
+        annotations
+    }
+
+    fn sequence(&self, sequence: &StmtSeq) -> LayoutSummary {
+        self.sequences
+            .get(&FactSpan::from(sequence.span))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn stmt(&self, stmt: &Stmt) -> LayoutSummary {
+        self.statements
+            .get(&FactSpan::from(stmt_span(stmt)))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn word_summary(&self, word: &Word) -> LayoutSummary {
+        self.words
+            .get(&FactSpan::from(word.span))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn word_facts(&self, word: &Word) -> WordFacts {
+        WordFacts {
+            has_multiline_literal_source: self.word_summary(word).contains_multiline_literal_source,
+        }
+    }
+}
+
+struct LayoutAnnotationPass<'source, 'annotations> {
+    source: &'source str,
+    annotations: &'annotations mut LayoutAnnotations,
+}
+
+impl<'source, 'annotations> LayoutAnnotationPass<'source, 'annotations> {
+    fn new(source: &'source str, annotations: &'annotations mut LayoutAnnotations) -> Self {
+        Self {
+            source,
+            annotations,
+        }
+    }
+
+    fn command_layout(&self, command: &Command) -> LayoutSummary {
+        match LayoutClassifier::command(command) {
+            LayoutCommand::Simple {
+                assignments,
+                name,
+                args,
+            } => {
+                let mut summary = self.assignments_layout(assignments);
+                summary.merge(self.annotations.word_summary(name));
+                for word in args {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary
+            }
+            LayoutCommand::Builtin {
+                assignments,
+                primary,
+                extra_args,
+            } => {
+                let mut summary = self.assignments_layout(assignments);
+                if let Some(primary) = primary {
+                    summary.merge(self.annotations.word_summary(primary));
+                }
+                for word in extra_args {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary
+            }
+            LayoutCommand::Decl {
+                assignments,
+                operands,
+            } => {
+                let mut summary = self.assignments_layout(assignments);
+                for operand in operands {
+                    summary.merge(self.decl_operand_layout(operand));
+                }
+                summary
+            }
+            LayoutCommand::Binary(command) => {
+                let mut summary = self.annotations.stmt(&command.left);
+                summary.merge(self.annotations.stmt(&command.right));
+                summary.contains_multistatement_pipeline_brace_group =
+                    self.command_contains_multistatement_pipeline_brace_group(command, false);
+                summary
+            }
+            LayoutCommand::Compound(command) => self.compound_command_layout(command),
+            LayoutCommand::Function(function) => {
+                let mut summary = self.annotations.stmt(function.body.as_ref());
+                for entry in &function.header.entries {
+                    summary.merge(self.annotations.word_summary(&entry.word));
+                }
+                summary
+            }
+            LayoutCommand::AnonymousFunction(function) => {
+                let mut summary = self.annotations.stmt(function.body.as_ref());
+                for argument in &function.args {
+                    summary.merge(self.annotations.word_summary(argument));
+                }
+                summary
+            }
+        }
+    }
+
+    fn compound_command_layout(&self, command: &CompoundCommand) -> LayoutSummary {
+        match LayoutClassifier::compound_command(command) {
+            LayoutCompoundCommand::If(command) => {
+                let mut summary = self.annotations.sequence(&command.condition);
+                summary.merge(self.annotations.sequence(&command.then_branch));
+                for (condition, body) in &command.elif_branches {
+                    summary.merge(self.annotations.sequence(condition));
+                    summary.merge(self.annotations.sequence(body));
+                }
+                if let Some(body) = &command.else_branch {
+                    summary.merge(self.annotations.sequence(body));
+                }
+                summary
+            }
+            LayoutCompoundCommand::For(command) => {
+                let mut summary = LayoutSummary::default();
+                for target in &command.targets {
+                    summary.merge(self.annotations.word_summary(&target.word));
+                }
+                if let Some(words) = &command.words {
+                    for word in words {
+                        summary.merge(self.annotations.word_summary(word));
+                    }
+                }
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::Repeat(command) => {
+                let mut summary = self.annotations.word_summary(&command.count);
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::Foreach(command) => {
+                let mut summary = LayoutSummary::default();
+                for word in &command.words {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::ArithmeticFor(command) => {
+                let mut summary = LayoutSummary::default();
+                if let Some(expr) = &command.init_ast {
+                    summary.merge(self.arithmetic_expr_layout(expr));
+                }
+                if let Some(expr) = &command.condition_ast {
+                    summary.merge(self.arithmetic_expr_layout(expr));
+                }
+                if let Some(expr) = &command.step_ast {
+                    summary.merge(self.arithmetic_expr_layout(expr));
+                }
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::While(command) => {
+                let mut summary = self.annotations.sequence(&command.condition);
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::Until(command) => {
+                let mut summary = self.annotations.sequence(&command.condition);
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::Case(command) => {
+                let mut summary = self.annotations.word_summary(&command.word);
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        summary.merge(self.pattern_layout(pattern));
+                    }
+                    summary.merge(self.annotations.sequence(&item.body));
+                }
+                summary
+            }
+            LayoutCompoundCommand::Select(command) => {
+                let mut summary = LayoutSummary::default();
+                for word in &command.words {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary.merge(self.annotations.sequence(&command.body));
+                summary
+            }
+            LayoutCompoundCommand::Subshell(body) | LayoutCompoundCommand::BraceGroup(body) => {
+                self.annotations.sequence(body)
+            }
+            LayoutCompoundCommand::Arithmetic(command) => command
+                .expr_ast
+                .as_ref()
+                .map_or_else(LayoutSummary::default, |expr| {
+                    self.arithmetic_expr_layout(expr)
+                }),
+            LayoutCompoundCommand::Time(command) => command
+                .command
+                .as_ref()
+                .map_or_else(LayoutSummary::default, |command| {
+                    self.annotations.stmt(command)
+                }),
+            LayoutCompoundCommand::Conditional(command) => {
+                self.conditional_expr_layout(&command.expression)
+            }
+            LayoutCompoundCommand::Coproc(command) => self.annotations.stmt(&command.body),
+            LayoutCompoundCommand::Always(command) => {
+                let mut summary = self.annotations.sequence(&command.body);
+                summary.merge(self.annotations.sequence(&command.always_body));
+                summary
+            }
+        }
+    }
+
+    fn decl_operand_layout(&self, operand: &DeclOperand) -> LayoutSummary {
+        match operand {
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                self.annotations.word_summary(word)
+            }
+            DeclOperand::Name(reference) => self.var_ref_layout(reference),
+            DeclOperand::Assignment(assignment) => self.assignment_layout(assignment),
+        }
+    }
+
+    fn assignments_layout(&self, assignments: &[Assignment]) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for assignment in assignments {
+            summary.merge(self.assignment_layout(assignment));
+        }
+        summary
+    }
+
+    fn assignment_layout(&self, assignment: &Assignment) -> LayoutSummary {
+        let mut summary = self.var_ref_layout(&assignment.target);
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => summary.merge(self.annotations.word_summary(word)),
+            AssignmentValue::Compound(array) => {
+                for element in &array.elements {
+                    if let Some(key) = array_elem_parts(element).0 {
+                        summary.merge(self.subscript_layout(key));
+                    }
+                    summary.merge(self.annotations.word_summary(array_elem_parts(element).1));
+                }
+            }
+        }
+        summary.contains_multiline_literal_source =
+            self.assignment_has_multiline_literal_source(assignment);
+        summary
+    }
+
+    fn redirect_layout(&self, redirect: &Redirect) -> LayoutSummary {
+        let mut summary = match &redirect.target {
+            RedirectTarget::Word(word) => self.annotations.word_summary(word),
+            RedirectTarget::Heredoc(heredoc) => {
+                let mut summary = self.annotations.word_summary(&heredoc.delimiter.raw);
+                summary.merge(self.heredoc_body_layout(&heredoc.body));
+                summary
+            }
+        };
+        summary.contains_heredoc |= matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        );
+        summary.contains_multiline_literal_source =
+            self.redirect_has_multiline_literal_source(redirect);
+        summary
+    }
+
+    fn heredoc_body_layout(&self, body: &HeredocBody) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &body.parts {
+            summary.merge(self.heredoc_body_part_layout(&part.kind));
+        }
+        summary
+    }
+
+    fn heredoc_body_part_layout(&self, part: &HeredocBodyPart) -> LayoutSummary {
+        match part {
+            HeredocBodyPart::CommandSubstitution { body, .. } => self.annotations.sequence(body),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.arithmetic_expr_layout(expr),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.annotations.word_summary(expression_word_ast),
+            HeredocBodyPart::Parameter(parameter) => self.parameter_expansion_layout(parameter),
+            HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => LayoutSummary::default(),
+        }
+    }
+
+    fn word_layout(&self, word: &Word) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &word.parts {
+            summary.merge(self.word_part_layout(&part.kind));
+        }
+        summary.contains_multiline_literal_source = self.word_has_multiline_literal_source(word);
+        summary.contains_heredoc = false;
+        summary.contains_multistatement_pipeline_brace_group = false;
+        summary
+    }
+
+    fn word_part_layout(&self, part: &WordPart) -> LayoutSummary {
+        match part {
+            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {
+                LayoutSummary::default()
+            }
+            WordPart::ZshQualifiedGlob(glob) => {
+                let mut summary = LayoutSummary::default();
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        summary.merge(self.pattern_layout(pattern));
+                    }
+                }
+                summary
+            }
+            WordPart::SingleQuoted { .. } => LayoutSummary::default(),
+            WordPart::DoubleQuoted { parts, .. } => {
+                let mut summary = LayoutSummary::default();
+                for part in parts {
+                    summary.merge(self.word_part_layout(&part.kind));
+                }
+                summary
+            }
+            WordPart::CommandSubstitution { body, .. }
+            | WordPart::ProcessSubstitution { body, .. } => self.annotations.sequence(body),
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.arithmetic_expr_layout(expr),
+            WordPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.annotations.word_summary(expression_word_ast),
+            WordPart::Parameter(parameter) => self.parameter_expansion_layout(parameter),
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                summary.merge(self.parameter_op_layout(operator));
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.annotations.word_summary(operand));
+                }
+                summary
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => self.var_ref_layout(reference),
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                if let Some(expression) = offset_ast {
+                    summary.merge(self.arithmetic_expr_layout(expression));
+                } else {
+                    summary.merge(self.annotations.word_summary(offset_word_ast));
+                }
+                if let Some(expression) = length_ast {
+                    summary.merge(self.arithmetic_expr_layout(expression));
+                } else if let Some(word) = length_word_ast {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                if let Some(operator) = operator {
+                    summary.merge(self.parameter_op_layout(operator));
+                }
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.annotations.word_summary(operand));
+                }
+                summary
+            }
+        }
+    }
+
+    fn parameter_expansion_layout(&self, parameter: &ParameterExpansion) -> LayoutSummary {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => {
+                self.bourne_parameter_expansion_layout(syntax)
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                let mut summary = match &syntax.target {
+                    ZshExpansionTarget::Reference(reference) => self.var_ref_layout(reference),
+                    ZshExpansionTarget::Nested(parameter) => {
+                        self.parameter_expansion_layout(parameter)
+                    }
+                    ZshExpansionTarget::Word(word) => self.annotations.word_summary(word),
+                    ZshExpansionTarget::Empty => LayoutSummary::default(),
+                };
+                for modifier in &syntax.modifiers {
+                    if let Some(word) = modifier.argument_word_ast() {
+                        summary.merge(self.annotations.word_summary(word));
+                    }
+                }
+                if let Some(operation) = &syntax.operation {
+                    summary.merge(self.zsh_expansion_operation_layout(operation));
+                }
+                summary
+            }
+        }
+    }
+
+    fn bourne_parameter_expansion_layout(
+        &self,
+        syntax: &BourneParameterExpansion,
+    ) -> LayoutSummary {
+        match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                self.var_ref_layout(reference)
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                if let Some(operator) = operator {
+                    summary.merge(self.parameter_op_layout(operator));
+                }
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.annotations.word_summary(operand));
+                }
+                summary
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => LayoutSummary::default(),
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                if let Some(expression) = offset_ast {
+                    summary.merge(self.arithmetic_expr_layout(expression));
+                } else {
+                    summary.merge(self.annotations.word_summary(offset_word_ast));
+                }
+                if let Some(expression) = length_ast {
+                    summary.merge(self.arithmetic_expr_layout(expression));
+                } else if let Some(word) = length_word_ast {
+                    summary.merge(self.annotations.word_summary(word));
+                }
+                summary
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.var_ref_layout(reference);
+                summary.merge(self.parameter_op_layout(operator));
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.annotations.word_summary(operand));
+                }
+                summary
+            }
+        }
+    }
+
+    fn parameter_op_layout(&self, operator: &ParameterOp) -> LayoutSummary {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => self.pattern_layout(pattern),
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement_word_ast,
+                ..
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.pattern_layout(pattern);
+                summary.merge(self.annotations.word_summary(replacement_word_ast));
+                summary
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => LayoutSummary::default(),
+        }
+    }
+
+    fn zsh_expansion_operation_layout(&self, operation: &ZshExpansionOperation) -> LayoutSummary {
+        match operation {
+            ZshExpansionOperation::PatternOperation {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::Defaulting {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::TrimOperation {
+                operand_word_ast, ..
+            } => self.annotations.word_summary(operand_word_ast),
+            ZshExpansionOperation::ReplacementOperation {
+                pattern_word_ast,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.annotations.word_summary(pattern_word_ast);
+                if let Some(replacement) = replacement_word_ast {
+                    summary.merge(self.annotations.word_summary(replacement));
+                }
+                summary
+            }
+            ZshExpansionOperation::Slice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.annotations.word_summary(offset_word_ast);
+                if let Some(length) = length_word_ast {
+                    summary.merge(self.annotations.word_summary(length));
+                }
+                summary
+            }
+            ZshExpansionOperation::Unknown { word_ast, .. } => {
+                self.annotations.word_summary(word_ast)
+            }
+        }
+    }
+
+    fn conditional_expr_layout(&self, expression: &ConditionalExpr) -> LayoutSummary {
+        match expression {
+            ConditionalExpr::Binary(expression) => {
+                let mut summary = self.conditional_expr_layout(&expression.left);
+                summary.merge(self.conditional_expr_layout(&expression.right));
+                summary
+            }
+            ConditionalExpr::Unary(expression) => self.conditional_expr_layout(&expression.expr),
+            ConditionalExpr::Parenthesized(expression) => {
+                self.conditional_expr_layout(&expression.expr)
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+                self.annotations.word_summary(word)
+            }
+            ConditionalExpr::Pattern(pattern) => self.pattern_layout(pattern),
+            ConditionalExpr::VarRef(reference) => self.var_ref_layout(reference),
+        }
+    }
+
+    fn pattern_layout(&self, pattern: &Pattern) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &pattern.parts {
+            summary.merge(self.pattern_part_layout(&part.kind));
+        }
+        summary
+    }
+
+    fn pattern_part_layout(&self, part: &PatternPart) -> LayoutSummary {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                let mut summary = LayoutSummary::default();
+                for pattern in patterns {
+                    summary.merge(self.pattern_layout(pattern));
+                }
+                summary
+            }
+            PatternPart::Word(word) => self.annotations.word_summary(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => LayoutSummary::default(),
+        }
+    }
+
+    fn arithmetic_expr_layout(&self, expression: &ArithmeticExprNode) -> LayoutSummary {
+        match &expression.kind {
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => LayoutSummary::default(),
+            ArithmeticExpr::Indexed { index, .. } => self.arithmetic_expr_layout(index),
+            ArithmeticExpr::ShellWord(word) => self.annotations.word_summary(word),
+            ArithmeticExpr::Parenthesized { expression } => self.arithmetic_expr_layout(expression),
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.arithmetic_expr_layout(expr)
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                let mut summary = self.arithmetic_expr_layout(left);
+                summary.merge(self.arithmetic_expr_layout(right));
+                summary
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                let mut summary = self.arithmetic_expr_layout(condition);
+                summary.merge(self.arithmetic_expr_layout(then_expr));
+                summary.merge(self.arithmetic_expr_layout(else_expr));
+                summary
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                let mut summary = self.arithmetic_lvalue_layout(target);
+                summary.merge(self.arithmetic_expr_layout(value));
+                summary
+            }
+        }
+    }
+
+    fn arithmetic_lvalue_layout(&self, target: &ArithmeticLvalue) -> LayoutSummary {
+        match target {
+            ArithmeticLvalue::Variable(_) => LayoutSummary::default(),
+            ArithmeticLvalue::Indexed { index, .. } => self.arithmetic_expr_layout(index),
+        }
+    }
+
+    fn var_ref_layout(&self, reference: &VarRef) -> LayoutSummary {
+        reference
+            .subscript
+            .as_deref()
+            .map_or_else(LayoutSummary::default, |subscript| {
+                self.subscript_layout(subscript)
+            })
+    }
+
+    fn subscript_layout(&self, subscript: &Subscript) -> LayoutSummary {
+        let mut summary = subscript
+            .word_ast
+            .as_ref()
+            .map_or_else(LayoutSummary::default, |word| {
+                self.annotations.word_summary(word)
+            });
+        if let Some(expression) = &subscript.arithmetic_ast {
+            summary.merge(self.arithmetic_expr_layout(expression));
+        }
+        summary
+    }
+
+    fn word_has_multiline_literal_source(&self, word: &Word) -> bool {
+        word_has_multiline_literal_source_with_sequence_layout(word, self.source, |body| {
+            self.annotations.sequence(body)
+        })
+    }
+
+    fn redirect_has_multiline_literal_source(&self, redirect: &Redirect) -> bool {
+        redirect.word_target().is_some_and(|word| {
+            self.annotations
+                .word_facts(word)
+                .has_multiline_literal_source()
+        }) || redirect.heredoc().is_some_and(|heredoc| {
+            self.annotations
+                .word_facts(&heredoc.delimiter.raw)
+                .has_multiline_literal_source()
+        })
+    }
+
+    fn assignment_has_multiline_literal_source(&self, assignment: &Assignment) -> bool {
+        self.assignment_value_has_multiline_literal_source(assignment)
+            || matches!(&assignment.value, AssignmentValue::Scalar(_))
+                && assignment_has_raw_backslash_continuation_literal(assignment, self.source)
+    }
+
+    fn assignment_value_has_multiline_literal_source(&self, assignment: &Assignment) -> bool {
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => self
+                .annotations
+                .word_facts(word)
+                .has_multiline_literal_source(),
+            AssignmentValue::Compound(array) => array.elements.iter().any(|element| {
+                self.annotations
+                    .word_facts(array_elem_parts(element).1)
+                    .has_multiline_literal_source()
+            }),
+        }
+    }
+
+    fn command_contains_multistatement_pipeline_brace_group(
+        &self,
+        command: &BinaryCommand,
+        in_pipeline: bool,
+    ) -> bool {
+        let in_pipeline = in_pipeline || matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll);
+        self.stmt_contains_multistatement_pipeline_brace_group(&command.left, in_pipeline)
+            || self.stmt_contains_multistatement_pipeline_brace_group(&command.right, in_pipeline)
+    }
+
+    fn stmt_contains_multistatement_pipeline_brace_group(
+        &self,
+        stmt: &Stmt,
+        in_pipeline: bool,
+    ) -> bool {
+        match &stmt.command {
+            Command::Binary(command)
+                if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
+            {
+                self.command_contains_multistatement_pipeline_brace_group(command, in_pipeline)
+            }
+            Command::Compound(CompoundCommand::BraceGroup(body)) if in_pipeline => body.len() > 1,
+            _ => false,
+        }
+    }
+}
+
+impl AstVisitor for LayoutAnnotationPass<'_, '_> {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        let key = FactSpan::from(sequence.span);
+        if self.annotations.sequences.contains_key(&key) {
+            return;
+        }
+
+        visit::walk_stmt_seq(self, sequence);
+
+        let mut summary = LayoutSummary::default().with_comments(
+            !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty(),
+        );
+        for stmt in sequence.iter() {
+            summary.merge(self.annotations.stmt(stmt));
+        }
+        self.annotations.sequences.insert(key, summary);
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        let key = FactSpan::from(stmt_span(stmt));
+        if self.annotations.statements.contains_key(&key) {
+            return;
+        }
+
+        visit::walk_stmt(self, stmt);
+
+        let mut summary = self
+            .command_layout(&stmt.command)
+            .with_comments(!stmt.leading_comments.is_empty() || stmt.inline_comment.is_some());
+        for redirect in &stmt.redirects {
+            summary.merge(self.redirect_layout(redirect));
+        }
+        self.annotations.statements.insert(key, summary);
+    }
+
+    fn visit_word(&mut self, word: &Word) {
+        let key = FactSpan::from(word.span);
+        if self.annotations.words.contains_key(&key) {
+            return;
+        }
+
+        visit::walk_word(self, word);
+
+        let summary = self.word_layout(word);
+        self.annotations.words.insert(key, summary);
+    }
+}
+
+fn word_has_multiline_literal_source_with_sequence_layout(
+    word: &Word,
+    source: &str,
+    mut sequence_layout: impl FnMut(&StmtSeq) -> LayoutSummary,
+) -> bool {
+    if raw_word_source_slice(word, source).is_some_and(|raw| {
+        raw.contains("\\\n")
+            && word_has_multiline_double_quoted_source(word, source)
+            && !word_is_quoted_command_substitution_only(word)
+    }) {
+        return true;
+    }
+
+    word_part_nodes_any(&word.parts, &mut |part| {
+        word_part_has_multiline_literal_source_with_sequence_layout(
+            &part.kind,
+            part.span,
+            source,
+            &mut sequence_layout,
+        )
+    })
+}
+
+fn word_part_has_multiline_literal_source_with_sequence_layout(
+    part: &WordPart,
+    span: Span,
+    source: &str,
+    sequence_layout: &mut impl FnMut(&StmtSeq) -> LayoutSummary,
+) -> bool {
+    match part {
+        WordPart::Literal(text) => text.as_str(source, span).contains('\n'),
+        WordPart::SingleQuoted { value, dollar } => {
+            if *dollar {
+                raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n'))
+            } else {
+                value.slice(source).contains('\n')
+            }
+        }
+        WordPart::CommandSubstitution { body, .. } => {
+            let layout = sequence_layout(body);
+            layout.contains_multiline_literal_source
+                || (layout.contains_comments
+                    && raw_source_slice(span, source).is_some_and(|raw| {
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
+                    }))
+        }
+        WordPart::ProcessSubstitution { body, .. } => {
+            let layout = sequence_layout(body);
+            layout.contains_multiline_literal_source
+                || (layout.contains_comments
+                    && raw_source_slice(span, source).is_some_and(|raw| raw.contains('\n')))
+        }
+        _ => false,
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FormatterFacts<'source> {
+    source_map: SourceMap<'source>,
+    layout_facts: LayoutFacts,
+    sequences: SequenceFactsStore<'source>,
+    breaks: BreakFacts,
+    branches: BranchFacts,
+    comments: CommentFacts<'source>,
+    cases: CaseFacts<'source>,
+    compound: CompoundFacts,
+    indexer: Indexer,
+}
+
+impl<'source> FormatterFacts<'source> {
+    pub(crate) fn build(
+        source: &'source str,
+        file: &File,
+        options: &ResolvedShellFormatOptions,
+    ) -> Self {
+        let indexer = Indexer::for_file_with_options(
+            source,
+            file,
+            IndexerOptions::new().with_source_layout_indexes(true),
+        );
+        FormatterFactsBuilder::new(source, options, indexer).build(file)
+    }
+
+    pub(crate) fn source_map(&self) -> &SourceMap<'source> {
+        &self.source_map
+    }
+
+    pub(crate) fn stmt(&self, stmt: &Stmt) -> &StmtFacts {
+        let Some(facts) = self
+            .layout_facts
+            .statements
+            .get(&FactSpan::from(stmt_span(stmt)))
+        else {
+            unreachable!("missing statement facts");
+        };
+        facts
+    }
+
+    pub(crate) fn sequence(
+        &self,
+        sequence: &StmtSeq,
+        upper_bound: Option<usize>,
+    ) -> &SequenceFacts<'source> {
+        let key = SequenceSiteKey::new(sequence, upper_bound);
+        self.sequences
+            .by_site
+            .get(&key)
+            .unwrap_or_else(|| self.sequence_by_span(key.span))
+    }
+
+    fn sequence_by_span(&self, span: FactSpan) -> &SequenceFacts<'source> {
+        let Some(key) = self.sequences.by_span.get(&span) else {
+            unreachable!("missing sequence facts");
+        };
+        let Some(facts) = self.sequences.by_site.get(key) else {
+            unreachable!("missing sequence facts");
+        };
+        facts
+    }
+
+    pub(crate) fn word_has_multiline_literal_source(&self, word: &Word) -> bool {
+        self.layout_facts
+            .words
+            .get(&FactSpan::from(word.span))
+            .map_or_else(
+                || classify_word_has_multiline_literal_source(word, self.source_map.source()),
+                WordFacts::has_multiline_literal_source,
+            )
+    }
+
+    pub(crate) fn assignment_value_has_multiline_literal_source(
+        &self,
+        assignment: &Assignment,
+    ) -> bool {
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => self.word_has_multiline_literal_source(word),
+            AssignmentValue::Compound(array) => array
+                .elements
+                .iter()
+                .any(|element| self.word_has_multiline_literal_source(array_elem_parts(element).1)),
+        }
+    }
+
+    pub(crate) fn assignment_has_multiline_literal_source(
+        &self,
+        assignment: &Assignment,
+        source: &str,
+    ) -> bool {
+        self.assignment_value_has_multiline_literal_source(assignment)
+            || matches!(&assignment.value, AssignmentValue::Scalar(_))
+                && assignment_has_raw_backslash_continuation_literal(assignment, source)
+    }
+
+    pub(crate) fn sequence_contains_comments(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_comments()
+    }
+
+    pub(crate) fn sequence_contains_heredoc(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_heredoc()
+    }
+
+    pub(crate) fn sequence_contains_multiline_literal_source(&self, sequence: &StmtSeq) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_multiline_literal_source()
+    }
+
+    pub(crate) fn sequence_contains_multistatement_pipeline_brace_group(
+        &self,
+        sequence: &StmtSeq,
+    ) -> bool {
+        self.sequence_by_span(FactSpan::from(sequence.span))
+            .contains_multistatement_pipeline_brace_group()
+    }
+
+    pub(crate) fn pipeline_has_explicit_line_break(&self, pipeline: &BinaryCommand) -> bool {
+        self.breaks
+            .pipeline
+            .contains(&FactSpan::from(pipeline.span))
+    }
+
+    pub(crate) fn list_item_has_explicit_line_break(&self, operator_span: Span) -> bool {
+        self.breaks
+            .list_item
+            .contains(&FactSpan::from(operator_span))
+    }
+
+    pub(crate) fn background_has_explicit_line_break(&self, stmt: &Stmt) -> bool {
+        stmt.terminator_span
+            .map(FactSpan::from)
+            .or_else(|| {
+                matches!(stmt.terminator, Some(StmtTerminator::Background(_)))
+                    .then_some(FactSpan::from(stmt_span(stmt)))
+            })
+            .is_some_and(|key| self.breaks.background.contains(&key))
+    }
+
+    pub(crate) fn stmt_contains_heredoc(&self, stmt: &Stmt) -> bool {
+        self.stmt(stmt).contains_heredoc()
+    }
+
+    pub(crate) fn group_was_inline_in_source(&self, commands: &StmtSeq) -> bool {
+        self.branches
+            .inline_group_sequences
+            .contains(&FactSpan::from(commands.span))
+    }
+
+    pub(crate) fn compound_close_span(&self, command: &CompoundCommand) -> Option<Span> {
+        self.compound.close_span(command)
+    }
+
+    pub(crate) fn compound_close_span_for_span(&self, span: Span) -> Option<Span> {
+        self.compound.close_span_for_span(span)
+    }
+
+    pub(crate) fn stmt_compound_close_span(&self, stmt: &Stmt) -> Option<Span> {
+        let Command::Compound(command) = &stmt.command else {
+            return None;
+        };
+        self.compound_close_span(command)
+    }
+
+    pub(crate) fn if_close_span(&self, command: &IfCommand) -> Span {
+        self.compound
+            .close_span_for_span(command.span)
+            .unwrap_or_else(|| if_close_span(command, self.source_map.source(), &self.source_map))
+    }
+
+    pub(crate) fn case_item_was_inline_in_source(&self, item: &CaseItem) -> bool {
+        self.branches
+            .inline_case_item_bodies
+            .contains(&FactSpan::from(item.body.span))
+    }
+
+    pub(crate) fn close_suffix_comment_plan_after_span(
+        &self,
+        span: Span,
+    ) -> Option<InlineCommentPlan<'source>> {
+        self.comments
+            .close_suffix_comment_after_span(&self.source_map, span)
+    }
+
+    pub(crate) fn suffix_comment_plan_for_span(
+        &self,
+        span: Span,
+    ) -> Option<InlineCommentPlan<'source>> {
+        self.comments
+            .suffix_comment_for_span(&self.source_map, span)
+    }
+
+    pub(crate) fn trailing_comment_plan(
+        &self,
+        comment: SourceComment<'source>,
+    ) -> InlineCommentPlan<'source> {
+        self.comments.trailing_comment(&self.source_map, comment)
+    }
+
+    pub(crate) fn branch_prefix_facts(&self, start: usize, end: usize) -> BranchPrefixFacts {
+        self.comments
+            .branch_prefix_facts(start, end)
+            .cloned()
+            .unwrap_or_else(|| {
+                BranchPrefixFacts::new(
+                    self.source_map.source(),
+                    start,
+                    end,
+                    self.branch_prefix_comments_from_source(start, end),
+                )
+            })
+    }
+
+    pub(crate) fn if_next_branch_region(
+        &self,
+        command: &IfCommand,
+        branch_index: usize,
+    ) -> Option<(usize, usize)> {
+        if_next_branch_region_with_body_end(
+            command,
+            branch_index,
+            self.source_map.source(),
+            |body| self.sequence(body, None).body_content_end(),
+        )
+    }
+
+    pub(crate) fn if_branch_upper_bound(&self, command: &IfCommand, branch_index: usize) -> usize {
+        if let Some((start, end)) = self.if_next_branch_region(command, branch_index) {
+            self.branch_prefix_facts(start, end)
+                .first_comment_offset()
+                .unwrap_or(end)
+        } else {
+            self.if_close_span(command).start.offset()
+        }
+    }
+
+    pub(crate) fn case_command(&self, command: &CaseCommand) -> &CaseCommandFacts {
+        self.cases
+            .case_command(command)
+            .unwrap_or_else(|| unreachable!("missing case command facts"))
+    }
+
+    pub(crate) fn case_item(&self, item: &CaseItem) -> &CaseItemFacts<'source> {
+        self.cases
+            .case_item(item)
+            .unwrap_or_else(|| unreachable!("missing case item facts"))
+    }
+
+    pub(crate) fn offset_is_in_heredoc_body(&self, offset: usize) -> bool {
+        self.indexer
+            .region_index()
+            .is_heredoc(TextSize::new(offset as u32))
+    }
+
+    pub(crate) fn line_ending(&self) -> LineEnding {
+        match self.indexer.line_index().line_ending() {
+            shucked_indexer::LineEndingStyle::Lf => LineEnding::Lf,
+            shucked_indexer::LineEndingStyle::CrLf => LineEnding::CrLf,
+        }
+    }
+
+    pub(crate) fn contains_newline_between(&self, start: usize, end: usize) -> bool {
+        self.source_map.contains_newline_between(start, end)
+    }
+
+    pub(crate) fn has_continuation_line_start_between(&self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        self.indexer
+            .continuation_line_starts()
+            .iter()
+            .copied()
+            .any(|line_start| start < line_start && line_start <= end)
+    }
+
+    pub(crate) fn has_raw_continuation_backslash_between(&self, start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        self.indexer
+            .line_index()
+            .raw_continuation_backslashes()
+            .iter()
+            .copied()
+            .any(|backslash| start <= backslash && backslash < end)
+    }
+
+    pub(crate) fn branch_prefix_first_comment_offset(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Option<usize> {
+        self.branch_prefix_facts(start, end).first_comment_offset()
+    }
+
+    fn branch_prefix_comments_from_source(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Vec<BranchPrefixComment> {
+        branch_prefix_comments_from_index(
+            self.source_map.source(),
+            self.indexer.line_index(),
+            self.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.offset_is_in_heredoc_body(comment.offset))
+        .collect()
+    }
+
+    pub(crate) fn own_line_comments_in_region(
+        &self,
+        start: usize,
+        end: usize,
+    ) -> Vec<BranchPrefixComment> {
+        own_line_comments_in_region_from_index(
+            self.source_map.source(),
+            self.indexer.line_index(),
+            self.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.offset_is_in_heredoc_body(comment.offset))
+        .collect()
+    }
+
+    pub(crate) fn heredoc_closing_marker_bounds(
+        &self,
+        heredoc: &Heredoc,
+    ) -> Option<(usize, usize)> {
+        self.indexer
+            .region_index()
+            .heredoc_closing_marker_range(heredoc.body.span.to_range())
+            .map(|range| (usize::from(range.start()), usize::from(range.end())))
+    }
+
+    #[cfg(feature = "benchmarking")]
+    pub(crate) fn len(&self) -> usize {
+        self.layout_facts.len()
+            + self.sequences.len()
+            + self.breaks.len()
+            + self.branches.len()
+            + self.comments.len()
+            + self.cases.len()
+            + self.compound.len()
+            + self.indexer.region_index().heredoc_ranges().len()
+    }
+}
+
+pub(crate) fn classify_word_has_multiline_literal_source(word: &Word, source: &str) -> bool {
+    LayoutAnnotations::build_for_word(source, word)
+        .word_facts(word)
+        .has_multiline_literal_source()
+}
+
+pub(crate) fn classify_stmt_contains_heredoc(stmt: &Stmt) -> bool {
+    LayoutAnnotations::build_for_stmt("", stmt)
+        .stmt(stmt)
+        .contains_heredoc
+}
+
+fn word_part_nodes_any(
+    parts: &[WordPartNode],
+    predicate: &mut impl FnMut(&WordPartNode) -> bool,
+) -> bool {
+    parts.iter().any(|part| {
+        predicate(part)
+            || matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if word_part_nodes_any(parts.as_slice(), predicate)
+            )
+    })
+}
+
+fn assignment_has_raw_backslash_continuation_literal(
+    assignment: &Assignment,
+    source: &str,
+) -> bool {
+    let raw = assignment.span.slice(source);
+    raw.contains("\\\n")
+        && !raw.contains("$(")
+        && !raw.contains('`')
+        && !raw.contains("<(")
+        && !raw.contains(">(")
+}
+
+fn word_has_multiline_double_quoted_source(word: &Word, source: &str) -> bool {
+    word_part_nodes_any(&word.parts, &mut |part| {
+        matches!(&part.kind, WordPart::DoubleQuoted { .. })
+            && raw_source_slice(part.span, source).is_some_and(|raw| raw.contains('\n'))
+    })
+}
+
+fn word_is_quoted_command_substitution_only(word: &Word) -> bool {
+    quoted_command_substitution_only_body(word).is_some()
+}
+
+fn quoted_command_substitution_only_body(word: &Word) -> Option<&StmtSeq> {
+    let [
+        shucked_ast::WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts,
+                    dollar: false,
+                },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        return None;
+    };
+
+    let mut substitution_body = None;
+    for part in parts {
+        match &part.kind {
+            WordPart::CommandSubstitution { body, .. } if substitution_body.is_none() => {
+                substitution_body = Some(body);
+            }
+            WordPart::Literal(text) if text.is_empty() => {}
+            _ => return None,
+        }
+    }
+
+    substitution_body
+}
+
+fn raw_word_source_slice<'a>(word: &Word, source: &'a str) -> Option<&'a str> {
+    raw_source_slice(word.span, source)
+}
+
+fn raw_source_slice(span: Span, source: &str) -> Option<&str> {
+    let slice = SourceView::new(source).span_slice(span)?;
+    if slice.contains('\n') {
+        Some(slice)
+    } else {
+        Some(trim_unescaped_trailing_whitespace(slice))
+    }
+}
+
+fn line_indent_before_offset<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    offset: usize,
+) -> Option<&'source str> {
+    let offset = offset.min(source.len());
+    let line = line_index.line_number(TextSize::new(offset as u32));
+    let line_start = usize::from(line_index.line_start(line)?);
+    let prefix = source.get(line_start..offset)?;
+    let indent_end = prefix
+        .char_indices()
+        .find(|(_, ch)| !matches!(ch, ' ' | '\t'))
+        .map_or(prefix.len(), |(index, _)| index);
+    prefix.get(..indent_end)
+}
+
+fn branch_prefix_comments_from_index(
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    if start >= end {
+        return Vec::new();
+    }
+
+    let keyword_indent = line_indent_before_offset(source, line_index, end).unwrap_or("");
+    let mut comments = Vec::new();
+    let mut in_branch_prefix_run = false;
+    let first_line = line_index.line_number(TextSize::new(start as u32));
+    let last_line = line_index.line_number(TextSize::new(end.saturating_sub(1) as u32));
+
+    for line in first_line..=last_line {
+        let Some((line_start, line_end, text)) =
+            clamped_line_text(source, line_index, line, start, end)
+        else {
+            continue;
+        };
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        let indent = text.len().saturating_sub(trimmed.len());
+        let own_line_comment =
+            own_line_comment_in_bounds(comment_index, line, line_start, line_end).is_some();
+        if own_line_comment
+            && trimmed.starts_with('#')
+            && (in_branch_prefix_run || text.get(..indent) == Some(keyword_indent))
+        {
+            comments.push(BranchPrefixComment {
+                offset: line_start + indent,
+                text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+                source_indent: indent,
+            });
+            in_branch_prefix_run = true;
+        } else if !trimmed.is_empty() {
+            in_branch_prefix_run = false;
+        }
+    }
+
+    comments
+}
+
+fn own_line_comments_in_region_from_index(
+    source: &str,
+    line_index: &LineIndex,
+    comment_index: &CommentIndex,
+    start: usize,
+    end: usize,
+) -> Vec<BranchPrefixComment> {
+    let start = start.min(end).min(source.len());
+    let end = end.min(source.len());
+    let start_line = line_index.line_number(TextSize::new(start as u32));
+    let Some(next_line_start) = line_index.line_start(start_line + 1).map(usize::from) else {
+        return Vec::new();
+    };
+    if next_line_start >= end {
+        return Vec::new();
+    }
+
+    let mut comments = Vec::new();
+    let first_line = start_line + 1;
+    let last_line = line_index.line_number(TextSize::new(end.saturating_sub(1) as u32));
+    for line in first_line..=last_line {
+        let Some((line_start, line_end, text)) =
+            clamped_line_text(source, line_index, line, next_line_start, end)
+        else {
+            continue;
+        };
+        if own_line_comment_in_bounds(comment_index, line, line_start, line_end).is_none() {
+            continue;
+        }
+        let trimmed = text.trim_start_matches([' ', '\t']);
+        if !trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = text.len().saturating_sub(trimmed.len());
+        comments.push(BranchPrefixComment {
+            offset: line_start + indent,
+            text: trimmed.trim_end_matches([' ', '\t', '\r']).to_string(),
+            source_indent: indent,
+        });
+    }
+
+    comments
+}
+
+fn clamped_line_text<'source>(
+    source: &'source str,
+    line_index: &LineIndex,
+    line: usize,
+    start: usize,
+    end: usize,
+) -> Option<(usize, usize, &'source str)> {
+    let range: TextRange = line_index.line_range(line, source)?;
+    let line_start = usize::from(range.start()).max(start);
+    let line_end = usize::from(range.end()).min(end);
+    (line_start <= line_end)
+        .then(|| {
+            source
+                .get(line_start..line_end)
+                .map(|text| (line_start, line_end, text))
+        })
+        .flatten()
+}
+
+fn own_line_comment_in_bounds(
+    comment_index: &CommentIndex,
+    line: usize,
+    line_start: usize,
+    line_end: usize,
+) -> Option<&IndexedComment> {
+    comment_index.comments_on_line(line).iter().find(|comment| {
+        comment.is_own_line && {
+            let start = usize::from(comment.range.start());
+            line_start <= start && start < line_end
+        }
+    })
+}
+
+fn line_end_for_offset(source: &str, offset: usize) -> Option<usize> {
+    let offset = offset.min(source.len());
+    source.get(offset..).map(|suffix| {
+        suffix
+            .find('\n')
+            .map_or(source.len(), |index| offset + index)
+    })
+}
+
+struct FormatterFactsBuilder<'source, 'options> {
+    source: &'source str,
+    options: &'options ResolvedShellFormatOptions,
+    facts: FormatterFacts<'source>,
+    layout: LayoutAnnotations,
+    comment_attachments: CommentAttachmentModel<'source>,
+}
+
+impl<'source, 'options> FormatterFactsBuilder<'source, 'options> {
+    fn new(
+        source: &'source str,
+        options: &'options ResolvedShellFormatOptions,
+        indexer: Indexer,
+    ) -> Self {
+        let source_map = SourceMap::from_indexer(source, &indexer, options.keep_padding());
+        let comment_attachments = CommentAttachmentModel::from_indexer(&source_map, &indexer);
+        let comments = CommentFacts::new(source, &source_map, &comment_attachments);
+
+        Self {
+            source,
+            options,
+            facts: FormatterFacts {
+                source_map,
+                layout_facts: LayoutFacts::default(),
+                sequences: SequenceFactsStore::default(),
+                breaks: BreakFacts::default(),
+                branches: BranchFacts::default(),
+                comments,
+                cases: CaseFacts::default(),
+                compound: CompoundFacts::default(),
+                indexer,
+            },
+            layout: LayoutAnnotations::default(),
+            comment_attachments,
+        }
+    }
+
+    fn build(mut self, file: &File) -> FormatterFacts<'source> {
+        let _ = self.visit_sequence(&file.body, None, None);
+        self.facts
+    }
+
+    fn cache_compound_close_span(&mut self, command: &CompoundCommand) -> Option<Span> {
+        let key = CompoundFacts::key(command)?;
+        if let Some(span) = self.facts.compound.close_span_for_key(key) {
+            return Some(span);
+        }
+
+        let span = command_compound_close_span(command, self.source, self.source_map());
+        if let Some(span) = span {
+            self.facts.compound.insert_close_span(key, span);
+        }
+        span
+    }
+
+    fn cached_close(&self, span: Span) -> Option<Span> {
+        self.facts.compound.close_span_for_span(span)
+    }
+
+    fn visit_sequence(
+        &mut self,
+        sequence: &StmtSeq,
+        upper_bound: Option<usize>,
+        group_open_char: Option<char>,
+    ) -> LayoutSummary {
+        self.visit_sequence_with_suffix(sequence, upper_bound, group_open_char, None, None)
+    }
+
+    fn visit_compound_body_site(&mut self, site: CompoundBodySite<'_>) -> LayoutSummary {
+        if let Some(open) = site.group_open_char() {
+            self.record_inline_group_sequence(site.body(), open, matching_group_close(open));
+        }
+        let summary = self.visit_sequence_with_suffix(
+            site.body(),
+            site.bounds().facts_limit(),
+            site.group_open_char(),
+            site.open_suffix_span(self.source_map()),
+            site.open_end_offset(self.source),
+        );
+        self.record_close_suffix(site.close_span());
+        summary
+    }
+
+    fn record_inline_group_sequence(&mut self, body: &StmtSeq, open: char, close: char) {
+        if group_was_inline_in_source(body.as_slice(), self.source_map(), open, close) {
+            self.facts
+                .branches
+                .inline_group_sequences
+                .insert(FactSpan::from(body.span));
+        }
+    }
+
+    fn visit_sequence_with_suffix(
+        &mut self,
+        sequence: &StmtSeq,
+        upper_bound: Option<usize>,
+        group_open_char: Option<char>,
+        open_suffix_span: Option<Span>,
+        open_end_offset: Option<usize>,
+    ) -> LayoutSummary {
+        let site = SequenceSite::new(
+            sequence,
+            upper_bound,
+            group_open_char,
+            open_suffix_span,
+            open_end_offset,
+        );
+        let key = site.key();
+        if self.facts.sequences.by_site.contains_key(&key) {
+            return self.layout.sequence(sequence);
+        }
+
+        let layout_key = FactSpan::from(sequence.span);
+        let cached_layout = self.layout.sequences.get(&layout_key).copied();
+        let child_layouts = sequence
+            .iter()
+            .map(|stmt| self.visit_stmt(stmt))
+            .collect::<Vec<_>>();
+        let layout = cached_layout.unwrap_or_else(|| {
+            let mut summary = LayoutSummary::default().with_comments(
+                !sequence.leading_comments.is_empty() || !sequence.trailing_comments.is_empty(),
+            );
+            for child in child_layouts {
+                summary.merge(child);
+            }
+            summary
+        });
+        self.layout.sequences.entry(layout_key).or_insert(layout);
+
+        let mut facts = SequenceFacts::new(sequence.len());
+        facts.group_open_suffix_span = site.open_suffix_span.or_else(|| {
+            site.group_open_char.and_then(|open| {
+                group_open_suffix(sequence.as_slice(), self.source_map(), open)
+                    .map(|(span, _)| span)
+            })
+        });
+        if let Some(span) = facts.group_open_suffix_span {
+            self.record_suffix_attachment(span);
+        }
+        facts.contains_comments = layout.contains_comments;
+        facts.contains_heredoc = layout.contains_heredoc;
+        facts.contains_multiline_literal_source = layout.contains_multiline_literal_source;
+        facts.contains_multistatement_pipeline_brace_group =
+            layout.contains_multistatement_pipeline_brace_group;
+        let group_attachment_span = site.group_open_char.and_then(|open| {
+            let close = match open {
+                '{' => '}',
+                '(' => ')',
+                other => other,
+            };
+            group_attachment_span_with_heredoc(
+                sequence.as_slice(),
+                self.source_map(),
+                open,
+                close,
+                |stmt| self.layout.stmt(stmt).contains_heredoc,
+            )
+        });
+        facts.group_attachment_span = group_attachment_span;
+        facts.body_content_end =
+            sequence_body_content_end(sequence, self.source, &self.facts.indexer);
+        facts.close_gap_start = sequence
+            .trailing_comments
+            .iter()
+            .map(|comment| usize::from(comment.range.end()))
+            .max()
+            .unwrap_or(facts.body_content_end);
+        facts.open_end_offset = if let Some(open) = site.group_open_char {
+            facts
+                .group_open_suffix_span
+                .map(|span| span.end.offset())
+                .or_else(|| {
+                    facts
+                        .group_attachment_span
+                        .map(|span| span.start.offset().saturating_add(open.len_utf8()))
+                })
+        } else {
+            site.open_end_offset
+        };
+        facts.has_blank_line_after_open = facts.open_end_offset.is_some_and(|offset| {
+            body_has_blank_line_after_open(
+                self.source,
+                self.source_map(),
+                offset,
+                sequence,
+                &self.layout,
+            )
+        });
+        facts.has_blank_line_before_close = if let (Some(open), Some(span)) =
+            (site.group_open_char, facts.group_attachment_span)
+        {
+            let close = matching_group_close(open);
+            let close_offset =
+                group_close_offset(self.source, span, site.upper_bound, close, close.len_utf8());
+            self.source_map()
+                .has_blank_line_immediately_before_offset(close_offset)
+        } else {
+            site.upper_bound.is_some_and(|offset| {
+                self.source_map()
+                    .has_blank_line_immediately_before_offset(offset)
+            })
+        };
+        let sequence_limit = group_attachment_span
+            .map(|span| span.end.offset())
+            .or(site.upper_bound);
+
+        let comment_lower_bound = sequence_comment_lower_bound(sequence, self.source_map());
+        let lower_bound = group_attachment_span
+            .map(|span| span.start.offset().min(comment_lower_bound))
+            .unwrap_or(comment_lower_bound);
+
+        if sequence.is_empty() {
+            facts.comments = self.comment_attachments.attach_sequence(
+                lower_bound,
+                sequence_limit,
+                facts.group_open_suffix_span,
+                &[],
+            );
+        } else {
+            let child_spans = sequence
+                .iter()
+                .map(|stmt| self.facts.stmt(stmt).attachment_span())
+                .collect::<Vec<_>>();
+            facts.comments = self.comment_attachments.attach_sequence(
+                lower_bound,
+                sequence_limit,
+                facts.group_open_suffix_span,
+                &child_spans,
+            );
+
+            for (index, stmt) in sequence.iter().enumerate() {
+                facts.first_rendered_lines[index] = facts
+                    .comments
+                    .leading_for(index)
+                    .first()
+                    .map(SourceComment::line)
+                    .unwrap_or_else(|| self.facts.stmt(stmt).rendered_start_line());
+            }
+        }
+
+        for window in sequence.as_slice().windows(2) {
+            let [current, next] = window else {
+                continue;
+            };
+            if !matches!(current.terminator, Some(StmtTerminator::Background(_))) {
+                continue;
+            }
+            let break_key = current
+                .terminator_span
+                .map(FactSpan::from)
+                .unwrap_or_else(|| FactSpan::from(stmt_span(current)));
+            let break_start = current
+                .terminator_span
+                .map(|span| span.end.offset())
+                .unwrap_or_else(|| stmt_span(current).end.offset());
+            let next_start = self.facts.stmt(next).attachment_span().start.offset();
+            if self.facts.contains_newline_between(break_start, next_start) {
+                self.facts.breaks.background.insert(break_key);
+            }
+        }
+
+        self.facts.sequences.by_span.entry(key.span).or_insert(key);
+        self.facts.sequences.by_site.insert(key, facts);
+        layout
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) -> LayoutSummary {
+        let site = StmtSite::new(stmt);
+        let stmt = site.stmt;
+        if let Some(layout) = self.layout.statements.get(&site.key).copied()
+            && self.facts.layout_facts.statements.contains_key(&site.key)
+        {
+            return layout;
+        }
+        let already_recorded = self.facts.layout_facts.statements.contains_key(&site.key);
+
+        let mut redirect_layout = LayoutSummary::default();
+        for redirect in &stmt.redirects {
+            redirect_layout.merge(self.visit_redirect(redirect));
+        }
+
+        if let Some((commands, open)) = command_group_commands(&stmt.command) {
+            if group_was_inline_in_source(
+                commands.as_slice(),
+                self.source_map(),
+                open,
+                matching_group_close(open),
+            ) {
+                self.facts
+                    .branches
+                    .inline_group_sequences
+                    .insert(FactSpan::from(commands.span));
+            }
+            let _ = self.visit_sequence(commands, Some(stmt_span(stmt).end.offset()), Some(open));
+        }
+
+        let mut layout = self
+            .visit_command(&stmt.command)
+            .with_comments(!stmt.leading_comments.is_empty() || stmt.inline_comment.is_some());
+        layout.merge(redirect_layout);
+        self.layout.statements.insert(site.key, layout);
+
+        if already_recorded {
+            return layout;
+        }
+
+        let contains_heredoc = layout.contains_heredoc;
+        let preserve_verbatim = should_render_verbatim_with_heredoc(
+            stmt,
+            self.source_map(),
+            self.options,
+            contains_heredoc,
+        );
+        let render_span = if preserve_verbatim {
+            stmt_verbatim_span_with_source_map(stmt, self.source_map())
+        } else {
+            stmt_format_span(stmt)
+        };
+        let stmt_contains_heredoc = |stmt: &Stmt| self.layout.stmt(stmt).contains_heredoc;
+        let attachment_span = stmt_attachment_span_with_heredoc_and_compound_close(
+            stmt,
+            self.source,
+            self.source_map(),
+            self.options,
+            stmt_contains_heredoc,
+            self.facts.stmt_compound_close_span(stmt),
+        );
+        let rendered_end_line = rendered_stmt_end_line_with_heredoc(
+            stmt,
+            self.source,
+            self.source_map(),
+            stmt_contains_heredoc,
+        );
+        let rendered_start_line = stmt_render_start_line_with_heredoc(
+            stmt,
+            self.source,
+            self.source_map(),
+            self.options,
+            stmt_contains_heredoc,
+        );
+        self.facts.layout_facts.statements.insert(
+            site.key,
+            StmtFacts {
+                attachment_span,
+                render_span,
+                rendered_start_line,
+                rendered_end_line,
+                has_trailing_comment: stmt_has_trailing_comment(stmt, self.source_map()),
+                preserve_verbatim,
+                contains_heredoc,
+            },
+        );
+        layout
+    }
+
+    fn visit_command(&mut self, command: &Command) -> LayoutSummary {
+        match LayoutClassifier::command(command) {
+            LayoutCommand::Binary(command) => self.visit_binary_command(command),
+            command => self.visit_non_binary_command(command),
+        }
+    }
+
+    fn visit_non_binary_command(&mut self, command: LayoutCommand<'_>) -> LayoutSummary {
+        match command {
+            LayoutCommand::Simple {
+                assignments,
+                name,
+                args,
+            } => {
+                let mut summary = LayoutSummary::default();
+                for assignment in assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                summary.merge(self.visit_word(name));
+                for word in args {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            LayoutCommand::Builtin {
+                assignments,
+                primary,
+                extra_args,
+            } => {
+                let mut summary = LayoutSummary::default();
+                for assignment in assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                if let Some(primary) = primary {
+                    summary.merge(self.visit_word(primary));
+                }
+                for word in extra_args {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            LayoutCommand::Decl {
+                assignments,
+                operands,
+            } => {
+                let mut summary = LayoutSummary::default();
+                for assignment in assignments {
+                    summary.merge(self.visit_assignment(assignment));
+                }
+                for operand in operands {
+                    summary.merge(self.visit_decl_operand(operand));
+                }
+                summary
+            }
+            LayoutCommand::Compound(command) => self.visit_compound_command(command),
+            LayoutCommand::Function(function) => self.visit_function(function),
+            LayoutCommand::AnonymousFunction(function) => self.visit_anonymous_function(function),
+            LayoutCommand::Binary(_) => unreachable!("binary commands are handled separately"),
+        }
+    }
+
+    fn visit_decl_operand(&mut self, operand: &DeclOperand) -> LayoutSummary {
+        match operand {
+            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => self.visit_word(word),
+            DeclOperand::Name(reference) => self.visit_var_ref(reference),
+            DeclOperand::Assignment(assignment) => self.visit_assignment(assignment),
+        }
+    }
+
+    fn visit_binary_command(&mut self, command: &BinaryCommand) -> LayoutSummary {
+        let mut summary = self.visit_stmt(command.left.as_ref());
+        summary.merge(self.visit_stmt(command.right.as_ref()));
+        summary.contains_multistatement_pipeline_brace_group =
+            self.command_contains_multistatement_pipeline_brace_group(command, false);
+
+        if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll)
+            && pipeline_has_explicit_line_break(command, self.source, self.source_map())
+        {
+            self.facts
+                .breaks
+                .pipeline
+                .insert(FactSpan::from(command.span));
+        }
+
+        if matches!(command.op, BinaryOp::And | BinaryOp::Or) {
+            let mut rest = Vec::new();
+            let mut previous = collect_command_list_first(command, &mut rest);
+            for item in rest {
+                let next_start = stmt_start_after_operator(
+                    item.stmt,
+                    item.operator_span.end.offset(),
+                    self.source,
+                    self.source_map(),
+                );
+                let next_start_line = self.source_map().line_number_for_offset(next_start);
+                let previous_span = stmt_span(previous);
+                if self
+                    .source_map()
+                    .operator_starts_or_ends_line(item.operator_span)
+                    || self
+                        .facts
+                        .contains_newline_between(item.operator_span.end.offset(), next_start)
+                    || (stmt_is_multiline_conditional(previous)
+                        && previous_span.start.line() < item.operator_span.start.line()
+                        && item.operator_span.end.line() == next_start_line
+                        && !stmt_can_follow_multiline_conditional_inline(item.stmt))
+                {
+                    self.facts
+                        .breaks
+                        .list_item
+                        .insert(FactSpan::from(item.operator_span));
+                }
+                previous = item.stmt;
+            }
+        }
+        summary
+    }
+
+    fn visit_compound_command(&mut self, command: &CompoundCommand) -> LayoutSummary {
+        let cached_close_span = self.cache_compound_close_span(command);
+        match LayoutClassifier::compound_command(command) {
+            LayoutCompoundCommand::If(command) => self.visit_if(command),
+            LayoutCompoundCommand::For(command) => self.visit_for(command),
+            LayoutCompoundCommand::Repeat(command) => self.visit_repeat(command),
+            LayoutCompoundCommand::Foreach(command) => {
+                let mut summary = LayoutSummary::default();
+                for word in &command.words {
+                    summary.merge(self.visit_word(word));
+                }
+                let site = CompoundBodySite::foreach_command(
+                    command,
+                    self.source_map(),
+                    cached_close_span,
+                );
+                summary.merge(self.visit_compound_body_site(site));
+                summary
+            }
+            LayoutCompoundCommand::ArithmeticFor(command) => {
+                let mut summary = LayoutSummary::default();
+                if let Some(expr) = &command.init_ast {
+                    summary.merge(self.visit_arithmetic_expr(expr));
+                }
+                if let Some(expr) = &command.condition_ast {
+                    summary.merge(self.visit_arithmetic_expr(expr));
+                }
+                if let Some(expr) = &command.step_ast {
+                    summary.merge(self.visit_arithmetic_expr(expr));
+                }
+                let site = CompoundBodySite::arithmetic_for_command(
+                    command,
+                    self.source_map(),
+                    cached_close_span,
+                );
+                summary.merge(self.visit_compound_body_site(site));
+                summary
+            }
+            LayoutCompoundCommand::While(command) => self.visit_while(command),
+            LayoutCompoundCommand::Until(command) => self.visit_until(command),
+            LayoutCompoundCommand::Case(command) => self.visit_case(command),
+            LayoutCompoundCommand::Select(command) => self.visit_select(command),
+            LayoutCompoundCommand::Subshell(body) => {
+                self.record_inline_group_sequence(body, '(', ')');
+                self.visit_sequence(body, None, Some('('))
+            }
+            LayoutCompoundCommand::BraceGroup(body) => {
+                self.record_inline_group_sequence(body, '{', '}');
+                self.visit_sequence(body, None, Some('{'))
+            }
+            LayoutCompoundCommand::Arithmetic(command) => {
+                if let Some(expr) = &command.expr_ast {
+                    self.visit_arithmetic_expr(expr)
+                } else {
+                    LayoutSummary::default()
+                }
+            }
+            LayoutCompoundCommand::Time(command) => self.visit_time(command),
+            LayoutCompoundCommand::Conditional(command) => self.visit_conditional(command),
+            LayoutCompoundCommand::Coproc(command) => self.visit_stmt(command.body.as_ref()),
+            LayoutCompoundCommand::Always(command) => {
+                let mut summary =
+                    self.visit_sequence(&command.body, Some(command.span.end.offset()), Some('{'));
+                summary.merge(self.visit_sequence(
+                    &command.always_body,
+                    Some(command.span.end.offset()),
+                    Some('{'),
+                ));
+                self.record_inline_group_sequence(&command.body, '{', '}');
+                self.record_inline_group_sequence(&command.always_body, '{', '}');
+                summary
+            }
+        }
+    }
+
+    fn visit_if(&mut self, command: &IfCommand) -> LayoutSummary {
+        let condition_upper_bound = match command.syntax {
+            shucked_ast::IfSyntax::ThenFi { then_span, .. } => Some(then_span.start.offset()),
+            shucked_ast::IfSyntax::Brace {
+                left_brace_span, ..
+            } => Some(left_brace_span.start.offset()),
+        };
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
+        let brace_syntax = matches!(command.syntax, shucked_ast::IfSyntax::Brace { .. });
+        if let shucked_ast::IfSyntax::ThenFi { then_span, .. } = command.syntax
+            && let Some(comment) = condition_separator_suffix_comment(
+                &command.condition,
+                then_span,
+                self.source,
+                self.source_map(),
+            )
+        {
+            self.facts
+                .comments
+                .insert_suffix_comment(then_span, comment);
+        }
+        let then_upper_bound =
+            if_branch_upper_bound(command, 0, self.source, self.source_map(), &self.facts);
+        let then_site =
+            CompoundBodySite::if_then_branch(command, &command.then_branch, then_upper_bound);
+        summary.merge(self.visit_compound_body_site(then_site));
+        for (index, (condition, body)) in command.elif_branches.iter().enumerate() {
+            let body_upper_bound = if_branch_upper_bound(
+                command,
+                index + 1,
+                self.source,
+                self.source_map(),
+                &self.facts,
+            );
+            let body_site = CompoundBodySite::if_then_branch(command, body, body_upper_bound);
+            let mut body_summary = None;
+            if brace_syntax {
+                body_summary = Some(self.visit_compound_body_site(body_site));
+            }
+            let condition_upper_bound = if brace_syntax {
+                group_attachment_span_with_heredoc(
+                    body.as_slice(),
+                    self.source_map(),
+                    '{',
+                    '}',
+                    |stmt| self.layout.stmt(stmt).contains_heredoc,
+                )
+                .map(|span| span.start.offset())
+            } else {
+                body_site.open_keyword_start(self.source)
+            };
+            summary.merge(self.visit_sequence(condition, condition_upper_bound, None));
+            if !brace_syntax {
+                body_summary = Some(self.visit_compound_body_site(body_site));
+            }
+            if let Some(body_summary) = body_summary {
+                summary.merge(body_summary);
+            }
+        }
+        if let Some(else_branch) = &command.else_branch {
+            let upper_bound = self.facts.if_close_span(command).start.offset();
+            let site = CompoundBodySite::if_else_branch(command, else_branch, upper_bound);
+            summary.merge(self.visit_compound_body_site(site));
+        }
+        self.record_if_branch_prefix_facts(command);
+        self.record_close_suffix(Some(self.facts.if_close_span(command)));
+        summary
+    }
+
+    fn visit_for(&mut self, command: &ForCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for target in &command.targets {
+            summary.merge(self.visit_word(&target.word));
+        }
+        if let Some(words) = &command.words {
+            for word in words {
+                summary.merge(self.visit_word(word));
+            }
+        }
+        let site = CompoundBodySite::for_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
+        summary.merge(self.visit_compound_body_site(site));
+        summary
+    }
+
+    fn visit_repeat(&mut self, command: &RepeatCommand) -> LayoutSummary {
+        let mut summary = self.visit_word(&command.count);
+        let site = CompoundBodySite::repeat_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
+        summary.merge(self.visit_compound_body_site(site));
+        summary
+    }
+
+    fn visit_while(&mut self, command: &WhileCommand) -> LayoutSummary {
+        let site = CompoundBodySite::while_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
+        let condition_upper_bound = site.open_keyword_start(self.source);
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
+    }
+
+    fn visit_until(&mut self, command: &UntilCommand) -> LayoutSummary {
+        let site = CompoundBodySite::until_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
+        let condition_upper_bound = site.open_keyword_start(self.source);
+        let mut summary = self.visit_sequence(&command.condition, condition_upper_bound, None);
+        summary.merge(self.visit_compound_body_site(site));
+        summary
+    }
+
+    fn visit_case(&mut self, command: &CaseCommand) -> LayoutSummary {
+        let mut summary = self.visit_word(&command.word);
+        let case_command_facts = self.build_case_command_facts(command);
+        self.record_close_suffix(case_command_facts.esac_span());
+        let mut previous_item: Option<&CaseItem> = None;
+        for item in &command.cases {
+            for pattern in &item.patterns {
+                summary.merge(self.visit_pattern(pattern));
+            }
+            if case_item_was_inline_in_source(item) {
+                self.facts
+                    .branches
+                    .inline_case_item_bodies
+                    .insert(FactSpan::from(item.body.span));
+            }
+            let upper_bound =
+                case_item_body_upper_bound(item, case_command_facts.body_fallback_upper_bound());
+            summary.merge(self.visit_sequence(&item.body, upper_bound, None));
+            let item_facts = self.build_case_item_facts(item, previous_item, upper_bound);
+            self.facts.cases.insert_case_item(item, item_facts);
+            previous_item = Some(item);
+        }
+        self.facts
+            .cases
+            .insert_case_command(command, case_command_facts);
+        summary
+    }
+
+    fn visit_select(&mut self, command: &SelectCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for word in &command.words {
+            summary.merge(self.visit_word(word));
+        }
+        let site = CompoundBodySite::select_command(
+            command,
+            self.source_map(),
+            self.cached_close(command.span),
+        );
+        summary.merge(self.visit_compound_body_site(site));
+        summary
+    }
+
+    fn visit_time(&mut self, command: &TimeCommand) -> LayoutSummary {
+        if let Some(inner) = &command.command {
+            let summary = self.visit_stmt(inner.as_ref());
+            self.record_close_suffix(Some(stmt_format_span(inner.as_ref())));
+            summary
+        } else {
+            LayoutSummary::default()
+        }
+    }
+
+    fn visit_conditional(&mut self, command: &ConditionalCommand) -> LayoutSummary {
+        self.visit_conditional_expr(&command.expression)
+    }
+
+    fn visit_function(&mut self, function: &FunctionDef) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for entry in &function.header.entries {
+            summary.merge(self.visit_word(&entry.word));
+        }
+
+        summary.merge(self.visit_function_body(function.body.as_ref(), function.span.end.offset()));
+        summary
+    }
+
+    fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for argument in &function.args {
+            summary.merge(self.visit_word(argument));
+        }
+
+        summary.merge(self.visit_function_body(function.body.as_ref(), function.span.end.offset()));
+        summary
+    }
+
+    fn visit_function_body(&mut self, body: &Stmt, function_end_offset: usize) -> LayoutSummary {
+        if let Some(site) = CompoundBodySite::function_group_body(body, function_end_offset) {
+            let summary = self
+                .visit_compound_body_site(site)
+                .with_comments(!body.leading_comments.is_empty() || body.inline_comment.is_some());
+            self.layout
+                .statements
+                .insert(FactSpan::from(stmt_span(body)), summary);
+            summary
+        } else {
+            self.visit_stmt(body)
+        }
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) -> LayoutSummary {
+        if let Some(word) = redirect.word_target() {
+            let mut summary = self.visit_word(word);
+            summary.contains_heredoc |= matches!(
+                redirect.kind,
+                RedirectKind::HereDoc | RedirectKind::HereDocStrip
+            );
+            return summary;
+        }
+        if let Some(heredoc) = redirect.heredoc() {
+            let delimiter = self.visit_word(&heredoc.delimiter.raw);
+            let mut summary = delimiter;
+            summary.merge(self.visit_heredoc_body(&heredoc.body));
+            summary.contains_heredoc |= matches!(
+                redirect.kind,
+                RedirectKind::HereDoc | RedirectKind::HereDocStrip
+            );
+            summary.contains_multiline_literal_source = delimiter.contains_multiline_literal_source;
+            return summary;
+        }
+        LayoutSummary::default()
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) -> LayoutSummary {
+        let mut summary = self.visit_var_ref(&assignment.target);
+        let value_has_multiline_literal_source = match &assignment.value {
+            AssignmentValue::Scalar(word) => {
+                let word = self.visit_word(word);
+                summary.merge(word);
+                word.contains_multiline_literal_source
+            }
+            AssignmentValue::Compound(array) => {
+                let mut contains_multiline_literal_source = false;
+                for element in &array.elements {
+                    if let Some(key) = array_elem_parts(element).0 {
+                        summary.merge(self.visit_subscript(key));
+                    }
+                    let word = self.visit_word(array_elem_parts(element).1);
+                    contains_multiline_literal_source |= word.contains_multiline_literal_source;
+                    summary.merge(word);
+                }
+                contains_multiline_literal_source
+            }
+        };
+        summary.contains_multiline_literal_source = value_has_multiline_literal_source
+            || matches!(&assignment.value, AssignmentValue::Scalar(_))
+                && assignment_has_raw_backslash_continuation_literal(assignment, self.source);
+        summary
+    }
+
+    fn visit_conditional_expr(&mut self, expression: &ConditionalExpr) -> LayoutSummary {
+        match expression {
+            ConditionalExpr::Binary(expression) => {
+                let mut summary = self.visit_conditional_expr(&expression.left);
+                summary.merge(self.visit_conditional_expr(&expression.right));
+                summary
+            }
+            ConditionalExpr::Unary(expression) => self.visit_conditional_expr(&expression.expr),
+            ConditionalExpr::Parenthesized(expression) => {
+                self.visit_conditional_expr(&expression.expr)
+            }
+            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => self.visit_word(word),
+            ConditionalExpr::Pattern(pattern) => self.visit_pattern(pattern),
+            ConditionalExpr::VarRef(reference) => self.visit_var_ref(reference),
+        }
+    }
+
+    fn visit_pattern(&mut self, pattern: &Pattern) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &pattern.parts {
+            summary.merge(self.visit_pattern_part(&part.kind));
+        }
+        summary
+    }
+
+    fn visit_pattern_part(&mut self, part: &PatternPart) -> LayoutSummary {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                let mut summary = LayoutSummary::default();
+                for pattern in patterns {
+                    summary.merge(self.visit_pattern(pattern));
+                }
+                summary
+            }
+            PatternPart::Word(word) => self.visit_word(word),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => LayoutSummary::default(),
+        }
+    }
+
+    fn visit_word(&mut self, word: &Word) -> LayoutSummary {
+        let word_key = FactSpan::from(word.span);
+        if let Some(layout) = self.layout.words.get(&word_key).copied()
+            && self.facts.layout_facts.words.contains_key(&word_key)
+        {
+            return layout;
+        }
+
+        let mut layout = LayoutSummary::default();
+        for part in &word.parts {
+            layout.merge(self.visit_word_part(&part.kind, part.span));
+        }
+        layout.contains_multiline_literal_source =
+            word_has_multiline_literal_source_with_sequence_layout(word, self.source, |body| {
+                self.layout.sequence(body)
+            });
+        layout.contains_heredoc = false;
+        layout.contains_multistatement_pipeline_brace_group = false;
+        self.layout.words.insert(word_key, layout);
+        self.facts.layout_facts.words.insert(
+            word_key,
+            WordFacts {
+                has_multiline_literal_source: layout.contains_multiline_literal_source,
+            },
+        );
+        layout
+    }
+
+    fn visit_word_part(&mut self, part: &WordPart, span: Span) -> LayoutSummary {
+        match part {
+            WordPart::Literal(text) => LayoutSummary {
+                contains_multiline_literal_source: text.as_str(self.source, span).contains('\n'),
+                ..LayoutSummary::default()
+            },
+            WordPart::SingleQuoted { value, dollar } => LayoutSummary {
+                contains_multiline_literal_source: if *dollar {
+                    raw_source_slice(span, self.source).is_some_and(|raw| raw.contains('\n'))
+                } else {
+                    value.slice(self.source).contains('\n')
+                },
+                ..LayoutSummary::default()
+            },
+            WordPart::CommandSubstitution { body, syntax }
+                if matches!(
+                    *syntax,
+                    CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
+                ) =>
+            {
+                let mut summary = self.visit_sequence(body, Some(span.end.offset()), None);
+                summary.contains_multiline_literal_source |= summary.contains_comments
+                    && raw_source_slice(span, self.source).is_some_and(|raw| {
+                        raw.contains('\n')
+                            && !command_substitution_source_starts_with_body_line(raw)
+                    });
+                summary
+            }
+            WordPart::ProcessSubstitution { body, .. } => {
+                let mut summary = self.visit_sequence(body, span.end.offset().checked_sub(1), None);
+                summary.contains_multiline_literal_source |= summary.contains_comments
+                    && raw_source_slice(span, self.source).is_some_and(|raw| raw.contains('\n'));
+                summary
+            }
+            WordPart::ZshQualifiedGlob(glob) => {
+                let mut summary = LayoutSummary::default();
+                for segment in &glob.segments {
+                    if let ZshGlobSegment::Pattern(pattern) = segment {
+                        summary.merge(self.visit_pattern(pattern));
+                    }
+                }
+                summary
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
+            WordPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.visit_word(expression_word_ast),
+            WordPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                summary.merge(self.visit_parameter_op(operator));
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => self.visit_var_ref(reference),
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(expr) = offset_ast {
+                    summary.merge(self.visit_arithmetic_expr(expr));
+                } else {
+                    summary.merge(self.visit_word(offset_word_ast));
+                }
+                if let Some(expr) = length_ast {
+                    summary.merge(self.visit_arithmetic_expr(expr));
+                } else if let Some(word) = length_word_ast {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(operator) = operator {
+                    summary.merge(self.visit_parameter_op(operator));
+                }
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::Variable(_)
+            | WordPart::PrefixMatch { .. } => LayoutSummary::default(),
+            WordPart::DoubleQuoted { parts, .. } => {
+                let mut summary = LayoutSummary::default();
+                for part in parts {
+                    summary.merge(self.visit_word_part(&part.kind, part.span));
+                }
+                summary
+            }
+        }
+    }
+
+    fn visit_heredoc_body(&mut self, body: &HeredocBody) -> LayoutSummary {
+        let mut summary = LayoutSummary::default();
+        for part in &body.parts {
+            summary.merge(self.visit_heredoc_body_part(&part.kind, part.span));
+        }
+        summary
+    }
+
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPart, span: Span) -> LayoutSummary {
+        match part {
+            HeredocBodyPart::CommandSubstitution { body, syntax }
+                if matches!(
+                    *syntax,
+                    CommandSubstitutionSyntax::DollarParen | CommandSubstitutionSyntax::Backtick
+                ) =>
+            {
+                self.visit_sequence(body, Some(span.end.offset()), None)
+            }
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: Some(expr),
+                ..
+            } => self.visit_arithmetic_expr(expr),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression_ast: None,
+                expression_word_ast,
+                ..
+            } => self.visit_word(expression_word_ast),
+            HeredocBodyPart::Parameter(parameter) => self.visit_parameter_expansion(parameter),
+            HeredocBodyPart::Literal(_)
+            | HeredocBodyPart::Variable(_)
+            | HeredocBodyPart::CommandSubstitution { .. } => LayoutSummary::default(),
+        }
+    }
+
+    fn visit_arithmetic_expr(&mut self, expr: &ArithmeticExprNode) -> LayoutSummary {
+        match &expr.kind {
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => LayoutSummary::default(),
+            ArithmeticExpr::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+            ArithmeticExpr::ShellWord(word) => self.visit_word(word),
+            ArithmeticExpr::Parenthesized { expression } => self.visit_arithmetic_expr(expression),
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                self.visit_arithmetic_expr(expr)
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                let mut summary = self.visit_arithmetic_expr(left);
+                summary.merge(self.visit_arithmetic_expr(right));
+                summary
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                let mut summary = self.visit_arithmetic_expr(condition);
+                summary.merge(self.visit_arithmetic_expr(then_expr));
+                summary.merge(self.visit_arithmetic_expr(else_expr));
+                summary
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                let mut summary = self.visit_arithmetic_lvalue(target);
+                summary.merge(self.visit_arithmetic_expr(value));
+                summary
+            }
+        }
+    }
+
+    fn visit_arithmetic_lvalue(&mut self, target: &ArithmeticLvalue) -> LayoutSummary {
+        match target {
+            ArithmeticLvalue::Variable(_) => LayoutSummary::default(),
+            ArithmeticLvalue::Indexed { index, .. } => self.visit_arithmetic_expr(index),
+        }
+    }
+
+    fn visit_var_ref(&mut self, reference: &VarRef) -> LayoutSummary {
+        reference
+            .subscript
+            .as_deref()
+            .map_or_else(LayoutSummary::default, |subscript| {
+                self.visit_subscript(subscript)
+            })
+    }
+
+    fn visit_subscript(&mut self, subscript: &Subscript) -> LayoutSummary {
+        let mut summary = subscript
+            .word_ast
+            .as_ref()
+            .map_or_else(LayoutSummary::default, |word| self.visit_word(word));
+        if let Some(expression) = &subscript.arithmetic_ast {
+            summary.merge(self.visit_arithmetic_expr(expression));
+        }
+        summary
+    }
+
+    fn visit_parameter_expansion(&mut self, parameter: &ParameterExpansion) -> LayoutSummary {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => {
+                self.visit_bourne_parameter_expansion(syntax)
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                let mut summary = match &syntax.target {
+                    ZshExpansionTarget::Reference(reference) => self.visit_var_ref(reference),
+                    ZshExpansionTarget::Nested(parameter) => {
+                        self.visit_parameter_expansion(parameter)
+                    }
+                    ZshExpansionTarget::Word(word) => self.visit_word(word),
+                    ZshExpansionTarget::Empty => LayoutSummary::default(),
+                };
+                for modifier in &syntax.modifiers {
+                    if let Some(word) = modifier.argument_word_ast() {
+                        summary.merge(self.visit_word(word));
+                    }
+                }
+                if let Some(operation) = &syntax.operation {
+                    summary.merge(self.visit_zsh_expansion_operation(operation));
+                }
+                summary
+            }
+        }
+    }
+
+    fn visit_bourne_parameter_expansion(
+        &mut self,
+        syntax: &BourneParameterExpansion,
+    ) -> LayoutSummary {
+        match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                self.visit_var_ref(reference)
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(operator) = operator {
+                    summary.merge(self.visit_parameter_op(operator));
+                }
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => LayoutSummary::default(),
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                if let Some(expression) = offset_ast {
+                    summary.merge(self.visit_arithmetic_expr(expression));
+                } else {
+                    summary.merge(self.visit_word(offset_word_ast));
+                }
+                if let Some(expression) = length_ast {
+                    summary.merge(self.visit_arithmetic_expr(expression));
+                } else if let Some(word) = length_word_ast {
+                    summary.merge(self.visit_word(word));
+                }
+                summary
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_var_ref(reference);
+                summary.merge(self.visit_parameter_op(operator));
+                if let Some(operand) = operand_word_ast {
+                    summary.merge(self.visit_word(operand));
+                }
+                summary
+            }
+        }
+    }
+
+    fn visit_parameter_op(&mut self, operator: &ParameterOp) -> LayoutSummary {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => self.visit_pattern(pattern),
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement_word_ast,
+                ..
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_pattern(pattern);
+                summary.merge(self.visit_word(replacement_word_ast));
+                summary
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => LayoutSummary::default(),
+        }
+    }
+
+    fn visit_zsh_expansion_operation(
+        &mut self,
+        operation: &ZshExpansionOperation,
+    ) -> LayoutSummary {
+        match operation {
+            ZshExpansionOperation::PatternOperation {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::Defaulting {
+                operand_word_ast, ..
+            }
+            | ZshExpansionOperation::TrimOperation {
+                operand_word_ast, ..
+            } => self.visit_word(operand_word_ast),
+            ZshExpansionOperation::ReplacementOperation {
+                pattern_word_ast,
+                replacement_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_word(pattern_word_ast);
+                if let Some(replacement) = replacement_word_ast {
+                    summary.merge(self.visit_word(replacement));
+                }
+                summary
+            }
+            ZshExpansionOperation::Slice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                let mut summary = self.visit_word(offset_word_ast);
+                if let Some(length) = length_word_ast {
+                    summary.merge(self.visit_word(length));
+                }
+                summary
+            }
+            ZshExpansionOperation::Unknown { word_ast, .. } => self.visit_word(word_ast),
+        }
+    }
+
+    fn command_contains_multistatement_pipeline_brace_group(
+        &self,
+        command: &BinaryCommand,
+        in_pipeline: bool,
+    ) -> bool {
+        let in_pipeline = in_pipeline || matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll);
+        self.stmt_contains_multistatement_pipeline_brace_group(&command.left, in_pipeline)
+            || self.stmt_contains_multistatement_pipeline_brace_group(&command.right, in_pipeline)
+    }
+
+    fn stmt_contains_multistatement_pipeline_brace_group(
+        &self,
+        stmt: &Stmt,
+        in_pipeline: bool,
+    ) -> bool {
+        match &stmt.command {
+            Command::Binary(command)
+                if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
+            {
+                self.command_contains_multistatement_pipeline_brace_group(command, in_pipeline)
+            }
+            Command::Compound(CompoundCommand::BraceGroup(body)) if in_pipeline => body.len() > 1,
+            _ => false,
+        }
+    }
+
+    fn record_close_suffix(&mut self, span: Option<Span>) {
+        let Some(span) = span else {
+            return;
+        };
+        if let Some(comment) = self.source_map().suffix_comment_after_span(span) {
+            self.facts
+                .comments
+                .insert_close_suffix_comment(span, comment);
+        }
+    }
+
+    fn record_suffix_attachment(&mut self, span: Span) {
+        if let Some(comment) = suffix_comment_from_span(self.source, self.source_map(), span) {
+            self.facts.comments.insert_suffix_comment(span, comment);
+        }
+    }
+
+    fn record_if_branch_prefix_facts(&mut self, command: &IfCommand) {
+        for branch_index in 0..=command.elif_branches.len() {
+            let Some((start, end)) =
+                if_next_branch_region_with_body_end(command, branch_index, self.source, |body| {
+                    self.facts.sequence(body, None).body_content_end()
+                })
+            else {
+                continue;
+            };
+            self.record_branch_prefix_facts(start, end);
+        }
+    }
+
+    fn record_branch_prefix_facts(&mut self, start: usize, end: usize) {
+        let comments = branch_prefix_comments_from_index(
+            self.source,
+            self.facts.indexer.line_index(),
+            self.facts.indexer.comment_index(),
+            start,
+            end,
+        )
+        .into_iter()
+        .filter(|comment| !self.facts.offset_is_in_heredoc_body(comment.offset))
+        .collect();
+        self.facts.comments.insert_branch_prefix_facts(
+            start,
+            end,
+            BranchPrefixFacts::new(self.source, start, end, comments),
+        );
+    }
+
+    fn build_case_command_facts(&self, command: &CaseCommand) -> CaseCommandFacts {
+        let esac_span = self
+            .cached_close(command.span)
+            .or_else(|| case_close_span(command, self.source_map()));
+        let body_fallback_upper_bound = esac_span
+            .map(|span| span.start.offset())
+            .unwrap_or(command.span.end.offset());
+        let suffix_comments_before_esac = command
+            .cases
+            .last()
+            .and_then(|last_item| case_item_source_end_offset(last_item, self.source))
+            .map(|start| {
+                own_line_comments_in_region_from_index(
+                    self.source,
+                    self.facts.indexer.line_index(),
+                    self.facts.indexer.comment_index(),
+                    start,
+                    body_fallback_upper_bound,
+                )
+                .into_iter()
+                .filter(|comment| !self.facts.offset_is_in_heredoc_body(comment.offset))
+                .collect()
+            })
+            .unwrap_or_default();
+
+        CaseCommandFacts {
+            esac_span,
+            body_fallback_upper_bound,
+            has_blank_line_after_in: case_has_blank_line_after_in(command, self.source),
+            has_blank_line_before_esac: case_has_blank_line_before_esac(
+                command,
+                self.source,
+                esac_span,
+            ),
+            suffix_comments_before_esac,
+        }
+    }
+
+    fn build_case_item_facts(
+        &self,
+        item: &CaseItem,
+        previous_item: Option<&CaseItem>,
+        upper_bound: Option<usize>,
+    ) -> CaseItemFacts<'source> {
+        let sequence = self.facts.sequence(&item.body, upper_bound);
+        let first_body_line = sequence.first_rendered_line_for(0);
+        let first_body_stmt_line = item
+            .body
+            .first()
+            .map(|stmt| self.facts.stmt(stmt).rendered_start_line())
+            .unwrap_or(first_body_line);
+        let first_pattern_start = item
+            .patterns
+            .first()
+            .map(|pattern| pattern.span.start.offset());
+        let mut prefix_comments = first_pattern_start
+            .map(|start| {
+                let mut comments = sequence
+                    .leading_for(0)
+                    .iter()
+                    .copied()
+                    .filter(|comment| comment.span().start.offset() < start)
+                    .collect::<Vec<_>>();
+                for comment in
+                    case_item_source_prefix_comments(self.source, self.source_map(), start)
+                {
+                    if !comments.iter().any(|existing| {
+                        existing.span().start.offset() == comment.span().start.offset()
+                    }) {
+                        comments.push(comment);
+                    }
+                }
+                comments
+            })
+            .unwrap_or_default();
+        prefix_comments.sort_by_key(|comment| comment.span().start.offset());
+
+        CaseItemFacts {
+            suffix_comment_start_line: case_suffix_comment_start_line(item),
+            has_blank_line_before: previous_item.is_some_and(|previous| {
+                case_item_has_blank_line_before(previous, item, self.source)
+            }),
+            has_blank_line_after_pattern: case_item_has_blank_line_after_pattern(
+                item,
+                self.source,
+                first_body_line,
+                first_body_stmt_line,
+            ),
+            has_blank_line_before_terminator: case_item_has_blank_line_before_terminator(
+                item,
+                self.source,
+                sequence.close_gap_start(),
+            ),
+            prefix_comments,
+            pattern_suffix_comment: case_item_pattern_suffix_comment(
+                item,
+                upper_bound,
+                self.source,
+                self.source_map(),
+            ),
+            terminator_suffix_comment: case_item_terminator_suffix_comment(item, self.source_map()),
+        }
+    }
+
+    fn source_map(&self) -> &SourceMap<'source> {
+        &self.facts.source_map
+    }
+}
+
+impl<'source, 'options> AstVisitor for FormatterFactsBuilder<'source, 'options> {
+    fn visit_stmt_seq(&mut self, sequence: &StmtSeq) {
+        self.visit_sequence(sequence, None, None);
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        FormatterFactsBuilder::visit_stmt(self, stmt);
+    }
+
+    fn visit_command(&mut self, command: &Command) {
+        FormatterFactsBuilder::visit_command(self, command);
+    }
+
+    fn visit_compound_command(&mut self, command: &CompoundCommand) {
+        FormatterFactsBuilder::visit_compound_command(self, command);
+    }
+
+    fn visit_function(&mut self, function: &FunctionDef) {
+        FormatterFactsBuilder::visit_function(self, function);
+    }
+
+    fn visit_anonymous_function(&mut self, function: &AnonymousFunctionCommand) {
+        FormatterFactsBuilder::visit_anonymous_function(self, function);
+    }
+
+    fn visit_redirect(&mut self, redirect: &Redirect) {
+        FormatterFactsBuilder::visit_redirect(self, redirect);
+    }
+
+    fn visit_assignment(&mut self, assignment: &Assignment) {
+        FormatterFactsBuilder::visit_assignment(self, assignment);
+    }
+
+    fn visit_word(&mut self, word: &Word) {
+        FormatterFactsBuilder::visit_word(self, word);
+    }
+
+    fn visit_word_part(&mut self, part: &WordPartNode) {
+        FormatterFactsBuilder::visit_word_part(self, &part.kind, part.span);
+    }
+
+    fn visit_heredoc_body_part(&mut self, part: &HeredocBodyPartNode) {
+        FormatterFactsBuilder::visit_heredoc_body_part(self, &part.kind, part.span);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BinaryListItemFact<'a> {
+    operator_span: Span,
+    stmt: &'a Stmt,
+}
+
+fn collect_command_list_first<'a>(
+    command: &'a BinaryCommand,
+    rest: &mut Vec<BinaryListItemFact<'a>>,
+) -> &'a Stmt {
+    collect_binary_list_first_with(command, rest, &|command| BinaryListItemFact {
+        operator_span: command.op_span,
+        stmt: command.right.as_ref(),
+    })
+}
+
+fn stmt_is_multiline_conditional(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Compound(CompoundCommand::Conditional(_))
+    )
+}
+
+fn stmt_can_follow_multiline_conditional_inline(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Compound(CompoundCommand::BraceGroup(_) | CompoundCommand::Subshell(_))
+    )
+}
+
+fn pipeline_has_explicit_line_break(
+    pipeline: &BinaryCommand,
+    source: &str,
+    source_map: &SourceMap<'_>,
+) -> bool {
+    let mut statements = Vec::new();
+    let mut operators = Vec::new();
+    collect_pipeline_parts(pipeline, &mut statements, &mut operators, &|command| {
+        command.op_span
+    });
+
+    for (statement, operator_span) in statements.iter().skip(1).zip(operators.iter()) {
+        let next_start =
+            stmt_start_after_operator(statement, operator_span.end.offset(), source, source_map);
+        if source_map.operator_starts_or_ends_line(*operator_span)
+            || source_map.contains_newline_between(operator_span.end.offset(), next_start)
+        {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn sequence_comment_lower_bound(sequence: &StmtSeq, source_map: &SourceMap<'_>) -> usize {
+    let mut lower_bound = sequence.span.start.offset();
+    for comment in &sequence.leading_comments {
+        if source_map
+            .source_comment(*comment)
+            .is_some_and(|comment| !comment.inline())
+        {
+            lower_bound = lower_bound.min(usize::from(comment.range.start()));
+        }
+    }
+    for stmt in sequence.iter() {
+        for comment in &stmt.leading_comments {
+            if source_map
+                .source_comment(*comment)
+                .is_some_and(|comment| !comment.inline())
+            {
+                lower_bound = lower_bound.min(usize::from(comment.range.start()));
+            }
+        }
+    }
+    lower_bound
+}
+
+fn case_close_span(command: &CaseCommand, source_map: &SourceMap<'_>) -> Option<Span> {
+    source_map
+        .close_delimiter_span(command.span, CloseDelimiterKind::Esac)
+        .or(Some(command.esac_span))
+}
+
+fn group_close_offset(
+    source: &str,
+    span: Span,
+    upper_bound: Option<usize>,
+    close_char: char,
+    close_len: usize,
+) -> usize {
+    let fallback = span.end.offset().saturating_sub(close_len);
+    let search_end = upper_bound
+        .map(|offset| offset.saturating_add(close_len))
+        .unwrap_or(span.end.offset())
+        .min(source.len())
+        .max(span.start.offset());
+    source
+        .get(span.start.offset()..search_end)
+        .and_then(|text| text.rfind(close_char))
+        .map_or(fallback, |offset| span.start.offset() + offset)
+}
+
+fn sequence_body_content_end(body: &StmtSeq, source: &str, indexer: &Indexer) -> usize {
+    let mut end = body
+        .last()
+        .map(|stmt| stmt_span(stmt).end.offset())
+        .unwrap_or(body.span.end.offset());
+    if let Some(stmt) = body.last() {
+        for redirect in &stmt.redirects {
+            let Some(heredoc) = redirect.heredoc() else {
+                continue;
+            };
+            let heredoc_end = indexer
+                .region_index()
+                .heredoc_closing_marker_range(heredoc.body.span.to_range())
+                .map(|range| usize::from(range.end()))
+                .unwrap_or(heredoc.body.span.end.offset());
+            end = end.max(heredoc_end);
+        }
+    }
+    trim_trailing_gap_before_offset(source, end.min(source.len()))
+}
+
+fn trim_trailing_gap_before_offset(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while offset > 0 && matches!(bytes[offset - 1], b' ' | b'\t' | b'\r' | b'\n') {
+        offset -= 1;
+    }
+    offset
+}
+
+fn body_has_blank_line_after_open(
+    source: &str,
+    source_map: &SourceMap<'_>,
+    open_end_offset: usize,
+    commands: &StmtSeq,
+    layout: &LayoutAnnotations,
+) -> bool {
+    let Some(mut first_start) = sequence_first_content_offset(commands, source_map, layout) else {
+        return false;
+    };
+    if first_start <= open_end_offset
+        && let Some(stmt) = commands.first()
+    {
+        first_start = stmt_first_content_offset(stmt, source_map, layout);
+    }
+    if source_map.line_number_for_offset(first_start)
+        == source_map.line_number_for_offset(open_end_offset)
+        && let Some(stmt) = commands.first()
+    {
+        first_start = stmt_first_content_offset(stmt, source_map, layout);
+    }
+    let open_line = source_map.line_number_for_offset(open_end_offset);
+    let mut comment_search = open_end_offset;
+    while let Some(comment_start) = source_map.first_comment_between(comment_search, first_start) {
+        if source_map.line_number_for_offset(comment_start) != open_line {
+            first_start = comment_start;
+            break;
+        }
+        comment_search = comment_start.saturating_add(1);
+    }
+    gap_has_blank_line(source, open_end_offset, first_start)
+        || (source
+            .get(..open_end_offset.min(source.len()))
+            .is_some_and(|prefix| prefix.ends_with('\n'))
+            && gap_starts_with_empty_physical_line(source, open_end_offset, first_start))
+}
+
+fn sequence_first_content_offset(
+    commands: &StmtSeq,
+    source_map: &SourceMap<'_>,
+    layout: &LayoutAnnotations,
+) -> Option<usize> {
+    let mut first = commands
+        .leading_comments
+        .iter()
+        .map(|comment| usize::from(comment.range.start()))
+        .min();
+    if let Some(stmt) = commands.first() {
+        first = first
+            .into_iter()
+            .chain(
+                stmt.leading_comments
+                    .iter()
+                    .map(|comment| usize::from(comment.range.start())),
+            )
+            .chain(std::iter::once(stmt_first_content_offset(
+                stmt, source_map, layout,
+            )))
+            .min();
+    }
+    first
+}
+
+fn stmt_first_content_offset(
+    stmt: &Stmt,
+    source_map: &SourceMap<'_>,
+    layout: &LayoutAnnotations,
+) -> usize {
+    match &stmt.command {
+        Command::Binary(command) => stmt_first_content_offset(&command.left, source_map, layout),
+        _ => stmt_group_attachment_or_verbatim_span_with_heredoc(stmt, source_map, |stmt| {
+            layout.stmt(stmt).contains_heredoc
+        })
+        .unwrap_or_else(|| stmt_verbatim_span_with_source_map(stmt, source_map))
+        .start
+        .offset(),
+    }
+}
+
+fn gap_has_blank_line(source: &str, start: usize, end: usize) -> bool {
+    SourceView::new(source)
+        .slice_between(start, end)
+        .is_some_and(|gap| gap.bytes().filter(|byte| *byte == b'\n').count() >= 2)
+}
+
+fn gap_has_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let Some(gap) = SourceView::new(source).slice_between(start, end) else {
+        return false;
+    };
+    let bytes = gap.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\n' {
+            let mut next = index + 1;
+            while next < bytes.len() && matches!(bytes[next], b' ' | b'\t' | b'\r') {
+                next += 1;
+            }
+            if next < bytes.len() && bytes[next] == b'\n' {
+                return true;
+            }
+        }
+        index += 1;
+    }
+    false
+}
+
+fn gap_starts_with_empty_physical_line(source: &str, start: usize, end: usize) -> bool {
+    let Some(gap) = SourceView::new(source).slice_between(start, end) else {
+        return false;
+    };
+    for byte in gap.bytes() {
+        match byte {
+            b' ' | b'\t' | b'\r' => {}
+            b'\n' => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn case_has_blank_line_after_in(command: &CaseCommand, source: &str) -> bool {
+    let Some(first_pattern_start) = command
+        .cases
+        .first()
+        .and_then(|item| item.patterns.first())
+        .map(|pattern| pattern.span.start.offset())
+    else {
+        return false;
+    };
+    let start = command.word.span.end.offset().min(source.len());
+    let end = first_pattern_start.min(source.len());
+    let Some(prefix) = source.get(start..end) else {
+        return false;
+    };
+    let Some(in_end) = SourceView::new(prefix)
+        .last_shell_keyword_start_between(0, prefix.len(), "in")
+        .map(|start| start + "in".len())
+    else {
+        return false;
+    };
+    gap_has_empty_physical_line(source, start + in_end, end)
+}
+
+fn case_item_has_blank_line_before(previous: &CaseItem, item: &CaseItem, source: &str) -> bool {
+    let Some(start) = case_item_source_end_offset(previous, source) else {
+        return false;
+    };
+    let Some(end) = item
+        .patterns
+        .first()
+        .map(|pattern| pattern.span.start.offset())
+    else {
+        return false;
+    };
+    gap_has_empty_physical_line(source, start, end)
+}
+
+fn case_item_source_end_offset(item: &CaseItem, source: &str) -> Option<usize> {
+    let content_end = item
+        .body
+        .last()
+        .map(|stmt| stmt_format_span(stmt).end.offset())
+        .or_else(|| {
+            item.patterns
+                .last()
+                .map(|pattern| pattern.span.end.offset())
+        })?;
+    if let Some(terminator_span) = item.terminator_span
+        && terminator_span.end.offset() >= content_end
+        && terminator_span.end.offset() <= source.len()
+    {
+        return Some(terminator_span.end.offset());
+    }
+    let stmt_end = content_end.min(source.len());
+    let line_end = source[stmt_end..]
+        .find(['\n', '\r'])
+        .map_or(source.len(), |offset| stmt_end + offset);
+    let terminator = case_terminator(item.terminator);
+    let end = source
+        .get(stmt_end..line_end)
+        .and_then(|tail| {
+            tail.find(terminator)
+                .map(|offset| stmt_end + offset + terminator.len())
+        })
+        .unwrap_or(stmt_end);
+    Some(end)
+}
+
+fn case_suffix_comment_start_line(item: &CaseItem) -> Option<usize> {
+    item.terminator_span
+        .map(|span| span.end.line())
+        .or_else(|| item.body.last().map(|stmt| stmt_span(stmt).end.line()))
+        .or_else(|| item.patterns.last().map(|pattern| pattern.span.end.line()))
+}
+
+fn case_has_blank_line_before_esac(
+    command: &CaseCommand,
+    source: &str,
+    esac_span: Option<Span>,
+) -> bool {
+    let Some(last_item) = command.cases.last() else {
+        return false;
+    };
+    let Some(start) = case_item_source_end_offset(last_item, source) else {
+        return false;
+    };
+    let Some(esac_start) = esac_span.map(|span| span.start.offset()) else {
+        return false;
+    };
+    gap_has_blank_line(source, start, esac_start)
+}
+
+fn case_item_has_blank_line_after_pattern(
+    item: &CaseItem,
+    source: &str,
+    first_body_line: usize,
+    first_body_stmt_line: usize,
+) -> bool {
+    let Some(pattern_line) = item.patterns.last().map(|pattern| pattern.span.end.line()) else {
+        return false;
+    };
+    let stmt_line = if first_body_line <= pattern_line {
+        first_body_stmt_line
+    } else {
+        first_body_line
+    };
+    if stmt_line == 0 || stmt_line <= pattern_line.saturating_add(1) {
+        return false;
+    }
+    let lines = source.lines().collect::<Vec<_>>();
+    ((pattern_line + 1)..stmt_line).any(|line| {
+        line.checked_sub(1)
+            .and_then(|index| lines.get(index))
+            .is_some_and(|text| text.trim_matches([' ', '\t', '\r']).is_empty())
+    })
+}
+
+fn case_item_has_blank_line_before_terminator(
+    item: &CaseItem,
+    source: &str,
+    content_end: usize,
+) -> bool {
+    let Some(terminator_start) = item.terminator_span.map(|span| span.start.offset()) else {
+        return false;
+    };
+    !item.body.is_empty() && gap_has_empty_physical_line(source, content_end, terminator_start)
+}
+
+fn case_item_pattern_suffix_comment<'source>(
+    item: &CaseItem,
+    upper_bound: Option<usize>,
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let start = item.patterns.last()?.span.end.offset().min(source.len());
+    let end = item
+        .body
+        .first()
+        .map(|stmt| stmt_span(stmt).start.offset())
+        .or_else(|| item.terminator_span.map(|span| span.start.offset()))
+        .or(upper_bound)
+        .unwrap_or(source.len())
+        .min(source.len());
+    if start >= end {
+        return None;
+    }
+    let (_, source_line_end) = source_map.line_bounds_for_offset(start)?;
+    let line_end = source_line_end.min(end);
+    let comment = source_map.first_source_comment_between(start, line_end)?;
+    let before = source_map.slice_between(start, comment.span().start.offset())?;
+    if !before.contains(')') {
+        return None;
+    }
+    Some(comment)
+}
+
+fn case_item_terminator_suffix_comment<'source>(
+    item: &CaseItem,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let span = item.terminator_span?;
+    if span.start.line() != span.end.line() {
+        return None;
+    }
+    source_map.suffix_comment_after_span(span)
+}
+
+fn case_item_source_prefix_comments<'source>(
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+    first_pattern_start: usize,
+) -> Vec<SourceComment<'source>> {
+    let Some((pattern_line_start, _)) = source_map.line_bounds_for_offset(first_pattern_start)
+    else {
+        return Vec::new();
+    };
+    if source
+        .get(pattern_line_start..first_pattern_start)
+        .is_some_and(|prefix| !prefix.trim_matches([' ', '\t', '\r']).is_empty())
+    {
+        return Vec::new();
+    }
+    let mut comments = Vec::new();
+    let mut next_start = pattern_line_start;
+    while let Some((start, end)) = source_map.previous_line_bounds(next_start) {
+        let Some(line) = source.get(start..end) else {
+            break;
+        };
+        let trimmed = line.trim_matches([' ', '\t', '\r']);
+        if trimmed.is_empty() {
+            next_start = start;
+            continue;
+        }
+        let leading_padding = line.len() - line.trim_start_matches([' ', '\t']).len();
+        let comment = &line[leading_padding..];
+        if !comment.starts_with('#') {
+            break;
+        }
+        let absolute_start = start + leading_padding;
+        let absolute_end = absolute_start + comment.trim_end_matches([' ', '\t', '\r']).len();
+        if let Some(comment) = source_map.source_comment_for_offsets(absolute_start, absolute_end) {
+            comments.push(comment);
+        }
+        next_start = start;
+    }
+    comments.reverse();
+    comments
+}
+
+fn suffix_comment_from_span<'source>(
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+    span: Span,
+) -> Option<SourceComment<'source>> {
+    let raw = span.slice(source);
+    let leading_padding = raw.len() - raw.trim_start_matches([' ', '\t']).len();
+    let comment = raw[leading_padding..].trim_end_matches([' ', '\t', '\r']);
+    if !comment.starts_with('#') {
+        return None;
+    }
+    let absolute_start = span.start.offset() + leading_padding;
+    let absolute_end = absolute_start + comment.len();
+    source_map.source_comment_for_offsets(absolute_start, absolute_end)
+}
+
+fn condition_separator_suffix_comment<'source>(
+    condition: &StmtSeq,
+    then_span: Span,
+    source: &'source str,
+    source_map: &SourceMap<'source>,
+) -> Option<SourceComment<'source>> {
+    let start = condition.last().map(condition_stmt_command_end)?;
+    let end = then_span.start.offset().min(source.len());
+    if start >= end {
+        return None;
+    }
+    let region = source.get(start..end)?;
+    let comment_rel = region.find('#')?;
+    let before_comment = region.get(..comment_rel)?;
+    if !before_comment
+        .chars()
+        .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n' | ';'))
+    {
+        return None;
+    }
+    let comment_start = start + comment_rel;
+    let line_end = source
+        .get(comment_start..end)?
+        .find('\n')
+        .map_or(end, |offset| comment_start + offset);
+    let comment = source
+        .get(comment_start..line_end)?
+        .trim_end_matches([' ', '\t', '\r']);
+    source_map.source_comment_for_offsets(comment_start, comment_start + comment.len())
+}
+
+fn condition_stmt_command_end(stmt: &Stmt) -> usize {
+    let mut end = command_format_span(&stmt.command).end.offset();
+    if end == 0 {
+        end = stmt_span(stmt).end.offset();
+    }
+    for redirect in &stmt.redirects {
+        end = end.max(redirect.span.end.offset());
+    }
+    end
+}
+
+fn if_branch_upper_bound(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+    _source_map: &SourceMap<'_>,
+    facts: &FormatterFacts<'_>,
+) -> usize {
+    if let Some((start, end)) = if_next_branch_region(command, branch_index, source) {
+        facts
+            .branch_prefix_first_comment_offset(start, end)
+            .unwrap_or(end)
+    } else {
+        facts.if_close_span(command).start.offset()
+    }
+}
+
+fn if_next_branch_region(
+    command: &IfCommand,
+    branch_index: usize,
+    source: &str,
+) -> Option<(usize, usize)> {
+    if_next_branch_region_with_body_end(command, branch_index, source, branch_body_content_end)
+}
+
+fn branch_body_content_end(body: &StmtSeq) -> usize {
+    body.last()
+        .map(|stmt| stmt_span(stmt).end.offset())
+        .unwrap_or(body.span.end.offset())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use shucked_parser::parser::Parser;
+
+    use super::*;
+    use crate::command::group_attachment_span_with_heredoc;
+    use crate::{ShellDialect, ShellFormatOptions};
+
+    fn parse(source: &str) -> shucked_ast::File {
+        Parser::new(source).parse().unwrap().file
+    }
+
+    fn build_facts<'source>(source: &'source str) -> (shucked_ast::File, FormatterFacts<'source>) {
+        build_facts_with_options(source, ShellFormatOptions::default(), "test.sh")
+    }
+
+    fn build_facts_with_options<'source>(
+        source: &'source str,
+        options: ShellFormatOptions,
+        path: &str,
+    ) -> (shucked_ast::File, FormatterFacts<'source>) {
+        let file = parse(source);
+        let resolved = options.resolve(source, Some(Path::new(path)));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        (file, facts)
+    }
+
+    fn first_brace_group(file: &shucked_ast::File) -> &StmtSeq {
+        match &file.body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group"),
+        }
+    }
+
+    fn group_attachment_source<'source>(
+        source: &'source str,
+        facts: &FormatterFacts<'source>,
+        commands: &StmtSeq,
+        open: char,
+        close: char,
+    ) -> &'source str {
+        group_attachment_span_with_heredoc(
+            commands.as_slice(),
+            facts.source_map(),
+            open,
+            close,
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected group attachment span")
+        .slice(source)
+    }
+
+    #[test]
+    fn builds_branch_comment_sequence_facts() {
+        let source =
+            "if foo; then\n  one\nelif bar; then\n  # note\n  two\nelse\n  # alt\n  three\nfi\n";
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_dialect(ShellDialect::Bash),
+            "test.bash",
+        );
+
+        let (_, elif_body) = &match &file.body[0].command {
+            Command::Compound(CompoundCommand::If(command)) => &command.elif_branches[0],
+            _ => panic!("expected if command"),
+        };
+        let elif_facts = facts.sequence(
+            elif_body,
+            Some(if_branch_upper_bound(
+                match &file.body[0].command {
+                    Command::Compound(CompoundCommand::If(command)) => command,
+                    _ => unreachable!(),
+                },
+                1,
+                source,
+                facts.source_map(),
+                &facts,
+            )),
+        );
+        assert_eq!(elif_facts.leading_for(0).len(), 1);
+        assert!(!elif_facts.is_ambiguous());
+    }
+
+    #[test]
+    fn captures_group_open_suffix_comments() {
+        let source = "foo() {\n  # outer\n  { # note\n    echo hi\n  }\n}\n";
+        let (file, facts) = build_facts(source);
+
+        let body = match &file.body[0].command {
+            Command::Function(function) => match function.body.as_ref() {
+                Stmt {
+                    command: Command::Compound(CompoundCommand::BraceGroup(commands)),
+                    ..
+                } => commands,
+                _ => panic!("expected brace group"),
+            },
+            _ => panic!("expected function"),
+        };
+        let inner = match &body[0].command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected inner brace group"),
+        };
+
+        let sequence = facts.sequence(inner, Some(body[0].span.end.offset()));
+        let span = sequence
+            .group_open_suffix_span()
+            .expect("expected group open suffix span");
+        let comment = facts
+            .suffix_comment_plan_for_span(span)
+            .map(InlineCommentPlan::comment)
+            .expect("expected suffix comment attachment");
+        assert_eq!(comment.text(), "# note");
+        assert!(sequence.leading_for(0).is_empty());
+    }
+
+    #[test]
+    fn precomputes_trailing_comment_alignment_targets() {
+        let source = "one  # a\ntwo_long  # b\n";
+        let (file, facts) = build_facts(source);
+        let sequence = facts.sequence(&file.body, None);
+        let comment = sequence
+            .trailing_for(0)
+            .first()
+            .expect("expected first trailing comment");
+        let plan = facts.trailing_comment_plan(*comment);
+
+        assert!(plan.has_alignment(facts.source_map(), 0));
+        assert_eq!(plan.padding(facts.source_map(), "one".len(), 0), 6);
+    }
+
+    #[test]
+    fn captures_group_attachment_and_blank_line_layout() {
+        let source = "{\n\n  echo hi\n\n}\n";
+        let (file, facts) = build_facts(source);
+        let body = first_brace_group(&file);
+        let sequence = facts.sequence(body, None);
+
+        assert_eq!(
+            sequence
+                .group_attachment_span()
+                .expect("expected group attachment")
+                .slice(source),
+            source.trim_end()
+        );
+        assert!(sequence.open_end_offset().is_some());
+        assert!(sequence.has_blank_line_after_open());
+        assert!(sequence.has_blank_line_before_close());
+        assert_eq!(&source[..sequence.close_gap_start()], "{\n\n  echo hi");
+    }
+
+    #[test]
+    fn captures_then_branch_open_suffix_comments() {
+        let source = "if foo; then # note\n  bar\nfi\n";
+        let (file, facts) = build_facts(source);
+
+        let then_branch = match &file.body[0].command {
+            Command::Compound(CompoundCommand::If(command)) => &command.then_branch,
+            _ => panic!("expected if command"),
+        };
+        let sequence = facts.sequence(
+            then_branch,
+            Some(if_branch_upper_bound(
+                match &file.body[0].command {
+                    Command::Compound(CompoundCommand::If(command)) => command,
+                    _ => unreachable!(),
+                },
+                0,
+                source,
+                facts.source_map(),
+                &facts,
+            )),
+        );
+        assert!(sequence.group_open_suffix_span().is_some());
+        assert!(!sequence.is_ambiguous());
+        assert!(sequence.leading_for(0).is_empty());
+    }
+
+    #[test]
+    fn captures_branch_prefix_region_layout() {
+        let source = "if foo; then\n  one\n\n# keep with branch\n\nelif bar; then\n  two\nfi\n";
+        let (file, facts) = build_facts(source);
+        let command = match &file.body[0].command {
+            Command::Compound(CompoundCommand::If(command)) => command,
+            _ => panic!("expected if command"),
+        };
+        let (start, end) = facts
+            .if_next_branch_region(command, 0)
+            .expect("expected elif branch region");
+        let branch = facts.branch_prefix_facts(start, end);
+
+        assert_eq!(branch.comments().len(), 1);
+        assert_eq!(branch.comments()[0].text, "# keep with branch");
+        assert!(branch.has_blank_line_before_keyword());
+        assert!(branch.has_blank_line_after_comments());
+        assert_eq!(
+            facts.if_branch_upper_bound(command, 0),
+            branch
+                .first_comment_offset()
+                .expect("expected prefix comment")
+        );
+    }
+
+    #[test]
+    fn records_explicit_break_layout_facts() {
+        let list_source = "foo &&\n  bar\n";
+        let (list_file, list_facts) = build_facts(list_source);
+
+        let Command::Binary(list) = &list_file.body[0].command else {
+            panic!("expected command list");
+        };
+        assert!(list_facts.list_item_has_explicit_line_break(list.op_span));
+
+        let background_source = "background &\necho next\n";
+        let (background_file, background_facts) = build_facts(background_source);
+        assert!(background_facts.background_has_explicit_line_break(&background_file.body[0]));
+    }
+
+    #[test]
+    fn records_padding_and_heredoc_verbatim_facts() {
+        let source = "a=1  b=2\ncat <<EOF # note\nhi\nEOF\n";
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_keep_padding(true),
+            "test.sh",
+        );
+
+        assert!(facts.stmt(&file.body[0]).preserve_verbatim());
+        assert!(facts.stmt(&file.body[1]).preserve_verbatim());
+    }
+
+    #[test]
+    fn captures_case_prefix_suffix_and_blank_line_regions() {
+        let source = "case value in\n\n  # before pattern\n  one) # pattern note\n    echo one\n\n    ;; # done note\n\n  # before close\nesac # close note\n";
+        let (file, facts) = build_facts(source);
+        let command = match &file.body[0].command {
+            Command::Compound(CompoundCommand::Case(command)) => command,
+            _ => panic!("expected case command"),
+        };
+        let case_facts = facts.case_command(command);
+        let item_facts = facts.case_item(&command.cases[0]);
+
+        assert!(case_facts.has_blank_line_after_in());
+        assert_eq!(case_facts.suffix_comments_before_esac().len(), 1);
+        assert_eq!(
+            case_facts.suffix_comments_before_esac()[0].text,
+            "# before close"
+        );
+        assert!(case_facts.has_blank_line_before_esac());
+        assert_eq!(item_facts.prefix_comments().len(), 1);
+        assert_eq!(item_facts.prefix_comments()[0].text(), "# before pattern");
+        assert_eq!(
+            item_facts
+                .pattern_suffix_comment()
+                .expect("expected pattern suffix")
+                .text(),
+            "# pattern note"
+        );
+        assert_eq!(
+            item_facts
+                .terminator_suffix_comment()
+                .expect("expected terminator suffix")
+                .text(),
+            "# done note"
+        );
+        assert!(
+            facts
+                .close_suffix_comment_plan_after_span(case_facts.esac_span().unwrap())
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn brace_form_loop_close_suffix_comments_extend_attachment_span() {
+        let source =
+            "for key value in a b c d; { print -r -- \"$key:$value\"; } # close\nprint done\n";
+        let file = Parser::with_dialect(source, shucked_parser::ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let resolved = ShellFormatOptions::default()
+            .with_dialect(ShellDialect::Zsh)
+            .resolve(source, Some(Path::new("test.zsh")));
+        let facts = FormatterFacts::build(source, &file, &resolved);
+        let stmt = &file.body[0];
+        let attachment = facts.stmt(stmt).attachment_span().slice(source);
+
+        assert!(facts.stmt_compound_close_span(stmt).is_some());
+        assert!(attachment.ends_with("# close"));
+        assert!(!attachment.contains("print done"));
+    }
+
+    #[test]
+    fn records_non_layout_classification_facts() {
+        let source = "value=\"one\ntwo\"\ncat <<EOF\nhi\nEOF\nfoo | { a; b; }\n";
+        let (file, facts) = build_facts(source);
+
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple assignment");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+
+        assert!(facts.word_has_multiline_literal_source(word));
+        assert!(facts.stmt(&file.body[1]).contains_heredoc());
+        assert!(facts.sequence_contains_heredoc(&file.body));
+        assert!(facts.sequence_contains_multistatement_pipeline_brace_group(&file.body));
+    }
+
+    #[test]
+    fn records_nested_sequence_comment_classification_facts() {
+        let source = "value=$(echo hi\n  # note\n)\n";
+        let (file, facts) = build_facts(source);
+
+        let Command::Simple(command) = &file.body[0].command else {
+            panic!("expected simple assignment");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar assignment");
+        };
+        let [
+            WordPartNode {
+                kind: WordPart::CommandSubstitution { body, .. },
+                ..
+            },
+        ] = word.parts.as_slice()
+        else {
+            panic!("expected command substitution word");
+        };
+
+        assert!(facts.sequence_contains_comments(body));
+        assert!(facts.word_has_multiline_literal_source(word));
+    }
+
+    #[test]
+    fn grouped_condition_sequences_do_not_capture_later_file_comments() {
+        let source = "download() {\n  local url\n  url=https://github.com/junegunn/fzf/releases/download/v$version/${1}\n  set -o pipefail\n  if ! (try_curl $url || try_wget $url); then\n    set +o pipefail\n    binary_error=\"Failed to download with curl and wget\"\n    return\n  fi\n  set +o pipefail\n}\n\n# Try to download binary executable\narchi=$(uname -smo 2> /dev/null || uname -sm)\n";
+        let (file, facts) = build_facts(source);
+
+        let function = match &file.body[0].command {
+            Command::Function(function) => function,
+            _ => panic!("expected function"),
+        };
+        let function_body = match &function.body.command {
+            Command::Compound(CompoundCommand::BraceGroup(commands)) => commands,
+            _ => panic!("expected brace group function body"),
+        };
+        let if_command = match &function_body[3].command {
+            Command::Compound(CompoundCommand::If(command)) => command,
+            _ => panic!("expected if command"),
+        };
+        let condition_stmt = &if_command.condition[0];
+        let subshell = match &condition_stmt.command {
+            Command::Compound(CompoundCommand::Subshell(commands)) => commands,
+            _ => panic!("expected subshell condition"),
+        };
+
+        let sequence = facts.sequence(subshell, Some(stmt_span(condition_stmt).end.offset()));
+        let attachment_span = group_attachment_span_with_heredoc(
+            subshell.as_slice(),
+            facts.source_map(),
+            '(',
+            ')',
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected subshell attachment span");
+        assert!(!sequence.has_comments());
+        assert!(facts.group_was_inline_in_source(subshell));
+        assert_eq!(
+            attachment_span.slice(source),
+            "(try_curl $url || try_wget $url)"
+        );
+    }
+
+    #[test]
+    fn brace_group_attachment_span_reaches_wrapper_close_after_parameter_expansion() {
+        let source = "{\n  echo ${value}\n}\n# outside\nprintf '%s\\n' done\n";
+        let (file, facts) = build_facts(source);
+
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
+
+        assert_eq!(attachment, "{\n  echo ${value}\n}");
+    }
+
+    #[test]
+    fn function_body_comments_with_parameter_syntax_attach_to_first_stmt() {
+        let source = "function f() {\n  # parse all defined shortcuts ${BASH_IT_DIRS_BKS}\n  if [[ -s x ]]; then\n    echo ok\n  fi\n}\n";
+        let (file, facts) = build_facts_with_options(
+            source,
+            ShellFormatOptions::default().with_dialect(ShellDialect::Bash),
+            "test.bash",
+        );
+
+        let Command::Function(function) = &file.body[0].command else {
+            panic!("expected function");
+        };
+        let Command::Compound(CompoundCommand::BraceGroup(body)) = &function.body.command else {
+            panic!("expected brace group body");
+        };
+        let sequence = facts.sequence(body, Some(function.span.end.offset()));
+        let leading = sequence.leading_for(0);
+
+        assert_eq!(leading.len(), 1);
+        assert_eq!(
+            leading[0].text(),
+            "# parse all defined shortcuts ${BASH_IT_DIRS_BKS}"
+        );
+    }
+
+    #[test]
+    fn subshell_attachment_span_reaches_wrapper_close_after_command_substitution() {
+        let source = "(\n  echo $(printf '%s' value)\n)\n# outside\nprintf '%s\\n' done\n";
+        let (file, facts) = build_facts(source);
+
+        let subshell = match &file.body[0].command {
+            Command::Compound(CompoundCommand::Subshell(commands)) => commands,
+            _ => panic!("expected subshell"),
+        };
+        let attachment_span = group_attachment_span_with_heredoc(
+            subshell.as_slice(),
+            facts.source_map(),
+            '(',
+            ')',
+            |stmt| facts.stmt(stmt).contains_heredoc(),
+        )
+        .expect("expected subshell attachment span");
+
+        assert_eq!(
+            attachment_span.slice(source),
+            "(\n  echo $(printf '%s' value)\n)"
+        );
+    }
+
+    #[test]
+    fn brace_group_attachment_span_keeps_semicolon_terminated_trailing_comments() {
+        let source = "{\n  echo ok; # inside\n}\n# outside\nprintf '%s\\n' done\n";
+        let (file, facts) = build_facts(source);
+
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
+
+        assert_eq!(attachment, "{\n  echo ok; # inside\n}");
+    }
+
+    #[test]
+    fn brace_group_attachment_span_reaches_wrapper_close_after_heredoc_body() {
+        let source = "{\n  cat <<EOF\npayload\nEOF\n}\n# outside\nprintf '%s\\n' done\n";
+        let (file, facts) = build_facts(source);
+
+        let attachment =
+            group_attachment_source(source, &facts, first_brace_group(&file), '{', '}');
+
+        assert_eq!(attachment, "{\n  cat <<EOF\npayload\nEOF\n}");
+    }
+
+    #[test]
+    fn brace_group_attachment_span_reaches_wrapper_close_after_line_continuation() {
+        let source = "{ echo ok; \\\n}\n# outside\nprintf '%s\\n' done\n";
+        let (file, facts) = build_facts(source);
+
+        let brace_group = first_brace_group(&file);
+        let attachment = group_attachment_source(source, &facts, brace_group, '{', '}');
+
+        assert!(!facts.group_was_inline_in_source(brace_group));
+        assert_eq!(attachment, "{ echo ok; \\\n}");
+    }
+}

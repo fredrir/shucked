@@ -1,0 +1,69 @@
+[package]
+name = "shucked-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage = "https://github.com/ewhauser/shuck"
+description = "A fast shell script linter"
+keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+[lib]
+name = "shucked"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shucked"
+path = "src/main.rs"
+
+[dependencies]
+annotate-snippets = { workspace = true }
+anyhow = { workspace = true }
+clearscreen = { workspace = true }
+clap = { workspace = true }
+colored = { workspace = true }
+etcetera = { workspace = true }
+globset = { workspace = true }
+notify = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+quick-junit = { workspace = true }
+shucked-ast = { workspace = true }
+shucked-cache = { workspace = true }
+shucked-config = { workspace = true }
+shucked-discover = { workspace = true }
+shucked-extract = { workspace = true }
+shucked-formatter = { workspace = true }
+shucked-indexer = { workspace = true }
+shucked-linter = { workspace = true }
+shucked-parser = { workspace = true }
+shucked-run = { workspace = true }
+shucked-server = { workspace = true }
+shucked-lsp = { workspace = true }
+shucked-semantic = { workspace = true }
+similar = { workspace = true }
+tempfile = { workspace = true }
+toml = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+insta = { workspace = true, features = ["json", "redactions"] }
+predicates = "3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+shucked-indexer = { workspace = true }
+shucked-linter = { workspace = true }
+shucked-parser = { workspace = true }
+shucked-run = { workspace = true }
+shucked-semantic = { workspace = true }
+wait-timeout = "0.2"
+walkdir = "2"
+roxmltree = { workspace = true }

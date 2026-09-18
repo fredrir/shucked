@@ -1,16 +1,16 @@
 {
-  "name": "shuck",
-  "displayName": "Shuck",
-  "description": "Shuck shellscript; linter, formatter and LSP for VS Code",
+  "name": "shucked",
+  "displayName": "Shucked",
+  "description": "Shucked: Industry-grade Shellscript & ZSH Language Server, Linter, and Formatter",
   "author": "fredrir",
   "license": "MIT",
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fredrir/shuck-vscode"
+    "url": "https://github.com/fredrir/shuck"
   },
   "bugs": {
-    "url": "https://github.com/fredrir/shuck-vscode/issues"
+    "url": "https://github.com/fredrir/shuck/issues"
   },
   "publisher": "fredrir",
   "engines": {
@@ -29,42 +29,68 @@
     "sh",
     "linter",
     "formatter",
-    "language-server"
+    "language-server",
+    "shucked"
   ],
   "activationEvents": [
     "onLanguage:shellscript"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "workspaceTrust": {
+    "supported": true
+  },
   "contributes": {
+    "commands": [
+      {
+        "command": "shucked.restartServer",
+        "title": "Shucked: Restart Language Server"
+      },
+      {
+        "command": "shucked.showOutputChannel",
+        "title": "Shucked: Show Language Server Logs"
+      },
+      {
+        "command": "shucked.showVersion",
+        "title": "Shucked: Show Version"
+      }
+    ],
     "configuration": {
-      "title": "Shuck",
+      "title": "Shucked",
       "properties": {
-        "shuck.path": {
+        "shucked.server.path": {
           "type": "string",
-          "default": "shuck",
-          "description": "Path to the Shuck executable.",
+          "default": "",
+          "description": "Path to custom shucked executable. Bundled platform binaries are the standard supported mode; custom binary paths are unsupported and provided as-is.",
           "examples": [
-            "/usr/bin/shuck",
-            "$HOME/.cargo/bin/shuck"
+            "/usr/local/bin/shucked",
+            "$HOME/.cargo/bin/shucked"
           ]
         },
-        "shuck.enabledShells": {
+        "shucked.server.extraArgs": {
           "type": "array",
-          "default": [
-            "sh",
-            "bash",
-            "zsh"
-          ],
-          "uniqueItems": true,
+          "default": [],
           "items": {
-            "type": "string",
-            "enum": [
-              "sh",
-              "bash",
-              "zsh"
-            ]
+            "type": "string"
           },
-          "description": "Shell languages for which Shuck is enabled."
+          "description": "Extra CLI args for shucked server."
+        },
+        "shucked.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Shucked language server."
         }
       }
     }

@@ -1,0 +1,429 @@
+use super::*;
+
+pub(super) fn recorded_command_info(
+    command: &Command,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
+    match command {
+        Command::Simple(command) => recorded_simple_command_info(
+            command,
+            source,
+            bash_runtime_vars_enabled,
+            zsh_runtime_vars_enabled,
+        ),
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => RecordedCommandInfo::default(),
+    }
+}
+
+/// Cheap effects-only variant of [`recorded_command_info`] for flow tracking.
+///
+/// Only shell-option builtins (possibly behind effect-transparent wrappers)
+/// can carry zsh effects, so anything else skips normalization entirely.
+pub(super) fn recorded_command_zsh_effects(
+    command: &Command,
+    source: &str,
+) -> Vec<RecordedZshCommandEffect> {
+    let Command::Simple(simple) = command else {
+        return Vec::new();
+    };
+    let is_effect_head = static_word_text(&simple.name, source).is_some_and(|name| {
+        matches!(
+            name.as_ref(),
+            "emulate" | "setopt" | "unsetopt" | "set" | "command" | "builtin" | "noglob" | "exec"
+        )
+    });
+    if !is_effect_head {
+        return Vec::new();
+    }
+    recorded_simple_command_info(simple, source, false, false).zsh_effects
+}
+
+pub(super) fn recorded_simple_command_info(
+    command: &shucked_ast::SimpleCommand,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
+    let words = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .collect::<Vec<_>>();
+    let normalized = normalize_command_words_owned(words, source)
+        .expect("recorded simple commands always include a command name");
+    recorded_simple_command_info_with(
+        command,
+        &normalized,
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+    )
+}
+
+pub(super) fn recorded_simple_command_info_with(
+    command: &shucked_ast::SimpleCommand,
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+    zsh_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
+    let static_callee = recorded_static_callee(normalized).map(Into::into);
+    let dynamic_name_span = static_callee
+        .is_none()
+        .then_some(normalized.body_word_span())
+        .flatten();
+    let static_args = recorded_static_args(command, normalized, source);
+    let resolved_source_path_template = normalized
+        .literal_name
+        .as_deref()
+        .filter(|name| matches!(*name, "source" | "."))
+        .and_then(|_| command.args.first())
+        .and_then(|word| {
+            source_path_template(
+                word,
+                source,
+                bash_runtime_vars_enabled,
+                zsh_runtime_vars_enabled,
+            )
+        });
+    let source_path_template_ignored_root = resolved_source_path_template
+        .as_ref()
+        .is_some_and(|resolved| resolved.ignored_root);
+    let source_path_template = resolved_source_path_template.map(|resolved| resolved.template);
+
+    let mut info = RecordedCommandInfo {
+        static_callee,
+        dynamic_name_span,
+        static_args,
+        source_path_template,
+        source_path_template_ignored_root,
+        zsh_effects: Vec::new(),
+    };
+    let Some(effect_command) = normalized_zsh_effect_command(normalized, source) else {
+        return info;
+    };
+    let Some(effect_callee) = effect_command.effective_name.as_deref() else {
+        return info;
+    };
+    let args = effect_command.body_args();
+
+    match effect_callee {
+        "emulate" => info.zsh_effects = parse_emulate_effects(args, source),
+        "setopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates(args, source, true),
+            }];
+        }
+        "unsetopt" => {
+            info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions {
+                updates: parse_setopt_updates(args, source, false),
+            }];
+        }
+        "set" => {
+            let updates = parse_set_builtin_option_updates(args, source);
+            if !updates.is_empty() {
+                info.zsh_effects = vec![RecordedZshCommandEffect::SetOptions { updates }];
+            }
+        }
+        _ => {}
+    }
+
+    info.zsh_effects.retain(|effect| match effect {
+        RecordedZshCommandEffect::Emulate { .. } => true,
+        RecordedZshCommandEffect::EmulateUnknown { .. } => true,
+        RecordedZshCommandEffect::SetOptions { updates } => !updates.is_empty(),
+    });
+    info
+}
+
+fn recorded_static_callee<'a>(normalized: &'a NormalizedCommand<'a>) -> Option<&'a str> {
+    if normalized.wrappers == [WrapperKind::Noglob] {
+        return normalized.effective_name.as_deref();
+    }
+    normalized.literal_name.as_deref()
+}
+
+fn recorded_static_args(
+    command: &shucked_ast::SimpleCommand,
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+) -> Box<[Option<compact_str::CompactString>]> {
+    if normalized.wrappers == [WrapperKind::Noglob] {
+        return normalized
+            .body_args()
+            .iter()
+            .map(|word| {
+                static_word_text(word, source)
+                    .map(|text| compact_str::CompactString::from(text.as_ref()))
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+    }
+    command
+        .args
+        .iter()
+        .map(|word| {
+            static_word_text(word, source)
+                .map(|text| compact_str::CompactString::from(text.as_ref()))
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn normalized_zsh_effect_command<'a>(
+    command: &NormalizedCommand<'a>,
+    source: &'a str,
+) -> Option<NormalizedCommand<'a>> {
+    if !normalized_command_can_have_zsh_effects(command) {
+        return None;
+    }
+
+    let mut effect_start = command.body_words.len();
+    let mut effect_head_text = None;
+    for (index, word) in command.body_words.iter().enumerate() {
+        let text = static_word_text(word, source);
+        if text.as_deref().is_some_and(is_recorded_assignment_word) {
+            continue;
+        }
+        effect_start = index;
+        effect_head_text = text;
+        break;
+    }
+
+    // Only shell-option builtins (possibly behind effect-transparent wrappers)
+    // can produce zsh effects, so skip renormalization for everything else.
+    let head = effect_head_text?;
+    if !matches!(
+        head.as_ref(),
+        "emulate" | "setopt" | "unsetopt" | "set" | "command" | "builtin" | "noglob" | "exec"
+    ) {
+        return None;
+    }
+
+    let effect_command = normalize_command_words(&command.body_words[effect_start..], source)?;
+    normalized_command_can_have_zsh_effects(&effect_command).then_some(effect_command)
+}
+
+fn normalized_command_can_have_zsh_effects(command: &NormalizedCommand<'_>) -> bool {
+    command.wrappers.iter().all(|wrapper| {
+        matches!(
+            wrapper,
+            WrapperKind::Command | WrapperKind::Builtin | WrapperKind::Noglob | WrapperKind::Exec
+        )
+    })
+}
+
+fn is_recorded_assignment_word(word: &str) -> bool {
+    let Some((name, _value)) = word.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+pub(super) fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommandEffect> {
+    let mut local = false;
+    let mut mode = None;
+    let mut dynamic_mode = false;
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if mode.is_none() && !dynamic_mode {
+                dynamic_mode = true;
+            }
+            index += 1;
+            continue;
+        };
+
+        match text.as_ref() {
+            "--" => {
+                break;
+            }
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                match args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                {
+                    Some(option) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&option, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
+                    }
+                    None => {}
+                }
+                index += 2;
+                continue;
+            }
+            _ => {}
+        }
+
+        if text.starts_with("-o") || text.starts_with("+o") {
+            let enable = text.starts_with('-');
+            if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                updates.push(update);
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(flags) = text.strip_prefix('-') {
+            for flag in flags.chars() {
+                match flag {
+                    'L' => local = true,
+                    'R' => {}
+                    _ => {}
+                }
+            }
+            index += 1;
+            continue;
+        }
+
+        if mode.is_none() && !dynamic_mode {
+            mode = match text.to_ascii_lowercase().as_str() {
+                "zsh" => Some(ZshEmulationMode::Zsh),
+                "sh" => Some(ZshEmulationMode::Sh),
+                "ksh" => Some(ZshEmulationMode::Ksh),
+                "csh" => Some(ZshEmulationMode::Csh),
+                _ => None,
+            };
+        }
+        index += 1;
+    }
+
+    let mut effects = Vec::new();
+    if dynamic_mode {
+        effects.push(RecordedZshCommandEffect::EmulateUnknown { local });
+    } else if let Some(mode) = mode {
+        effects.push(RecordedZshCommandEffect::Emulate { mode, local });
+    }
+    if !updates.is_empty() {
+        effects.push(RecordedZshCommandEffect::SetOptions { updates });
+    }
+    effects
+}
+
+pub(super) fn parse_setopt_updates(
+    args: &[&Word],
+    source: &str,
+    enable: bool,
+) -> Vec<RecordedZshOptionUpdate> {
+    let mut updates = Vec::new();
+    let mut pattern_mode = false;
+
+    for word in args {
+        match static_word_text(word, source) {
+            Some(text) if text == "--" => {}
+            Some(text) if matches!(text.as_ref(), "-m" | "+m") => {
+                pattern_mode = true;
+            }
+            Some(_text) if pattern_mode => updates.push(RecordedZshOptionUpdate::UnknownName),
+            Some(text) => {
+                if let Some(update) = parse_recorded_zsh_option_update(&text, enable) {
+                    updates.push(update);
+                }
+            }
+            None => updates.push(RecordedZshOptionUpdate::UnknownName),
+        }
+    }
+
+    updates
+}
+
+pub(super) fn parse_set_builtin_option_updates(
+    args: &[&Word],
+    source: &str,
+) -> Vec<RecordedZshOptionUpdate> {
+    let mut updates = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            index += 1;
+            continue;
+        };
+
+        match text.as_ref() {
+            "-o" | "+o" => {
+                let enable = text.starts_with('-');
+                match args
+                    .get(index + 1)
+                    .and_then(|word| static_word_text(word, source))
+                {
+                    Some(name) => {
+                        if let Some(update) = parse_recorded_zsh_option_update(&name, enable) {
+                            updates.push(update);
+                        }
+                    }
+                    None if args.get(index + 1).is_some() => {
+                        updates.push(RecordedZshOptionUpdate::UnknownName);
+                    }
+                    None => {}
+                }
+                index += 2;
+            }
+            _ if text.starts_with("-o") || text.starts_with("+o") => {
+                let enable = text.starts_with('-');
+                if let Some(update) = parse_recorded_zsh_option_update(&text[2..], enable) {
+                    updates.push(update);
+                }
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+
+    updates
+}
+
+pub(super) fn parse_recorded_zsh_option_update(
+    name: &str,
+    enable: bool,
+) -> Option<RecordedZshOptionUpdate> {
+    let (normalized, inverted) = normalize_recorded_zsh_option_name(name)?;
+    let enable = if inverted { !enable } else { enable };
+
+    if normalized == "localoptions" {
+        return Some(RecordedZshOptionUpdate::LocalOptions { enable });
+    }
+
+    Some(RecordedZshOptionUpdate::Named {
+        name: normalized.into_boxed_str(),
+        enable,
+    })
+}
+
+pub(super) fn normalize_recorded_zsh_option_name(name: &str) -> Option<(String, bool)> {
+    let mut normalized = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if matches!(ch, '_' | '-') {
+            continue;
+        }
+        normalized.push(ch.to_ascii_lowercase());
+    }
+
+    if normalized.is_empty() {
+        return None;
+    }
+
+    if let Some(stripped) = normalized.strip_prefix("no")
+        && !stripped.is_empty()
+    {
+        return Some((stripped.to_string(), true));
+    }
+
+    Some((normalized, false))
+}

@@ -1,6 +1,6 @@
-use shuck_ast::Span;
-use shuck_indexer::Indexer;
-use shuck_parser::{
+use shucked_ast::Span;
+use shucked_indexer::Indexer;
+use shucked_parser::{
     ShellDialect as ParseDialect,
     parser::{ParseResult, Parser},
 };

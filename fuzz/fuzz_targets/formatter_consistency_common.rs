@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use shuck_formatter::{
+use shucked_formatter::{
     FormattedSource, ShellDialect as FormatDialect, ShellFormatOptions, format_file_ast,
     format_source, source_is_formatted,
 };
-use shuck_parser::{ShellDialect as ParseDialect, parser::Parser};
+use shucked_parser::{ShellDialect as ParseDialect, parser::Parser};
 
 pub(crate) const FORMAT_CASES: [FormatCase; 4] = [
     FormatCase::new("fuzz.sh", ParseDialect::Posix, FormatDialect::Auto),
@@ -52,8 +52,8 @@ pub(crate) fn compare_formatting_invariants(source: &str, case: FormatCase) {
 
     let from_source = match format_source(source, path, &options) {
         Ok(result) => result,
-        Err(shuck_formatter::FormatError::Parse { .. }) => return,
-        Err(shuck_formatter::FormatError::Internal(message)) => {
+        Err(shucked_formatter::FormatError::Parse { .. }) => return,
+        Err(shucked_formatter::FormatError::Internal(message)) => {
             panic!(
                 "internal formatter error for {}: {message}",
                 case.path().display()

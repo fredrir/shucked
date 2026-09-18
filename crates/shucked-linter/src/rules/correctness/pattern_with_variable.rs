@@ -1,0 +1,426 @@
+use shucked_ast::Span;
+
+use super::pattern_policy;
+use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, ShellDialect, Violation};
+
+pub struct PatternWithVariable;
+
+impl Violation for PatternWithVariable {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
+    fn rule() -> Rule {
+        Rule::PatternWithVariable
+    }
+
+    fn message(&self) -> String {
+        "pattern expressions should not expand variables".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the expansion in the pattern".to_owned())
+    }
+}
+
+pub fn pattern_with_variable(checker: &mut Checker) {
+    let source = checker.source();
+    let shell = checker.shell();
+    let replacement_expansion_spans = checker
+        .facts()
+        .words()
+        .replacement_expansion_fragments()
+        .iter()
+        .map(|fragment| fragment.span())
+        .collect::<Vec<_>>();
+    let special_target_operand_spans = checker
+        .facts()
+        .words()
+        .parameter_pattern_special_target_fragments()
+        .iter()
+        .map(|fragment| fragment.span())
+        .collect::<Vec<_>>();
+
+    let diagnostics = checker
+        .facts()
+        .words()
+        .expansion_word_facts(ExpansionContext::ParameterPattern)
+        .flat_map(|fact| {
+            if span_is_within_any(fact.span(), &replacement_expansion_spans)
+                || special_target_operand_spans.contains(&fact.span())
+            {
+                return Vec::new();
+            }
+
+            let quoted_expansion_spans = fact.double_quoted_expansion_spans();
+            fact.active_expansion_spans()
+                .iter()
+                .copied()
+                .filter(|span| {
+                    shell != ShellDialect::Zsh
+                        || !span_is_zsh_numeric_glob_tail_group(*span, source)
+                })
+                .filter(|span| !span_is_within_any(*span, quoted_expansion_spans))
+                .filter(|span| !fact.expansion_span_is_zsh_force_glob_parameter(*span))
+                .filter(|span| {
+                    !pattern_policy::span_expands_only_static_pattern_safe_literals(
+                        checker,
+                        *span,
+                        fact.expansion_span_is_plain_parameter_reference(*span),
+                        fact.expansion_span_is_zsh_presence_test(*span),
+                    )
+                })
+                .map(|span| {
+                    crate::Diagnostic::new(PatternWithVariable, span).with_fix(Fix::unsafe_edit(
+                        Edit::replacement(format!("\"{}\"", span.slice(source)), span),
+                    ))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
+}
+
+fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
+    hosts.iter().any(|host| {
+        host.start.offset() <= span.start.offset() && span.end.offset() <= host.end.offset()
+    })
+}
+
+fn span_is_zsh_numeric_glob_tail_group(span: Span, source: &str) -> bool {
+    if !span.slice(source).starts_with(">(") {
+        return false;
+    }
+
+    let Some(prefix) = source.get(..span.start.offset()) else {
+        return false;
+    };
+
+    let mut saw_numeric_glob_body = false;
+    for ch in prefix.chars().rev() {
+        if ch == '<' {
+            return saw_numeric_glob_body;
+        }
+        if ch == '-' || ch.is_ascii_digit() {
+            saw_numeric_glob_body = true;
+            continue;
+        }
+        break;
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::test::{test_path_with_fix, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+
+    #[test]
+    fn reports_nested_parameter_pattern_groups_and_substitutions() {
+        let source = "\
+#!/bin/bash
+suffix=bc
+trimmed=${name%@($suffix|$(printf '%s' zz))}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$suffix", "$(printf '%s' zz)"]
+        );
+    }
+
+    #[test]
+    fn ignores_quoted_and_replacement_parameter_patterns() {
+        let source = "\
+#!/bin/bash
+trimmed_one=${name%$trimmed_one_suffix}
+trimmed_two=${name##foo$trimmed_two_suffix}
+quoted=${name#\"$quoted_suffix\"}
+replaced_one=${name/$replaced_one_suffix/x}
+replaced_two=${name/foo$replaced_two_suffix/x}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$trimmed_one_suffix", "$trimmed_two_suffix"]
+        );
+    }
+
+    #[test]
+    fn ignores_zero_and_array_trim_targets() {
+        let source = "\
+#!/bin/bash
+trimmed=${name%$trimmed_suffix}
+script_name=${0##*/}
+all_trimmed=(\"${items[@]#$array_prefix/}\")
+one_trimmed=${items[i]%$item_suffix}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$trimmed_suffix"]
+        );
+    }
+
+    #[test]
+    fn skips_zsh_explicit_pattern_expansion_operands() {
+        let source = "\
+#!/usr/bin/env zsh
+value=foobar
+prefix='foo*'
+trimmed=${value#${~prefix}}
+long_trimmed=${value##${=~prefix}}
+suffix_trimmed=${value%${~~~suffix}}
+literal_trimmed=${value#${~~literal}}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${~~literal}"]
+        );
+    }
+
+    #[test]
+    fn ignores_pattern_variables_with_static_pattern_safe_values() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src/lib/'
+pattern='src/*'
+trimmed=${path#$prefix}
+pattern_trimmed=${path#$pattern}
+unknown_trimmed=${path#$unknown}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$pattern", "$unknown"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_presence_tests_in_pattern_operands() {
+        let source = "\
+#!/usr/bin/env zsh
+trimmed=${value#${+ICE[nocompletions]}}
+also_trimmed=${value#${+enabled}}
+positional_trimmed=${value#${+1}}
+status_trimmed=${value#${+?}}
+unknown_trimmed=${value#$unknown}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unknown"]
+        );
+    }
+
+    #[test]
+    fn ignores_zsh_numeric_glob_patterns_without_expansions() {
+        let source = "\
+#!/usr/bin/env zsh
+if [[ $OPTARG != (|+|-)<->(|.<->)(|[eE](|-|+)<->) ]]; then
+  return 1
+fi
+if [[ $value == ${~pattern} ]]; then
+  return 0
+fi
+process_sub_trimmed=${value#<(printf '%s' foo)}
+trimmed=${value#$pattern}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["<(printf '%s' foo)", "$pattern"]
+        );
+    }
+
+    #[test]
+    fn reports_process_substitutions_after_numeric_glob_like_prefixes_outside_zsh() {
+        let source = "\
+#!/bin/bash
+trimmed=${value#<->(printf '%s' foo)}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">(printf '%s' foo)"]
+        );
+    }
+
+    #[test]
+    fn reports_command_substitutions_even_when_nested_references_are_static_safe() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src/lib/'
+trimmed=${path#$(printf '%s' \"$prefix\")}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf '%s' \"$prefix\")"]
+        );
+    }
+
+    #[test]
+    fn reports_parameter_operations_even_when_target_bindings_are_static_safe() {
+        let source = "\
+#!/usr/bin/env zsh
+prefix='src'
+trimmed=${path#${prefix:-*}}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable)
+                .with_shell(crate::ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${prefix:-*}"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_patterns_inside_special_targets() {
+        let source = "\
+#!/bin/bash
+nested=${items[i]%${name%$suffix}}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$suffix"]
+        );
+    }
+
+    #[test]
+    fn attaches_unsafe_fix_metadata_to_reported_expansions() {
+        let source = "\
+#!/bin/bash
+suffix=b
+trimmed=${name%$suffix}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("quote the expansion in the pattern")
+        );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_parameter_pattern_expansions() {
+        let source = "\
+#!/bin/bash
+suffix=b
+trimmed=${name%$suffix}
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+suffix=b
+trimmed=${name%\"$suffix\"}
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            std::path::Path::new("correctness")
+                .join("C055.sh")
+                .as_path(),
+            &LinterSettings::for_rule(Rule::PatternWithVariable),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C055_fix_C055.sh", result);
+        Ok(())
+    }
+}

@@ -27,8 +27,8 @@ fuzz_target!(|data: &[u8]| -> Corpus {
     let workspace_query =
         lsp_common::workspace_query_from_byte(data.get(9).copied().unwrap_or_default());
 
-    let outputs = shuck_server::fuzzing::exercise_request_surface(
-        shuck_server::fuzzing::RequestSurfaceInput {
+    let outputs = shucked_lsp::fuzzing::exercise_request_surface(
+        shucked_lsp::fuzzing::RequestSurfaceInput {
             source: input,
             language_id,
             file_name,

@@ -1,0 +1,1066 @@
+use std::collections::HashMap;
+
+use anyhow::anyhow;
+use lsp_server::ErrorCode;
+use lsp_types as types;
+use serde::{Deserialize, Serialize};
+use shucked_semantic::{
+    EditorCallHierarchyItem, EditorCallHierarchyTarget, EditorCompletionContext,
+    EditorCompletionKind, EditorCompletionOptions, EditorOccurrenceKind, EditorSymbolKind,
+    RenameSet, VisibleSourcedFunction,
+};
+
+use crate::analysis::DocumentAnalysis;
+use crate::edit::RangeExt;
+use crate::server::Error;
+use crate::session::{Client, DocumentSnapshot};
+
+pub(crate) type CompletionResponse = Option<types::CompletionResponse>;
+pub(crate) type DefinitionResponse = Option<types::GotoDefinitionResponse>;
+pub(crate) type ReferencesResponse = Option<Vec<types::Location>>;
+pub(crate) type DocumentHighlightResponse = Option<Vec<types::DocumentHighlight>>;
+pub(crate) type PrepareRenameResponse = Option<types::PrepareRenameResponse>;
+pub(crate) type RenameResponse = Option<types::WorkspaceEdit>;
+pub(crate) type CallHierarchyPrepareResponse = Option<Vec<types::CallHierarchyItem>>;
+
+/// Round-trip payload stored in `CallHierarchyItem.data` so the incoming/outgoing
+/// requests can distinguish a script top-level node from a function that happens
+/// to share the file's label.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub(crate) enum CallHierarchyData {
+    Function {
+        definition_start: usize,
+        definition_end: usize,
+    },
+    TopLevel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+enum CompletionData {
+    Symbol {
+        symbol_kind: String,
+        line: usize,
+        column: usize,
+    },
+    SourcedFunction {
+        path: String,
+        line: usize,
+        column: usize,
+    },
+    RuntimeName,
+    Builtin,
+    Keyword,
+}
+
+#[cfg(any(test, feature = "fuzzing"))]
+pub(crate) fn completion(
+    snapshot: DocumentSnapshot,
+    client: &Client,
+    params: types::CompletionParams,
+) -> crate::server::Result<CompletionResponse> {
+    completion_with_sourced_functions(snapshot, client, params, |_, _| Vec::new())
+}
+
+pub(crate) fn completion_with_sourced_functions<F>(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CompletionParams,
+    load_sourced_functions: F,
+) -> crate::server::Result<CompletionResponse>
+where
+    F: FnOnce(&DocumentAnalysis, usize) -> Vec<VisibleSourcedFunction>,
+{
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let options = snapshot.client_settings().completion();
+    let completions = analysis.semantic().editor_query().completions_at_offset(
+        source,
+        analysis.indexer(),
+        offset,
+        EditorCompletionOptions {
+            include_runtime_names: options.include_runtime_names,
+            include_keywords: options.include_keywords,
+        },
+    );
+    let Some(mut completions) = completions else {
+        return Ok(None);
+    };
+    let prefix = completions.replacement_span.slice(source);
+    let mut sourced_by_name = HashMap::new();
+    if completions.context == EditorCompletionContext::Command {
+        for sourced in load_sourced_functions(&analysis, offset) {
+            if !prefix.is_empty() && !sourced.name.as_str().starts_with(prefix) {
+                continue;
+            }
+            let local_wins = completions.items.iter().any(|item| {
+                item.kind == EditorCompletionKind::Function
+                    && item.name == sourced.name
+                    && item.definition_span.is_some_and(|span| {
+                        span.start.offset() > sourced.import_span.start.offset()
+                    })
+            });
+            if local_wins {
+                continue;
+            }
+            completions.items.retain(|item| item.name != sourced.name);
+            completions.items.push(shucked_semantic::EditorCompletion {
+                name: sourced.name.clone(),
+                kind: EditorCompletionKind::Function,
+                definition_span: None,
+            });
+            sourced_by_name.insert(sourced.name.to_string(), sourced);
+        }
+    }
+    completions
+        .items
+        .sort_by_key(|item| (completion_kind_rank(item.kind), item.name.to_string()));
+    let range = crate::edit::to_lsp_range(
+        completions.replacement_span.to_range(),
+        source,
+        analysis.line_index(),
+        snapshot.encoding(),
+    );
+    let items = completions
+        .items
+        .into_iter()
+        .map(|completion| {
+            let sourced = sourced_by_name.get(completion.name.as_str());
+            let data = if let Some(sourced) = sourced {
+                Some(CompletionData::SourcedFunction {
+                    path: sourced.path.display().to_string(),
+                    line: sourced.selection_span.start.line(),
+                    column: sourced.selection_span.start.column(),
+                })
+            } else {
+                match completion.kind {
+                    EditorCompletionKind::Variable => {
+                        completion
+                            .definition_span
+                            .map(|span| CompletionData::Symbol {
+                                symbol_kind: completion_kind_label(completion.kind).to_owned(),
+                                line: span.start.line(),
+                                column: span.start.column(),
+                            })
+                    }
+                    EditorCompletionKind::Function => completion
+                        .definition_span
+                        .filter(|span| {
+                            analysis
+                                .semantic()
+                                .binding_for_definition_span(*span)
+                                .is_some_and(|binding_id| {
+                                    analysis
+                                        .semantic()
+                                        .function_binding_is_unconditional(binding_id)
+                                })
+                        })
+                        .map(|span| CompletionData::Symbol {
+                            symbol_kind: completion_kind_label(completion.kind).to_owned(),
+                            line: span.start.line(),
+                            column: span.start.column(),
+                        }),
+                    EditorCompletionKind::RuntimeName => Some(CompletionData::RuntimeName),
+                    EditorCompletionKind::Builtin => Some(CompletionData::Builtin),
+                    EditorCompletionKind::Keyword => Some(CompletionData::Keyword),
+                }
+            };
+            types::CompletionItem {
+                label: completion.name.to_string(),
+                kind: Some(to_lsp_completion_kind(completion.kind)),
+                detail: Some(if sourced.is_some() {
+                    "Function (sourced)".to_owned()
+                } else {
+                    completion_kind_label(completion.kind).to_owned()
+                }),
+                text_edit: Some(types::CompletionTextEdit::Edit(types::TextEdit::new(
+                    range,
+                    completion.name.to_string(),
+                ))),
+                data: data.and_then(|data| serde_json::to_value(data).ok()),
+                ..types::CompletionItem::default()
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(Some(types::CompletionResponse::List(
+        types::CompletionList {
+            is_incomplete: false,
+            items,
+        },
+    )))
+}
+
+pub(crate) fn resolve_completion_item(
+    mut item: types::CompletionItem,
+) -> crate::server::Result<types::CompletionItem> {
+    let Some(data) = item
+        .data
+        .clone()
+        .and_then(|value| serde_json::from_value::<CompletionData>(value).ok())
+    else {
+        return Ok(item);
+    };
+    let documentation = match data {
+        CompletionData::Symbol {
+            symbol_kind,
+            line,
+            column,
+        } => format!("{symbol_kind} defined at line {line}, column {column}."),
+        CompletionData::SourcedFunction { path, line, column } => {
+            format!("Function sourced from `{path}` at line {line}, column {column}.")
+        }
+        CompletionData::RuntimeName => "Runtime-provided shell name.".to_owned(),
+        CompletionData::Builtin => "Shell builtin modeled by Shuck.".to_owned(),
+        CompletionData::Keyword => "Shell keyword.".to_owned(),
+    };
+    item.documentation = Some(types::Documentation::MarkupContent(types::MarkupContent {
+        kind: types::MarkupKind::Markdown,
+        value: documentation,
+    }));
+    Ok(item)
+}
+
+pub(crate) fn definition(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::GotoDefinitionParams,
+) -> crate::server::Result<DefinitionResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position_params.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let locations = analysis
+        .semantic()
+        .editor_query()
+        .definition_spans_at_offset(offset)
+        .into_iter()
+        .map(|span| location_for_span(&snapshot, source, analysis.line_index(), span))
+        .collect::<Vec<_>>();
+    Ok(match locations.as_slice() {
+        [] => None,
+        [location] => Some(types::GotoDefinitionResponse::Scalar(location.clone())),
+        _ => Some(types::GotoDefinitionResponse::Array(locations)),
+    })
+}
+
+pub(crate) fn references(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::ReferenceParams,
+) -> crate::server::Result<ReferencesResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let locations = analysis
+        .semantic()
+        .editor_query()
+        .occurrences_at_offset(offset, params.context.include_declaration)
+        .into_iter()
+        .map(|occurrence| {
+            location_for_span(&snapshot, source, analysis.line_index(), occurrence.span)
+        })
+        .collect::<Vec<_>>();
+    Ok((!locations.is_empty()).then_some(locations))
+}
+
+pub(crate) fn prepare_call_hierarchy(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CallHierarchyPrepareParams,
+) -> crate::server::Result<CallHierarchyPrepareResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position_params.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let Some(item) = analysis
+        .semantic()
+        .editor_query()
+        .prepare_call_hierarchy(offset)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(vec![to_lsp_call_hierarchy_item(
+        &snapshot,
+        source,
+        analysis.line_index(),
+        item,
+    )]))
+}
+
+fn to_lsp_call_hierarchy_item(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shucked_indexer::LineIndex,
+    item: EditorCallHierarchyItem,
+) -> types::CallHierarchyItem {
+    let uri = snapshot.query().file_url().clone();
+    match item.target {
+        EditorCallHierarchyTarget::Function(_) => {
+            let full_span = item.full_span.unwrap_or_default();
+            let full_range = crate::edit::to_lsp_range(
+                full_span.to_range(),
+                source,
+                line_index,
+                snapshot.encoding(),
+            );
+            let selection_range = item
+                .selection_span
+                .map(|span| {
+                    crate::edit::to_lsp_range(
+                        span.to_range(),
+                        source,
+                        line_index,
+                        snapshot.encoding(),
+                    )
+                })
+                .unwrap_or(full_range);
+            call_hierarchy_function_item(
+                item.name.to_string(),
+                uri,
+                full_span,
+                full_range,
+                selection_range,
+            )
+        }
+        EditorCallHierarchyTarget::TopLevel => call_hierarchy_top_level_item(uri),
+    }
+}
+
+/// The one place a FUNCTION call-hierarchy node is shaped, shared by `prepare`
+/// and the cross-file incoming/outgoing item builder so the three requests
+/// return identical items for the same node.
+pub(crate) fn call_hierarchy_function_item(
+    name: String,
+    uri: types::Url,
+    definition_span: shucked_ast::Span,
+    range: types::Range,
+    selection_range: types::Range,
+) -> types::CallHierarchyItem {
+    types::CallHierarchyItem {
+        name,
+        kind: types::SymbolKind::FUNCTION,
+        tags: None,
+        detail: None,
+        uri,
+        range,
+        selection_range,
+        data: serde_json::to_value(CallHierarchyData::Function {
+            definition_start: definition_span.start.offset(),
+            definition_end: definition_span.end.offset(),
+        })
+        .ok(),
+    }
+}
+
+/// The one place a script-top-level MODULE node is shaped; see
+/// [`call_hierarchy_function_item`].
+pub(crate) fn call_hierarchy_top_level_item(uri: types::Url) -> types::CallHierarchyItem {
+    let start = types::Position::new(0, 0);
+    let range = types::Range { start, end: start };
+    types::CallHierarchyItem {
+        name: top_level_label(&uri),
+        kind: types::SymbolKind::MODULE,
+        tags: None,
+        detail: Some("script top level".to_owned()),
+        uri,
+        range,
+        selection_range: range,
+        data: serde_json::to_value(CallHierarchyData::TopLevel).ok(),
+    }
+}
+
+fn top_level_label(uri: &types::Url) -> String {
+    uri.to_file_path()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            uri.path_segments()
+                .and_then(|mut segments| segments.next_back())
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "script".to_owned())
+}
+
+pub(crate) fn document_highlight(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::DocumentHighlightParams,
+) -> crate::server::Result<DocumentHighlightResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position_params.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let highlights = analysis
+        .semantic()
+        .editor_query()
+        .occurrences_at_offset(offset, true)
+        .into_iter()
+        .map(|occurrence| types::DocumentHighlight {
+            range: crate::edit::to_lsp_range(
+                occurrence.span.to_range(),
+                source,
+                analysis.line_index(),
+                snapshot.encoding(),
+            ),
+            kind: Some(match occurrence.kind {
+                EditorOccurrenceKind::Read => types::DocumentHighlightKind::READ,
+                EditorOccurrenceKind::Write => types::DocumentHighlightKind::WRITE,
+            }),
+        })
+        .collect::<Vec<_>>();
+    Ok((!highlights.is_empty()).then_some(highlights))
+}
+
+pub(crate) fn prepare_rename(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::TextDocumentPositionParams,
+) -> crate::server::Result<PrepareRenameResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), params.position);
+    let Ok(rename) = analysis
+        .semantic()
+        .editor_query()
+        .rename_set_at_offset(offset)
+    else {
+        return Ok(None);
+    };
+    Ok(Some(types::PrepareRenameResponse::RangeWithPlaceholder {
+        range: crate::edit::to_lsp_range(
+            rename.editable_span.to_range(),
+            source,
+            analysis.line_index(),
+            snapshot.encoding(),
+        ),
+        placeholder: rename.name.to_string(),
+    }))
+}
+
+pub(crate) fn rename(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::RenameParams,
+) -> crate::server::Result<RenameResponse> {
+    let Some(analysis) = snapshot.analysis() else {
+        return Ok(None);
+    };
+    let source = analysis.source();
+    let position = params.text_document_position.position;
+    let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
+    let rename = analysis
+        .semantic()
+        .editor_query()
+        .rename_set_at_offset(offset)
+        .map_err(|reason| {
+            Error::new(
+                anyhow!("rename is not available here: {reason:?}"),
+                ErrorCode::InvalidRequest,
+            )
+        })?;
+    if !new_name_is_valid(rename.kind, &params.new_name) {
+        return Err(Error::new(
+            anyhow!("new name is not valid for this symbol"),
+            ErrorCode::InvalidParams,
+        ));
+    }
+    Ok(Some(workspace_edit_for_rename(
+        &snapshot,
+        source,
+        analysis.line_index(),
+        &rename,
+        &params.new_name,
+    )))
+}
+
+fn workspace_edit_for_rename(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shucked_indexer::LineIndex,
+    rename: &RenameSet,
+    new_name: &str,
+) -> types::WorkspaceEdit {
+    let mut edits = rename
+        .spans
+        .iter()
+        .copied()
+        .map(|span| {
+            types::TextEdit::new(
+                crate::edit::to_lsp_range(span.to_range(), source, line_index, snapshot.encoding()),
+                new_name.to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    edits.sort_by(|left, right| {
+        right
+            .range
+            .start
+            .line
+            .cmp(&left.range.start.line)
+            .then_with(|| right.range.start.character.cmp(&left.range.start.character))
+    });
+
+    let uri = snapshot.query().file_url().clone();
+    if snapshot.resolved_client_capabilities().document_changes {
+        let edit = types::TextDocumentEdit {
+            text_document: types::OptionalVersionedTextDocumentIdentifier {
+                uri,
+                version: Some(snapshot.query().document().version()),
+            },
+            edits: edits.into_iter().map(types::OneOf::Left).collect(),
+        };
+        return types::WorkspaceEdit {
+            changes: None,
+            document_changes: Some(types::DocumentChanges::Edits(vec![edit])),
+            change_annotations: None,
+        };
+    }
+
+    types::WorkspaceEdit {
+        changes: Some(HashMap::from([(uri, edits)])),
+        document_changes: None,
+        change_annotations: None,
+    }
+}
+
+fn location_for_span(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shucked_indexer::LineIndex,
+    span: shucked_ast::Span,
+) -> types::Location {
+    types::Location {
+        uri: snapshot.query().file_url().clone(),
+        range: crate::edit::to_lsp_range(span.to_range(), source, line_index, snapshot.encoding()),
+    }
+}
+
+fn offset_for_position(
+    snapshot: &DocumentSnapshot,
+    source: &str,
+    line_index: &shucked_indexer::LineIndex,
+    position: types::Position,
+) -> usize {
+    usize::from(
+        types::Range {
+            start: position,
+            end: position,
+        }
+        .to_text_range(source, line_index, snapshot.encoding())
+        .start(),
+    )
+}
+
+fn to_lsp_completion_kind(kind: EditorCompletionKind) -> types::CompletionItemKind {
+    match kind {
+        EditorCompletionKind::Variable | EditorCompletionKind::RuntimeName => {
+            types::CompletionItemKind::VARIABLE
+        }
+        EditorCompletionKind::Function => types::CompletionItemKind::FUNCTION,
+        EditorCompletionKind::Builtin => types::CompletionItemKind::FUNCTION,
+        EditorCompletionKind::Keyword => types::CompletionItemKind::KEYWORD,
+    }
+}
+
+fn completion_kind_rank(kind: EditorCompletionKind) -> u8 {
+    match kind {
+        EditorCompletionKind::Variable => 0,
+        EditorCompletionKind::Function => 1,
+        EditorCompletionKind::Builtin => 2,
+        EditorCompletionKind::RuntimeName => 3,
+        EditorCompletionKind::Keyword => 4,
+    }
+}
+
+fn completion_kind_label(kind: EditorCompletionKind) -> &'static str {
+    match kind {
+        EditorCompletionKind::Variable => "Variable",
+        EditorCompletionKind::Function => "Function",
+        EditorCompletionKind::Builtin => "Builtin",
+        EditorCompletionKind::RuntimeName => "Runtime name",
+        EditorCompletionKind::Keyword => "Keyword",
+    }
+}
+
+fn new_name_is_valid(kind: EditorSymbolKind, name: &str) -> bool {
+    match kind {
+        EditorSymbolKind::Function => valid_function_name(name),
+        EditorSymbolKind::Variable
+        | EditorSymbolKind::Array
+        | EditorSymbolKind::AssociativeArray
+        | EditorSymbolKind::Declaration => valid_variable_name(name),
+        EditorSymbolKind::RuntimeName => false,
+    }
+}
+
+fn valid_variable_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+pub(crate) fn valid_function_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.chars().any(|ch| {
+            ch.is_whitespace()
+                || matches!(
+                    ch,
+                    '$' | '`'
+                        | '\\'
+                        | '"'
+                        | '\''
+                        | ';'
+                        | '&'
+                        | '|'
+                        | '<'
+                        | '>'
+                        | '('
+                        | ')'
+                        | '{'
+                        | '}'
+                        | '['
+                        | ']'
+                        | '*'
+                        | '?'
+                        | '='
+                        | '/'
+                )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam::channel;
+    use lsp_types::{
+        ClientCapabilities, CompletionParams, PartialResultParams, Position, ReferenceContext,
+        ReferenceParams, RenameParams, TextDocumentIdentifier, TextDocumentPositionParams, Url,
+        WorkDoneProgressParams,
+    };
+
+    use super::*;
+    use crate::{
+        Client, ClientOptions, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace,
+        Workspaces,
+    };
+
+    fn make_snapshot(source: &str) -> (DocumentSnapshot, Client, Url) {
+        make_snapshot_with_options(source, ClientOptions::default())
+    }
+
+    fn make_snapshot_with_options(
+        source: &str,
+        options: ClientOptions,
+    ) -> (DocumentSnapshot, Client, Url) {
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspace_root = std::env::temp_dir().join("shuck-server-editor-feature-tests");
+        let workspace_uri =
+            Url::from_file_path(&workspace_root).expect("workspace path should convert to URL");
+        let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
+            PositionEncoding::UTF16,
+            global,
+            &workspaces,
+            &client,
+        )
+        .expect("session should initialize");
+        session.update_client_options(options);
+        let uri = Url::from_file_path(workspace_root.join("script.sh"))
+            .expect("script path should convert to URL");
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new(source.to_owned(), 1).with_language_id("shellscript"),
+        );
+        (
+            session
+                .take_snapshot(uri.clone())
+                .expect("snapshot should exist"),
+            client,
+            uri,
+        )
+    }
+
+    fn position_for_nth(source: &str, needle: &str, index: usize) -> Position {
+        let offset = source
+            .match_indices(needle)
+            .nth(index)
+            .map(|(offset, _)| offset)
+            .expect("needle should exist");
+        let prefix = &source[..offset];
+        let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32;
+        let character = prefix
+            .rsplit_once('\n')
+            .map(|(_, tail)| tail.len())
+            .unwrap_or(prefix.len()) as u32;
+        Position { line, character }
+    }
+
+    fn text_position(uri: Url, position: Position) -> TextDocumentPositionParams {
+        TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri },
+            position,
+        }
+    }
+
+    #[test]
+    fn completion_returns_parameter_and_command_candidates() {
+        let source = "build() { :; }\nname=1\nprintf '%s\\n' \"$\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let parameter_position = Position {
+            line: 2,
+            character: 16,
+        };
+        let response = completion(
+            snapshot.clone(),
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri.clone(), parameter_position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        assert!(list.items.iter().any(|item| item.label == "name"));
+
+        let response = completion(
+            snapshot,
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri, Position::new(3, 0)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        assert!(list.items.iter().any(|item| item.label == "build"));
+        assert!(list.items.iter().any(|item| item.label == "printf"));
+        assert!(list.items.iter().any(|item| item.label == "if"));
+    }
+
+    #[test]
+    fn non_command_completion_does_not_load_sourced_functions() {
+        let source = "source lib.sh\nprintf '%s\\n' \"$im\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let mut position = position_for_nth(source, "im", 0);
+        position.character += 2;
+
+        let response = completion_with_sourced_functions(
+            snapshot,
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri, position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+            |_, _| panic!("parameter completion must not build the workspace index"),
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        assert!(list.items.iter().all(|item| item.label != "imported"));
+    }
+
+    #[test]
+    fn conditional_local_function_omits_ambiguous_definition_provenance() {
+        let source = "source lib.sh\nif enabled; then dup() { :; }; fi\ndu";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let import_span = snapshot
+            .analysis()
+            .expect("analysis should exist")
+            .semantic()
+            .source_refs()[0]
+            .span;
+
+        let response = completion_with_sourced_functions(
+            snapshot,
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri, Position::new(2, 2)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+            |_, _| {
+                vec![VisibleSourcedFunction {
+                    name: shucked_ast::Name::from("dup"),
+                    path: std::path::PathBuf::from("/workspace/lib.sh"),
+                    def_span: shucked_ast::Span::new(),
+                    selection_span: shucked_ast::Span::new(),
+                    import_span,
+                }]
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(list) = response else {
+            panic!("expected completion list");
+        };
+        let matching = list
+            .items
+            .iter()
+            .filter(|item| item.label == "dup")
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].detail.as_deref(), Some("Function"));
+        assert_eq!(matching[0].data, None);
+    }
+
+    #[test]
+    fn navigation_references_and_highlights_use_same_symbol_set() {
+        let source = "name=1\necho \"$name\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let reference_position = position_for_nth(source, "name", 1);
+
+        let definition = definition(
+            snapshot.clone(),
+            &client,
+            lsp_types::GotoDefinitionParams {
+                text_document_position_params: text_position(uri.clone(), reference_position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("definition should succeed")
+        .expect("definition should resolve");
+        let types::GotoDefinitionResponse::Scalar(location) = definition else {
+            panic!("expected scalar definition");
+        };
+        assert_eq!(location.range.start, Position::new(0, 0));
+
+        let references = references(
+            snapshot.clone(),
+            &client,
+            ReferenceParams {
+                text_document_position: text_position(uri.clone(), reference_position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: ReferenceContext {
+                    include_declaration: false,
+                },
+            },
+        )
+        .expect("references should succeed")
+        .expect("references should resolve");
+        assert_eq!(references.len(), 1);
+
+        let highlights = document_highlight(
+            snapshot,
+            &client,
+            lsp_types::DocumentHighlightParams {
+                text_document_position_params: text_position(uri, reference_position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("highlights should succeed")
+        .expect("highlights should resolve");
+        assert_eq!(
+            highlights
+                .iter()
+                .map(|highlight| highlight.kind)
+                .collect::<Vec<_>>(),
+            [
+                Some(types::DocumentHighlightKind::WRITE),
+                Some(types::DocumentHighlightKind::READ)
+            ]
+        );
+    }
+
+    #[test]
+    fn prepare_rename_and_rename_return_same_file_edits() {
+        let source = "name=1\necho \"$name\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let reference_position = position_for_nth(source, "name", 1);
+
+        let prepared = prepare_rename(
+            snapshot.clone(),
+            &client,
+            text_position(uri.clone(), reference_position),
+        )
+        .expect("prepare rename should succeed")
+        .expect("prepare rename should resolve");
+        let types::PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } = prepared
+        else {
+            panic!("expected range with placeholder");
+        };
+        assert_eq!(placeholder, "name");
+
+        let edit = rename(
+            snapshot,
+            &client,
+            RenameParams {
+                text_document_position: text_position(uri.clone(), reference_position),
+                new_name: "other".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("rename should succeed")
+        .expect("rename should return edits");
+        let changes = edit.changes.expect("default client should use changes");
+        let edits = changes.get(&uri).expect("uri should have edits");
+        assert_eq!(edits.len(), 2);
+        assert!(edits.iter().all(|edit| edit.new_text == "other"));
+    }
+
+    #[test]
+    fn default_cross_file_mode_keeps_local_variable_rename_available() {
+        let source = "name=1\necho \"$name\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let reference_position = position_for_nth(source, "name", 1);
+
+        let edit = rename(
+            snapshot,
+            &client,
+            RenameParams {
+                text_document_position: text_position(uri, reference_position),
+                new_name: "other".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("local variable rename should still succeed")
+        .expect("local variable rename should return edits");
+        assert_eq!(
+            edit.changes
+                .expect("default test client should use changes")
+                .values()
+                .map(Vec::len)
+                .sum::<usize>(),
+            2
+        );
+    }
+
+    #[test]
+    fn function_rename_rejects_assignment_like_names() {
+        let source = "build() { :; }\nbuild\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let call_position = position_for_nth(source, "build", 1);
+
+        let error = rename(
+            snapshot,
+            &client,
+            RenameParams {
+                text_document_position: text_position(uri, call_position),
+                new_name: "foo=bar".to_owned(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect_err("assignment-like function names should be rejected");
+
+        assert_eq!(error.code as i32, ErrorCode::InvalidParams as i32);
+    }
+
+    fn prepare_item(
+        snapshot: &DocumentSnapshot,
+        client: &Client,
+        uri: &Url,
+        position: Position,
+    ) -> types::CallHierarchyItem {
+        let mut items = prepare_call_hierarchy(
+            snapshot.clone(),
+            client,
+            types::CallHierarchyPrepareParams {
+                text_document_position_params: text_position(uri.clone(), position),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("prepare should succeed")
+        .expect("prepare should return an item");
+        assert_eq!(items.len(), 1);
+        items.remove(0)
+    }
+
+    #[test]
+    fn call_hierarchy_prepare_resolves_function_under_cursor() {
+        // prepare identifies the function node; incoming/outgoing (single- and
+        // cross-file) are covered by the semantic call-facts tests and the
+        // call_hierarchy module's black-box coverage.
+        let source = "helper() {\n  echo hi\n}\n\nmain() {\n  helper\n  helper\n}\n\nmain\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+
+        // On the `main` definition name.
+        let main_item = prepare_item(
+            &snapshot,
+            &client,
+            &uri,
+            position_for_nth(source, "main", 0),
+        );
+        assert_eq!(main_item.name, "main");
+        assert_eq!(main_item.kind, types::SymbolKind::FUNCTION);
+
+        // On a call to `helper`, prepare resolves to the `helper` definition.
+        let helper_item = prepare_item(
+            &snapshot,
+            &client,
+            &uri,
+            position_for_nth(source, "helper", 1),
+        );
+        assert_eq!(helper_item.name, "helper");
+        assert_eq!(helper_item.kind, types::SymbolKind::FUNCTION);
+    }
+
+    #[test]
+    fn call_hierarchy_prepare_returns_none_off_a_function() {
+        let source = "name=1\necho \"$name\"\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+        let response = prepare_call_hierarchy(
+            snapshot,
+            &client,
+            types::CallHierarchyPrepareParams {
+                text_document_position_params: text_position(
+                    uri,
+                    position_for_nth(source, "name", 0),
+                ),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+            },
+        )
+        .expect("prepare should succeed");
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn call_hierarchy_top_level_label_decodes_file_name() {
+        let path = std::env::temp_dir().join("my script.sh");
+        let uri = Url::from_file_path(path).expect("temporary file path should convert to a URI");
+        assert_eq!(top_level_label(&uri), "my script.sh");
+    }
+}

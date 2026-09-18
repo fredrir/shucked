@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use shuck_formatter::{FormattedSource, ShellDialect as FormatDialect, ShellFormatOptions};
-use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings, ShellCheckCodeMap};
-use shuck_parser::{ShellDialect as ParseDialect, parser::Parser};
+use shucked_formatter::{FormattedSource, ShellDialect as FormatDialect, ShellFormatOptions};
+use shucked_linter::{AnalysisRequest, Diagnostic, LinterSettings, ShellCheckCodeMap};
+use shucked_parser::{ShellDialect as ParseDialect, parser::Parser};
 
 pub(crate) const FORMAT_CASES: [FormatCase; 4] = [
     FormatCase::new("fuzz.sh", ParseDialect::Posix, FormatDialect::Auto),

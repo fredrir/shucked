@@ -1,0 +1,81 @@
+use std::fs;
+use std::path::PathBuf;
+
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use shucked::args::CheckOutputFormatArg;
+use shucked_benchmark::{benchmark_cases, configure_benchmark_allocator};
+use tempfile::TempDir;
+
+configure_benchmark_allocator!();
+
+struct PreparedCheckCase {
+    _tempdir: TempDir,
+    cwd: PathBuf,
+    paths: Vec<PathBuf>,
+}
+
+fn prepare_check_case(case: shucked_benchmark::TestCase) -> PreparedCheckCase {
+    let tempdir = match tempfile::tempdir() {
+        Ok(tempdir) => tempdir,
+        Err(err) => panic!("benchmark tempdir should exist: {err}"),
+    };
+    let cwd = tempdir.path().to_path_buf();
+    let mut paths = Vec::with_capacity(case.files.len());
+
+    for (index, file) in case.files.iter().enumerate() {
+        let path = cwd.join(format!("{index:02}-{}.sh", file.name));
+        if let Err(err) = fs::write(&path, file.source) {
+            panic!("benchmark fixture should write: {err}");
+        }
+        paths.push(path);
+    }
+
+    PreparedCheckCase {
+        _tempdir: tempdir,
+        cwd,
+        paths,
+    }
+}
+
+fn bench_check_command(c: &mut Criterion) {
+    let cases = benchmark_cases();
+
+    for output_format in [CheckOutputFormatArg::Concise, CheckOutputFormatArg::Full] {
+        let group_name = match output_format {
+            CheckOutputFormatArg::Concise => "check_command_concise",
+            CheckOutputFormatArg::Full => "check_command_full",
+            _ => unreachable!("bench only covers concise and full output"),
+        };
+        let mut group = c.benchmark_group(group_name);
+
+        for case in &cases {
+            group.sample_size(case.speed.sample_size());
+            group.throughput(Throughput::Bytes(case.total_bytes()));
+            let prepared = prepare_check_case(*case);
+
+            group.bench_with_input(
+                BenchmarkId::from_parameter(case.name),
+                &prepared,
+                |b, input| {
+                    b.iter(|| {
+                        black_box(
+                            match shucked::benchmark_check_paths(
+                                &input.cwd,
+                                &input.paths,
+                                output_format,
+                            ) {
+                                Ok(result) => result,
+                                Err(err) => panic!("check benchmark should succeed: {err}"),
+                            },
+                        )
+                    });
+                },
+            );
+        }
+
+        group.finish();
+    }
+}
+
+criterion_group!(benches, bench_check_command);
+criterion_main!(benches);

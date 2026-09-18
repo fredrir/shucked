@@ -1,0 +1,1781 @@
+use compact_str::CompactString;
+use rustc_hash::FxHashSet;
+use shucked_semantic::{Reference, UninitializedCertainty};
+
+use crate::{Checker, Rule, Violation};
+
+use super::variable_reference_common::{
+    VariableReferenceFilter, has_same_name_defining_bindings, is_reportable_variable_reference,
+};
+
+pub struct UndefinedVariable {
+    pub name: CompactString,
+    pub certainty: UninitializedCertainty,
+}
+
+impl Violation for UndefinedVariable {
+    fn rule() -> Rule {
+        Rule::UndefinedVariable
+    }
+
+    fn message(&self) -> String {
+        match self.certainty {
+            UninitializedCertainty::Definite => {
+                format!("variable `{}` is referenced before assignment", self.name)
+            }
+            UninitializedCertainty::Possible => {
+                format!(
+                    "variable `{}` may be referenced before assignment",
+                    self.name
+                )
+            }
+        }
+    }
+}
+
+pub fn undefined_variable(checker: &mut Checker) {
+    let mut uninitialized_references = checker
+        .semantic_analysis()
+        .uninitialized_references()
+        .to_vec();
+    uninitialized_references.sort_by_key(|uninitialized| {
+        let reference = checker.semantic().reference(uninitialized.reference);
+        (reference.span.start.offset(), reference.span.end.offset())
+    });
+
+    let mut reported_names = FxHashSet::default();
+    let mut suppressed_names = FxHashSet::default();
+
+    for uninitialized in uninitialized_references {
+        let reference = checker.semantic().reference(uninitialized.reference);
+        if reported_names.contains(&reference.name) || suppressed_names.contains(&reference.name) {
+            continue;
+        }
+        if checker
+            .facts()
+            .words()
+            .is_suppressed_subscript_reference(reference.span)
+        {
+            continue;
+        }
+        if checker
+            .facts()
+            .source_facts()
+            .is_backtick_double_escaped_parameter_reference(reference.span)
+        {
+            continue;
+        }
+        if is_zsh_completion_context_reference(checker, reference) {
+            continue;
+        }
+        if !is_reportable_variable_reference(
+            checker,
+            reference,
+            VariableReferenceFilter {
+                suppress_environment_style_names: !checker.report_environment_style_names(),
+            },
+        ) {
+            continue;
+        }
+        if has_same_name_defining_bindings(checker, &reference.name) {
+            suppressed_names.insert(reference.name.clone());
+            continue;
+        }
+        if !reported_names.insert(reference.name.clone()) {
+            continue;
+        }
+
+        checker.report(
+            UndefinedVariable {
+                name: reference.name.as_str().into(),
+                certainty: uninitialized.certainty,
+            },
+            reference.span,
+        );
+    }
+}
+
+fn is_zsh_completion_context_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
+    checker.shell() == crate::ShellDialect::Zsh
+        && is_zsh_completion_context_name(reference.name.as_str())
+        && checker
+            .semantic_analysis()
+            .enclosing_function_scope_at(reference.span.start.offset())
+            .is_some_and(|scope| {
+                checker
+                    .facts()
+                    .command_facts()
+                    .function_is_completion_registered(scope)
+            })
+}
+
+fn is_zsh_completion_context_name(name: &str) -> bool {
+    matches!(
+        name,
+        "CURRENT"
+            | "IPREFIX"
+            | "ISUFFIX"
+            | "PREFIX"
+            | "QIPREFIX"
+            | "QISUFFIX"
+            | "SUFFIX"
+            | "_comp_command1"
+            | "compstate"
+            | "curcontext"
+            | "verbose"
+            | "words"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
+    use crate::{LinterSettings, Rule, ShellDialect};
+
+    #[test]
+    fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${missing_assign:=$seed_name}\" \"${missing_error:?$hint_name}\"
+printf '%s\\n' \"$seed_name\" \"$hint_name\" \"$plain_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn parameter_guard_flow_suppresses_later_reads_of_the_guarded_name() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${defaulted:-fallback}\" \"$defaulted\"
+printf '%s\\n' \"${assigned:=fallback}\" \"$assigned\"
+printf '%s\\n' \"${required:?missing}\" \"$required\"
+printf '%s\\n' \"${replacement:+alt}\" \"$replacement\"
+printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_missing\"
+guard_function() { printf '%s\\n' \"${cross_scope:?missing}\"; }
+read_function() { printf '%s\\n' \"$cross_scope\"; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$before_default", "$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn parameter_guard_flow_does_not_escape_conditional_operands() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\" \"$plain_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_missing"]
+        );
+    }
+
+    #[test]
+    fn later_parameter_guards_do_not_suppress_earlier_reads() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"$before_default\" \"$before_error\"
+printf '%s\\n' \"${before_default:-fallback}\" \"${before_error:?missing}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$before_default", "$before_error"]
+        );
+    }
+
+    #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$late_guarded\"
+options=(
+  no_ask \"$( [[ -n \"$no_ask\" ]] && printf true || printf false)\"
+  truthy \"$( [ \"$truthy\" ] && printf true || printf false)\"
+)
+printf '%s\\n' \"$( [[ -n \"$late_guarded\" ]] && printf true)\"
+printf '%s\\n' \"$no_ask\" \"$truthy\"
+printf '%s\\n' \"$(test -n \"$plain_test\" && printf true)\"
+printf '%s\\n' \"$( [[ -s \"$file_test\" ]] && printf true)\"
+printf '%s\\n' \"$plain_test\" \"$file_test\" \"$still_missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$plain_test", "$file_test", "$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_runtime_special_parameters_do_not_report_undefined() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$sysparams\" \"$history\" \"$words\" \"$compstate\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn oh_my_zsh_plugin_list_contract_suppresses_c006() {
+        let source = "\
+#!/bin/zsh
+for plugin ($plugins); do
+  print -r -- \"$plugin\"
+done
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/oh-my-zsh.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn oh_my_zsh_emotty_dependency_contracts_suppress_c006() {
+        let plugin_source = "\
+#!/bin/zsh
+print -r -- \"${emoji[rocket]}${emoji2[emoji_style]}\"
+print -r -- \"$ordinary_missing\"
+";
+        let plugin_diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/emotty/emotty.plugin.zsh"),
+            plugin_source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+        assert_eq!(
+            plugin_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(plugin_source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+
+        let theme_source = "\
+#!/bin/zsh
+root_prompt=\"$emoji[skull]\"
+vcs_unstaged_glyph=\"%{$emoji[circled_latin_capital_letter_m]$emoji2[emoji_style] %2G%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let theme_diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/themes/emotty.zsh-theme"),
+            theme_source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+        assert_eq!(
+            theme_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(theme_source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_special_associative_parameter_keys_do_not_report_undefined() {
+        let source = "\
+#!/bin/zsh
+compstate[insert]=menu
+print -r -- \"$sysparams[pid]\" \"$history[1]\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn ordinary_zsh_scripts_do_not_get_context_backed_special_parameters() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$compstate\" \"$sysparams\" \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/script.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$compstate",
+                "$sysparams",
+                "$history",
+                "$words",
+                "$ordinary_missing",
+            ]
+        );
+    }
+
+    #[test]
+    fn pathless_zsh_snippets_do_not_get_context_backed_special_parameters() {
+        let source = "\
+#!/bin/zsh
+print -r -- \"$compstate\" \"$sysparams\" \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$compstate",
+                "$sysparams",
+                "$history",
+                "$words",
+                "$ordinary_missing",
+            ]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_runtime_bindings_do_not_report_undefined_on_runtime_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+prompt_fragment=\"%{$fg_bold[blue]%}branch%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_braced_prompt_color_arrays_do_not_report_undefined_on_runtime_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+typeset -AHg less_termcap
+less_termcap[mb]=\"${fg_bold[red]}\"
+less_termcap[so]=\"${fg_bold[yellow]}${bg[blue]}\"
+less_termcap[me]=\"${reset_color}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/plugins/example/example.plugin.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_colors_do_not_report_undefined_after_colors_autoload() {
+        let source = "\
+#!/usr/bin/env zsh
+autoload colors && colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_colors_do_not_report_undefined_after_compact_colors_autoload() {
+        let source = "\
+#!/usr/bin/env zsh
+autoload colors&&colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_words_do_not_initialize_colors_without_autoload_command() {
+        let source = "\
+#!/usr/bin/env zsh
+echo autoload colors
+echo \"on %{$fg_bold[green]%}%{$reset_color%}\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/holman-dotfiles/zsh/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$fg_bold", "$reset_color"]
+        );
+    }
+
+    #[test]
+    fn unknown_generic_runtime_paths_do_not_get_zsh_special_parameters() {
+        let source = "\
+print -r -- \"$history\" \"$words\" \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/plugins/example"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Unknown),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$history", "$words", "$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_prompt_color_runtime_bindings_do_not_report_undefined_on_config_paths() {
+        let source = "\
+#!/usr/bin/env zsh
+PS1='%{$fg_bold[blue]%}%n%{$reset_color%}'
+print -r -- \"$ordinary_missing\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/thoughtbot-dotfiles/zsh/configs/prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ordinary_missing"]
+        );
+    }
+
+    #[test]
+    fn nested_presence_tests_suppress_same_name_c006_reports_across_functions() {
+        let source = "\
+#!/bin/bash
+guarded_flag() {
+  printf '%s\\n' \"$( [[ -n \"$shared_flag\" ]] && printf true || printf false)\"
+}
+read_flag() {
+  printf '%s\\n' \"$shared_flag\" \"$unrelated_flag\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$unrelated_flag"]
+        );
+    }
+
+    #[test]
+    fn reports_index_arithmetic_subscript_references() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${arr[$read_idx]}\"
+[[ -v arr[bare_check] ]]
+[[ -v arr[$dynamic_check] ]]
+arr[bare_target]=value
+arr[$dynamic_target]=value
+arr+=([amazoncorretto]=value)
+arr+=([$compound_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$dynamic_check",
+                "bare_target",
+                "$dynamic_target",
+                "amazoncorretto",
+                "$compound_key"
+            ]
+        );
+    }
+
+    #[test]
+    fn suppresses_read_and_string_key_bare_subscript_references() {
+        let source = "\
+#!/bin/bash
+declare -A map
+printf '%s\\n' \"${arr[$read_idx]}\" \"${map[$assoc_read_idx]}\"
+[[ -v arr[bare_check] ]]
+map+=([assoc_bare_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn suppresses_zsh_option_map_key_arithmetic_references() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local quiet=0
+  ( (( !OPTS[opt_-q,--quiet] )) )
+  (( quiet ))
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn suppresses_zsh_existence_test_fake_variable_references() {
+        let source = "\
+#!/bin/zsh
+if (( $+commands[git] )); then
+  :
+fi
+if (( ${+functions[zdot_warn]} )); then
+  :
+fi
+if (( $+ZINIT_CNORM )); then
+  :
+fi
+if (( $+commands[$cmd] )); then
+  :
+fi
+if (( ${+functions[$fn]} )); then
+  :
+fi
+if (( $+arr[i+1] )); then
+  :
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$cmd", "$fn", "i"]
+        );
+    }
+
+    #[test]
+    fn suppresses_zsh_associative_key_fake_variable_references() {
+        let source = "\
+#!/bin/zsh
+typeset -A ZINIT ICE
+ZINIT[ice-list]=x
+ICE[ps-on-update]=x
+functions[iterm2_precmd]=x
+print -r -- ${functions[iterm2_precmd]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn suppresses_zsh_assignment_target_literal_map_keys_with_imported_declarations() {
+        let source = "\
+#!/bin/zsh
+emoji[regional_indicator_symbol_letter_d_regional_indicator_symbol_letter_e]=x
+arr[i]=x
+arr[plain_key]=x
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["i"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_targets_initialize_option_arrays() {
+        let source = "\
+#!/bin/zsh
+zparseopts -D -E -F -a all -A optmap -- \\
+  h=help -help=help \\
+  v+:=verbose -verbose+:=verbose \\
+  o:=output -output:=output
+printf '%s\\n' \"$all\" \"$optmap\" \"$help\" \"$verbose\" \"$output\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_attached_array_targets_are_arrays() {
+        let source = "\
+#!/bin/zsh
+zparseopts -aall -Aassoc -- x:=xout y=yout
+printf '%s\\n' \"${all[1]}\" \"${assoc[-x]}\" \"${xout[1]}\" \"${yout[1]}\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_dynamic_targets_still_report_dynamic_names() {
+        let source = "\
+#!/bin/zsh
+zparseopts -a$aggregate -- x=$target_name
+printf '%s\\n' \"$aggregate\" \"$target_name\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$aggregate", "$target_name"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_targets_do_not_initialize_names_in_bash() {
+        let source = "\
+#!/bin/bash
+zparseopts -- x=target
+printf '%s\\n' \"$target\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Bash),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_stacked_looking_specs_initialize_targets() {
+        let source = "\
+#!/bin/zsh
+zparseopts -- -DEK=dest
+printf '%s\\n' \"$dest\" \"$missing\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_escaped_equals_in_spec_names_do_not_initialize_suffixes() {
+        let source = "\
+#!/bin/zsh
+zparseopts -a opts -- foo\\=bar foo\\=baz=dest
+printf '%s\\n' \"$opts\" \"$dest\" \"$bar\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$bar"]
+        );
+    }
+
+    #[test]
+    fn zparseopts_mapping_does_not_initialize_spec_alias_names() {
+        let source = "\
+#!/bin/zsh
+zparseopts -A bar -M a=foo b+: c:=b
+printf '%s\\n' \"$bar\" \"$foo\" \"$b\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$b"]
+        );
+    }
+
+    #[test]
+    fn zsh_helpers_inherit_caller_scoped_zparseopts_arrays() {
+        let source = "\
+#!/bin/zsh
+safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+  print -r -- $missing
+}
+update_main() {
+  local -a dry_run
+  zparseopts -D -- -dry-run=dry_run
+  safe_rm target
+}
+update_main \"$@\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_sourced_runtime_helpers_accept_caller_scoped_option_arrays() {
+        let source = "\
+#!/bin/zsh
+_update_core_safe_rm() {
+  if [[ ${#dry_run[@]} -gt 0 ]]; then
+    print -r -- dry
+  fi
+  print -r -- $missing
+}
+";
+        let path = Path::new("/tmp/project/core/update_core.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_sourced_hook_helpers_accept_caller_scoped_option_arrays() {
+        let source = "\
+#!/bin/zsh
+_zdot_update_hook_unpack() {
+  if [[ ${#force[@]} -eq 0 ]]; then
+    print -r -- skip
+  fi
+  print -r -- $missing
+}
+";
+        let path = Path::new("/tmp/project/zdot/core/update-impl.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zdot_module_helpers_can_populate_reply_arrays_without_local_definitions() {
+        let source = "\
+#!/bin/zsh
+zdot_provides_tool_args ':zdot:apt' op eza
+zdot_simple_hook apt --requires env-configured \"${reply[@]}\"
+print -r -- $missing
+";
+        let path = Path::new("/tmp/project/zdot/modules/apt/apt.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zdot_core_helpers_can_populate_reply_indexes_without_local_definitions() {
+        let source = "\
+#!/bin/zsh
+main() {
+  local init_parent
+  _zdot_update_get_parent_root \"$ZDOT_REPO\"
+  init_parent=${reply[1]}
+  print -r -- \"$init_parent\"
+  print -r -- $missing
+}
+
+main
+";
+        let path = Path::new("/tmp/project/zdot/core/update.zsh");
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_initializes_completion_state_in_caller_scope() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  local curcontext=\"$curcontext\" state opts tasks
+  opts=()
+  tasks=()
+  _arguments \"${opts[@]}\" '*: :->tasks' || return
+  case $state in
+    tasks)
+      _describe -t grunt-task \"$verbose grunt task\" tasks || return 1
+    ;;
+  esac
+}
+compdef __grunt grunt
+print -r -- $missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_defines_completion_helper_variables() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '*: :->state'
+  print -r -- $state $context $line $opt_args $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_functrace_is_available_without_local_initialization() {
+        let source = "\
+#!/bin/zsh
+print -r -- $functrace $missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_core_runtime_special_parameters_include_history_chars_and_named_directories() {
+        let source = "\
+#!/bin/zsh
+print -r -- $histchars ${nameddirs[project]} $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_tables_are_initialized_after_compinit_without_path_context() {
+        let source = "\
+#!/bin/zsh
+autoload -Uz compinit
+compinit
+print -r -- ${_comps[(I)-value-*]} $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_helpers_read_completion_context_from_registered_callers() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  __example_args
+}
+function __example_args() {
+  print -r -- $words $CURRENT $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_command_variables_are_available_in_registered_functions() {
+        let source = "\
+#!/bin/zsh
+function __composer() {
+  print -r -- $_comp_command1 $missing
+}
+compdef __composer composer
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_work_when_function_and_compdef_share_branch() {
+        let source = "\
+#!/bin/zsh
+if ! is-at-least 5.7; then
+  function __composer() {
+    _arguments '*:: :->subcmds'
+    print -r -- $_comp_command1 $missing
+  }
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_ignore_branch_words_in_comments_between_registration() {
+        let source = "\
+#!/bin/zsh
+if ! is-at-least 5.7; then
+  function __composer() {
+    print -r -- $_comp_command1 $missing
+  }
+  # else fallback is handled by zsh itself
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_across_exclusive_branches() {
+        let source = "\
+#!/bin/zsh
+if is-at-least 5.7; then
+  function __composer() {
+    print -r -- $_comp_command1 $missing
+  }
+else
+  compdef __composer composer
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_keep_case_boundaries_after_parameter_hash() {
+        let source = "\
+#!/bin/zsh
+service=a
+value=prefix
+case $service in
+  a)
+    function __composer() {
+      print -r -- $_comp_command1 $missing
+    }
+    print -r -- ${value#prefix} ;;
+  b)
+    compdef __composer composer ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_for_short_circuit_compdef() {
+        let source = "\
+#!/bin/zsh
+function __composer() {
+  print -r -- $_comp_command1 $missing
+} || compdef __composer composer
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$_comp_command1", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_without_top_level_compdef() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+setup_completion() {
+  compdef __grunt grunt
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_completion_context_names_stay_reportable_for_conditional_compdef_target() {
+        let source = "\
+#!/bin/zsh
+if [[ -n $commands[grunt] ]]; then
+  function __grunt() {
+    print -r -- $verbose $missing
+  }
+fi
+compdef __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_compdef_service_aliases_do_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function grunt() {
+  print -r -- $verbose $missing
+}
+compdef __grunt=grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_compdef_deletion_modes_do_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function grunt() {
+  print -r -- $verbose $missing
+}
+compdef -d grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_conditional_compdef_does_not_initialize_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+[[ -n $commands[grunt] ]] && compdef __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$verbose", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_compdef_name_mode_keeps_completion_context_names_initialized() {
+        let source = "\
+#!/bin/zsh
+function __grunt() {
+  print -r -- $verbose $missing
+}
+compdef -P 'grunt-*' -N __grunt grunt
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_earlier_compdef_initializes_later_completion_context_names() {
+        let source = "\
+#!/bin/zsh
+compdef __grunt grunt
+function __grunt() {
+  print -r -- $verbose $missing
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_runtime_hook_arrays_are_initialized_by_the_shell_context() {
+        let source = "\
+#!/bin/zsh
+precmd_functions=(${precmd_functions:#_async_prompt_precmd})
+print -r -- $chpwd_functions $still_missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/zsh/ohmyzsh/lib/async_prompt.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_length_prefixed_parameter_operations_do_not_merge_into_variable_names() {
+        let source = "\
+#!/bin/zsh
+link=/tmp/file
+BUFFER=abcdef
+highlight_start_index=2
+printf '%s\\n' ${#link:t} ${#*:#0} ${#BUFFER:$highlight_start_index} $missing
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("fixture.zsh"),
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
+    fn pathless_zsh_hook_array_references_stay_reportable() {
+        let source = "\
+#!/bin/zsh
+print -r -- $precmd_functions
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$precmd_functions");
+    }
+
+    #[test]
+    fn zsh_arguments_without_state_action_keeps_state_names_reportable() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '--help[show help]'
+  print -r -- $context $line $opt_args $state $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$state", "$state_descr", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_arguments_ignores_arrow_text_inside_option_descriptions() {
+        let source = "\
+#!/bin/zsh
+function __example() {
+  _arguments '--range[show start -> end]'
+  print -r -- $state $state_descr $missing
+}
+compdef __example example
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$state", "$state_descr", "$missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_array_query_defines_named_target() {
+        let source = "\
+#!/bin/zsh
+zstyle -a ':prezto:load' pmodule-dirs user_pmodule_dirs
+print -r -- $user_pmodule_dirs $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_array_query_preserves_associative_target_metadata() {
+        let source = "\
+#!/bin/zsh
+typeset -A style_map
+zstyle -a ':prezto:load' pmodule-dirs style_map
+print -r -- ${style_map[key]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_scalar_and_boolean_queries_define_named_targets() {
+        let source = "\
+#!/bin/zsh
+zstyle -s ':prezto:load' prompt prompt_theme
+zstyle -b ':prezto:load' verbose verbose_enabled
+print -r -- $prompt_theme $verbose_enabled $still_missing
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$still_missing"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_listing_mode_does_not_define_named_target() {
+        let source = "\
+#!/bin/zsh
+zstyle -L -a ':prezto:load' pmodule-dirs user_pmodule_dirs
+print -r -- $user_pmodule_dirs
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$user_pmodule_dirs"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_option_parsing_finds_targets_after_flags_and_double_dash() {
+        let source = "\
+#!/bin/zsh
+zstyle -q -a ':prezto:load' pmodule-dirs configured_modules
+print -r -- $configured_modules
+zstyle -q -s -- ':prezto:module:editor' key-bindings key_bindings
+print -r -- $key_bindings
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_dynamic_context_and_style_still_assign_static_targets() {
+        let source = "\
+#!/bin/zsh
+context=':prezto:module:prompt'
+style=theme
+zstyle -s $context $style prompt_theme
+print -r -- $prompt_theme
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_zstyle_without_by_name_mode_or_static_target_does_not_create_bindings() {
+        let source = "\
+#!/bin/zsh
+target=resolved_target
+zstyle ':prezto:module:prompt' theme ignored_theme
+print -r -- $ignored_theme
+zstyle -s ':prezto:module:prompt' theme $target
+print -r -- $resolved_target
+zstyle -e ':prezto:module:prompt' theme 'reply=(default)'
+print -r -- $reply
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ignored_theme", "$resolved_target", "$reply"]
+        );
+    }
+
+    #[test]
+    fn zsh_zstyle_other_modes_do_not_define_named_targets() {
+        for option in ["-g", "-d", "-m", "-t"] {
+            let source = format!(
+                "#!/bin/zsh\nzstyle {option} -a ':prezto:load' pmodule-dirs user_pmodule_dirs\nprint -r -- $user_pmodule_dirs\n"
+            );
+            let diagnostics = test_snippet(
+                &source,
+                &LinterSettings::for_rule(Rule::UndefinedVariable).with_shell(ShellDialect::Zsh),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(&source))
+                    .collect::<Vec<_>>(),
+                vec!["$user_pmodule_dirs"],
+                "unexpected diagnostics for {option}"
+            );
+        }
+    }
+
+    #[test]
+    fn subscript_suppression_hides_later_same_name_uses() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${arr[$read_idx]}\"
+[[ -v arr[bare_check] ]]
+unset arr[$unset_idx]
+printf '%s\\n' \"$read_idx\" \"$bare_check\" \"$unset_idx\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$bare_check", "$unset_idx"]
+        );
+    }
+
+    #[test]
+    fn reports_expansion_references_in_string_key_writes() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[$target_key]=value
+map[$id/has_newer]=value
+map+=([$compound_key]=value)
+declare -A declared=([$declared_key]=value)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$target_key", "$id", "$compound_key", "$declared_key"]
+        );
+    }
+}

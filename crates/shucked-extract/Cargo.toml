@@ -1,0 +1,17 @@
+[package]
+name = "shucked-extract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Embedded shell script extraction for shucked"
+readme = "README.md"
+
+[dependencies]
+anyhow = { workspace = true }
+github-actions-expressions = { workspace = true }
+saphyr = { workspace = true }
+saphyr-parser = { workspace = true }
+shucked-ast = { workspace = true }

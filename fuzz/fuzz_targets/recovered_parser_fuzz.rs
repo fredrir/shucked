@@ -6,8 +6,8 @@ mod common;
 mod recovered_common;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
-use shuck_ast::Span;
-use shuck_parser::parser::{ParseResult, ParseStatus};
+use shucked_ast::Span;
+use shucked_parser::parser::{ParseResult, ParseStatus};
 
 fuzz_target!(|data: &[u8]| -> Corpus {
     let input = match common::filtered_input(data) {

@@ -1,0 +1,1295 @@
+use std::sync::OnceLock;
+
+use rustc_hash::FxHashSet;
+use shucked_ast::TextSize;
+use shucked_ast::{File, Span};
+use shucked_indexer::Indexer;
+use shucked_semantic::SemanticAnalysis;
+
+use crate::{
+    AmbientShellOptions, Diagnostic, LinterFacts, LinterRuleOptions, LinterSemanticArtifacts,
+    Locator, Rule, RuleSet, ShellDialect, SuppressionIndex, Violation, rules,
+};
+
+pub struct Checker<'a> {
+    semantic: &'a LinterSemanticArtifacts<'a>,
+    semantic_analysis: SemanticAnalysis<'a>,
+    indexer: &'a Indexer,
+    file: &'a File,
+    source: &'a str,
+    facts: OnceLock<LinterFacts<'a>>,
+    rules: &'a RuleSet,
+    shell: ShellDialect,
+    ambient_shell_options: AmbientShellOptions,
+    report_environment_style_names: bool,
+    rule_options: LinterRuleOptions,
+    suppression_index: Option<&'a SuppressionIndex>,
+    first_parse_error: Option<(usize, usize)>,
+    diagnostics: Vec<Diagnostic>,
+    reported: FxHashSet<DiagnosticKey>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct DiagnosticKey {
+    rule: Rule,
+    start: usize,
+    end: usize,
+}
+
+impl DiagnosticKey {
+    fn new(rule: Rule, span: Span) -> Self {
+        Self {
+            rule,
+            start: span.start.offset(),
+            end: span.end.offset(),
+        }
+    }
+}
+
+impl<'a> Checker<'a> {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a LinterSemanticArtifacts<'a>,
+        indexer: &'a Indexer,
+        rules: &'a RuleSet,
+        shell: ShellDialect,
+        ambient_shell_options: AmbientShellOptions,
+        report_environment_style_names: bool,
+        rule_options: LinterRuleOptions,
+        suppression_index: Option<&'a SuppressionIndex>,
+        first_parse_error: Option<(usize, usize)>,
+    ) -> Self {
+        Self {
+            semantic,
+            semantic_analysis: semantic.semantic().analysis(),
+            indexer,
+            file,
+            source,
+            facts: OnceLock::new(),
+            rules,
+            shell,
+            ambient_shell_options,
+            report_environment_style_names,
+            rule_options,
+            suppression_index,
+            first_parse_error,
+            diagnostics: Vec::new(),
+            reported: FxHashSet::default(),
+        }
+    }
+
+    pub fn semantic(&self) -> &'a shucked_semantic::SemanticModel {
+        self.semantic.semantic()
+    }
+
+    pub fn semantic_analysis(&self) -> &SemanticAnalysis<'a> {
+        &self.semantic_analysis
+    }
+
+    pub fn source(&self) -> &'a str {
+        self.source
+    }
+
+    pub(crate) fn locator(&self) -> Locator<'a> {
+        Locator::new(self.source, self.indexer.line_index())
+    }
+
+    pub fn facts(&self) -> &LinterFacts<'a> {
+        self.facts.get_or_init(|| self.build_facts())
+    }
+
+    pub fn is_rule_enabled(&self, rule: Rule) -> bool {
+        self.rules.contains(rule)
+    }
+
+    pub fn shell(&self) -> ShellDialect {
+        self.shell
+    }
+
+    pub fn report_environment_style_names(&self) -> bool {
+        self.report_environment_style_names
+    }
+
+    pub fn rule_options(&self) -> &LinterRuleOptions {
+        &self.rule_options
+    }
+
+    fn build_facts(&self) -> LinterFacts<'a> {
+        LinterFacts::build_with_semantic_analysis_shell_and_ambient_shell_options(
+            self.file,
+            self.source,
+            self.semantic,
+            &self.semantic_analysis,
+            self.indexer,
+            self.shell,
+            self.ambient_shell_options,
+        )
+    }
+
+    pub fn first_parse_error(&self) -> Option<(usize, usize)> {
+        self.first_parse_error
+    }
+
+    pub fn is_suppressed_at(&self, rule: Rule, span: Span) -> bool {
+        let Some(suppression_index) = self.suppression_index else {
+            return false;
+        };
+        let line = self
+            .indexer
+            .line_index()
+            .line_number(TextSize::new(span.start.offset() as u32));
+        let Ok(line) = u32::try_from(line) else {
+            return false;
+        };
+
+        suppression_index.is_suppressed(rule, line)
+    }
+
+    pub fn report<V: Violation>(&mut self, violation: V, span: Span) {
+        self.report_diagnostic(Diagnostic::new(violation, span));
+    }
+
+    pub fn report_dedup<V: Violation>(&mut self, violation: V, span: Span) {
+        self.report_diagnostic_dedup(Diagnostic::new(violation, span));
+    }
+
+    pub fn report_diagnostic(&mut self, diagnostic: Diagnostic) {
+        self.reported
+            .insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub fn report_diagnostic_dedup(&mut self, diagnostic: Diagnostic) {
+        let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+        if !self.reported.insert(key) {
+            return;
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub fn report_all<V: Violation>(&mut self, spans: Vec<Span>, violation: impl Fn() -> V) {
+        for span in spans {
+            self.report(violation(), span);
+        }
+    }
+
+    pub fn report_all_dedup<V: Violation>(&mut self, spans: Vec<Span>, violation: impl Fn() -> V) {
+        for span in spans {
+            self.report_dedup(violation(), span);
+        }
+    }
+
+    pub fn report_fact_spans<V>(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Span)),
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        let facts = self.facts.get_or_init(|| self.build_facts());
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |span| {
+            let diagnostic = Diagnostic::new(violation(), span);
+            reported.insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+            diagnostics.push(diagnostic);
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_spans_dedup<V>(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Span)),
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        let facts = self.facts.get_or_init(|| self.build_facts());
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |span| {
+            let diagnostic = Diagnostic::new(violation(), span);
+            let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+            if reported.insert(key) {
+                diagnostics.push(diagnostic);
+            }
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_slice<V>(
+        &mut self,
+        spans: impl for<'facts> FnOnce(&'facts LinterFacts<'a>) -> &'facts [Span],
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        self.report_fact_spans(
+            |facts, report| {
+                for span in spans(facts).iter().copied() {
+                    report(span);
+                }
+            },
+            violation,
+        );
+    }
+
+    pub fn report_fact_slice_dedup<V>(
+        &mut self,
+        spans: impl for<'facts> FnOnce(&'facts LinterFacts<'a>) -> &'facts [Span],
+        violation: impl Fn() -> V,
+    ) where
+        V: Violation,
+    {
+        self.report_fact_spans_dedup(
+            |facts, report| {
+                for span in spans(facts).iter().copied() {
+                    report(span);
+                }
+            },
+            violation,
+        );
+    }
+
+    pub fn report_fact_diagnostics_dedup(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
+    ) {
+        let facts = self.facts.get_or_init(|| self.build_facts());
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |diagnostic: Diagnostic| {
+            let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
+            if reported.insert(key) {
+                diagnostics.push(diagnostic);
+            }
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn report_fact_diagnostics(
+        &mut self,
+        collect: impl FnOnce(&LinterFacts<'a>, &mut dyn FnMut(Diagnostic)),
+    ) {
+        let facts = self.facts.get_or_init(|| self.build_facts());
+        let diagnostics = &mut self.diagnostics;
+        let reported = &mut self.reported;
+        let mut report = |diagnostic: Diagnostic| {
+            reported.insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
+            diagnostics.push(diagnostic);
+        };
+        collect(facts, &mut report);
+    }
+
+    pub fn check(mut self) -> Vec<Diagnostic> {
+        if self.rules.is_empty() {
+            return self.diagnostics;
+        }
+
+        self.check_bindings();
+        self.check_references();
+        self.check_scopes();
+        self.check_declarations();
+        self.check_call_sites();
+        self.check_source_refs();
+        self.check_command_facts();
+        self.check_word_and_expansion_facts();
+        self.check_loop_list_and_pipeline_facts();
+        self.check_redirect_and_substitution_facts();
+        self.check_surface_fragment_facts();
+        self.check_test_and_conditional_facts();
+        self.check_flow();
+        self.diagnostics
+    }
+
+    fn check_bindings(&mut self) {
+        if self.is_rule_enabled(Rule::UnusedAssignment) {
+            rules::correctness::unused_assignment::unused_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::AppendToArrayAsString) {
+            rules::correctness::append_to_array_as_string::append_to_array_as_string(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayToStringConversion) {
+            rules::correctness::array_to_string_conversion::array_to_string_conversion(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenAssocKey) {
+            rules::correctness::broken_assoc_key::broken_assoc_key(self);
+        }
+        if self.is_rule_enabled(Rule::CommaArrayElements) {
+            rules::correctness::comma_array_elements::comma_array_elements(self);
+        }
+        if self.is_rule_enabled(Rule::MutableGlobal) {
+            rules::correctness::mutable_global::mutable_global(self);
+        }
+    }
+
+    fn check_references(&mut self) {
+        if self.is_rule_enabled(Rule::UndefinedVariable) {
+            rules::correctness::undefined_variable::undefined_variable(self);
+        }
+        if self.is_rule_enabled(Rule::PossibleVariableMisspelling) {
+            rules::correctness::possible_variable_misspelling::possible_variable_misspelling(self);
+        }
+    }
+
+    fn check_scopes(&mut self) {
+        if self.is_rule_enabled(Rule::SubshellLocalAssignment) {
+            rules::correctness::subshell_local_assignment::subshell_local_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::SubshellSideEffect) {
+            rules::correctness::subshell_side_effect::subshell_side_effect(self);
+        }
+    }
+
+    fn check_declarations(&mut self) {
+        if self.is_rule_enabled(Rule::LocalTopLevel) {
+            rules::correctness::script_scope_local::local_top_level(self);
+        }
+    }
+
+    fn check_call_sites(&mut self) {
+        if self.is_rule_enabled(Rule::OverwrittenFunction) {
+            rules::correctness::overwritten_function::overwritten_function(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
+            rules::correctness::function_called_without_args::function_called_without_args(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionCalledBeforeDefined) {
+            rules::correctness::function_called_before_defined::function_called_before_defined(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::FunctionBodyWithoutBraces) {
+            rules::style::function_body_without_braces::function_body_without_braces(self);
+        }
+        if self.is_rule_enabled(Rule::MissingFunctionDoc) {
+            rules::style::missing_function_doc::missing_function_doc(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionDocContent) {
+            rules::style::function_doc_content::function_doc_content(self);
+        }
+        if self.is_rule_enabled(Rule::RedundantReturnStatus) {
+            rules::style::redundant_return_status::redundant_return_status(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionReferencesUnsetParam) {
+            rules::correctness::function_references_unset_param::function_references_unset_param(
+                self,
+            );
+        }
+    }
+
+    fn check_source_refs(&mut self) {
+        if self.is_rule_enabled(Rule::DynamicSourcePath) {
+            rules::correctness::dynamic_source_path::dynamic_source_path(self);
+        }
+        if self.is_rule_enabled(Rule::UntrackedSourceFile) {
+            rules::correctness::untracked_source_file::untracked_source_file(self);
+        }
+        if self.is_rule_enabled(Rule::UnanchoredSourcePath) {
+            rules::correctness::unanchored_source_path::unanchored_source_path(self);
+        }
+    }
+
+    fn check_command_facts(&mut self) {
+        if self.is_rule_enabled(Rule::UncheckedDirectoryChange) {
+            rules::correctness::unchecked_directory_change::unchecked_directory_change(self);
+        }
+        if self.is_rule_enabled(Rule::UncheckedDirectoryChangeInFunction) {
+            rules::correctness::unchecked_directory_change_in_function::unchecked_directory_change_in_function(self);
+        }
+        if self.is_rule_enabled(Rule::RmGlobOnVariablePath) {
+            rules::security::rm_glob_on_variable_path::rm_glob_on_variable_path(self);
+        }
+        if self.is_rule_enabled(Rule::RmRootishTarget) {
+            rules::security::rm_rootish_target::rm_rootish_target(self);
+        }
+        if self.is_rule_enabled(Rule::ChmodWorldWritableSensitivePath) {
+            rules::security::chmod_world_writable_sensitive_path::chmod_world_writable_sensitive_path(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::SshLocalExpansion) {
+            rules::security::ssh_local_expansion::ssh_local_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::EvalOnArray) {
+            rules::security::eval_on_array::eval_on_array(self);
+        }
+        if self.is_rule_enabled(Rule::FindExecDirWithShell) {
+            rules::security::find_execdir_with_shell::find_execdir_with_shell(self);
+        }
+        if self.is_rule_enabled(Rule::ForkBombPattern) {
+            rules::security::fork_bomb_pattern::fork_bomb_pattern(self);
+        }
+        if self.is_rule_enabled(Rule::ReadWithoutRaw) {
+            rules::style::read_without_raw::read_without_raw(self);
+        }
+        if self.is_rule_enabled(Rule::BareRead) {
+            rules::style::bare_read::bare_read(self);
+        }
+        if self.is_rule_enabled(Rule::AvoidLetBuiltin) {
+            rules::style::avoid_let_builtin::avoid_let_builtin(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayIndexArithmetic) {
+            rules::style::array_index_arithmetic::array_index_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::ArithmeticScoreLine) {
+            rules::style::arithmetic_score_line::arithmetic_score_line(self);
+        }
+        if self.is_rule_enabled(Rule::DollarInArithmetic) {
+            rules::style::dollar_in_arithmetic::dollar_in_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::ExprArithmetic) {
+            rules::performance::expr_arithmetic::expr_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::GrepCountPipeline) {
+            rules::performance::grep_count_pipeline::grep_count_pipeline(self);
+        }
+        if self.is_rule_enabled(Rule::SingleTestSubshell) {
+            rules::performance::single_test_subshell::single_test_subshell(self);
+        }
+        if self.is_rule_enabled(Rule::SubshellTestGroup) {
+            rules::performance::subshell_test_group::subshell_test_group(self);
+        }
+        if self.is_rule_enabled(Rule::PrintfFormatVariable) {
+            rules::style::printf_format_variable::printf_format_variable(self);
+        }
+        if self.is_rule_enabled(Rule::EchoedCommandSubstitution) {
+            rules::style::echoed_command_substitution::echoed_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::RedundantSpacesInEcho) {
+            rules::style::redundant_spaces_in_echo::redundant_spaces_in_echo(self);
+        }
+        if self.is_rule_enabled(Rule::EchoToSedSubstitution) {
+            rules::style::echo_to_sed_substitution::echo_to_sed_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedPathInMkdir) {
+            rules::style::unquoted_path_in_mkdir::unquoted_path_in_mkdir(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedTrClass) {
+            rules::style::unquoted_tr_class::unquoted_tr_class(self);
+        }
+        if self.is_rule_enabled(Rule::SuWithoutFlag) {
+            rules::style::su_without_flag::su_without_flag(self);
+        }
+        if self.is_rule_enabled(Rule::DeprecatedTempfileCommand) {
+            rules::style::deprecated_tempfile_command::deprecated_tempfile_command(self);
+        }
+        if self.is_rule_enabled(Rule::EgrepDeprecated) {
+            rules::style::egrep_deprecated::egrep_deprecated(self);
+        }
+        if self.is_rule_enabled(Rule::FgrepDeprecated) {
+            rules::style::fgrep_deprecated::fgrep_deprecated(self);
+        }
+        if self.is_rule_enabled(Rule::XargsWithInlineReplace) {
+            rules::style::xargs_with_inline_replace::xargs_with_inline_replace(self);
+        }
+        if self.is_rule_enabled(Rule::TrapSignalNumbers) {
+            rules::style::trap_signal_numbers::trap_signal_numbers(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedTrRange) {
+            rules::style::unquoted_tr_range::unquoted_tr_range(self);
+        }
+        if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
+            rules::style::export_command_substitution::export_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::CompoundTestOperator) {
+            rules::style::compound_test_operator::compound_test_operator(self);
+        }
+        if self.is_rule_enabled(Rule::EchoHereDoc) {
+            rules::style::echo_here_doc::echo_here_doc(self);
+        }
+        if self.is_rule_enabled(Rule::MissingMainEntrypoint) {
+            rules::style::missing_main_entrypoint::missing_main_entrypoint(self);
+        }
+        if self.is_rule_enabled(Rule::InvalidExitStatus) {
+            rules::correctness::invalid_exit_status::invalid_exit_status(self);
+        }
+        if self.is_rule_enabled(Rule::CStyleComment) {
+            rules::correctness::c_style_comment::c_style_comment(self);
+        }
+        if self.is_rule_enabled(Rule::CPrototypeFragment) {
+            rules::correctness::c_prototype_fragment::c_prototype_fragment(self);
+        }
+        if self.is_rule_enabled(Rule::DiffMarkerLine) {
+            rules::correctness::diff_marker_line::diff_marker_line(self);
+        }
+        if self.is_rule_enabled(Rule::BareSlashMarker) {
+            rules::correctness::bare_slash_marker::bare_slash_marker(self);
+        }
+        if self.is_rule_enabled(Rule::BareDoneWord) {
+            rules::correctness::bare_done_word::bare_done_word(self);
+        }
+        if self.is_rule_enabled(Rule::StatusCaptureAfterBranchTest) {
+            rules::correctness::status_capture_after_branch_test::status_capture_after_branch_test(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::TemplateBraceInCommand) {
+            rules::correctness::template_brace_in_command::template_brace_in_command(self);
+        }
+        if self.is_rule_enabled(Rule::NonShellSyntaxInScript) {
+            rules::correctness::non_shell_syntax_in_script::non_shell_syntax_in_script(self);
+        }
+        if self.is_rule_enabled(Rule::ExportWithPositionalParams) {
+            rules::correctness::export_with_positional_params::export_with_positional_params(self);
+        }
+        if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
+            rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
+        }
+        if self.is_rule_enabled(Rule::DollarQuestionAfterCommand) {
+            rules::correctness::dollar_question_after_command::dollar_question_after_command(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedArraySlice) {
+            rules::correctness::quoted_array_slice::quoted_array_slice(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedBashSource) {
+            rules::correctness::quoted_bash_source::quoted_bash_source(self);
+        }
+        if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
+            rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
+        }
+        if self.is_rule_enabled(Rule::BacktickInCommandPosition) {
+            rules::correctness::backtick_in_command_position::backtick_in_command_position(self);
+        }
+        if self.is_rule_enabled(Rule::UnsetAssociativeArrayElement) {
+            rules::correctness::unset_associative_array_element::unset_associative_array_element(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::EnvPrefixExpansionOnly) {
+            rules::correctness::env_prefix_expansion_only::env_prefix_expansion_only(self);
+        }
+        if self.is_rule_enabled(Rule::LocalVariableInSh) {
+            rules::portability::local_variable_in_sh::local_variable_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionKeyword) {
+            rules::portability::function_keyword::function_keyword(self);
+        }
+        if self.is_rule_enabled(Rule::BashCaseFallthrough) {
+            rules::portability::bash_case_fallthrough::bash_case_fallthrough(self);
+        }
+        if self.is_rule_enabled(Rule::CaseGlobReachability) {
+            rules::correctness::case_glob_reachability::case_glob_reachability(self);
+        }
+        if self.is_rule_enabled(Rule::CaseDefaultBeforeGlob) {
+            rules::correctness::case_default_before_glob::case_default_before_glob(self);
+        }
+        if self.is_rule_enabled(Rule::GetoptsOptionNotInCase) {
+            rules::correctness::getopts_option_not_in_case::getopts_option_not_in_case(self);
+        }
+        if self.is_rule_enabled(Rule::CaseArmNotInGetopts) {
+            rules::correctness::case_arm_not_in_getopts::case_arm_not_in_getopts(self);
+        }
+        if self.is_rule_enabled(Rule::GetoptsInvalidFlagHandler) {
+            rules::style::getopts_invalid_flag_handler::getopts_invalid_flag_handler(self);
+        }
+        if self.is_rule_enabled(Rule::StandaloneArithmetic) {
+            rules::portability::standalone_arithmetic::standalone_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::SelectLoop) {
+            rules::portability::select_loop::select_loop(self);
+        }
+        if self.is_rule_enabled(Rule::Coproc) {
+            rules::portability::coproc::coproc(self);
+        }
+        if self.is_rule_enabled(Rule::CStyleForInSh) {
+            rules::portability::c_style_for_in_sh::c_style_for_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::CStyleForArithmeticInSh) {
+            rules::portability::c_style_for_arithmetic_in_sh::c_style_for_arithmetic_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::LetCommand) {
+            rules::portability::let_command::let_command(self);
+        }
+        if self.is_rule_enabled(Rule::DeclareCommand) {
+            rules::portability::declare_command::declare_command(self);
+        }
+        if self.is_rule_enabled(Rule::LocalDeclareCombined) {
+            rules::style::local_declare_combined::local_declare_combined(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayAssignment) {
+            rules::portability::array_assignment::array_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::PlusEqualsAppend) {
+            rules::portability::plus_equals_append::plus_equals_append(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayKeysInSh) {
+            rules::portability::array_keys_in_sh::array_keys_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::StarGlobRemovalInSh) {
+            rules::portability::star_glob_removal_in_sh::star_glob_removal_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::IndirectExpansion) {
+            rules::portability::indirect_expansion::indirect_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ArrayReference) {
+            rules::portability::array_reference::array_reference(self);
+        }
+        if self.is_rule_enabled(Rule::SubstringExpansion) {
+            rules::portability::substring_expansion::substring_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::CaseModificationExpansion) {
+            rules::portability::uppercase_expansion::uppercase_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ReplacementExpansion) {
+            rules::portability::replacement_expansion::replacement_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::EchoFlags) {
+            rules::portability::echo_flags::echo_flags(self);
+        }
+        if self.is_rule_enabled(Rule::TrLowerRange) {
+            rules::portability::tr_lower_range::tr_lower_range(self);
+        }
+        if self.is_rule_enabled(Rule::TrUpperRange) {
+            rules::portability::tr_upper_range::tr_upper_range(self);
+        }
+        if self.is_rule_enabled(Rule::EchoBackslashEscapes) {
+            rules::portability::echo_backslash_escapes::echo_backslash_escapes(self);
+        }
+        if self.is_rule_enabled(Rule::TrapErr) {
+            rules::portability::trap_err::trap_err(self);
+        }
+        if self.is_rule_enabled(Rule::PipefailOption) {
+            rules::portability::pipefail_option::pipefail_option(self);
+        }
+        if self.is_rule_enabled(Rule::WaitOption) {
+            rules::portability::wait_option::wait_option(self);
+        }
+        if self.is_rule_enabled(Rule::SourceBuiltinInSh) {
+            rules::portability::source_builtin_in_sh::source_builtin_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::PrintfQFormatInSh) {
+            rules::portability::printf_q_format_in_sh::printf_q_format_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ErrexitTrapInSh) {
+            rules::portability::errexit_trap_in_sh::errexit_trap_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SignalNameInTrap) {
+            rules::portability::signal_name_in_trap::signal_name_in_trap(self);
+        }
+        if self.is_rule_enabled(Rule::BasePrefixInArithmetic) {
+            rules::portability::base_prefix_in_arithmetic::base_prefix_in_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::UnsetPatternInSh) {
+            rules::portability::unset_pattern_in_sh::unset_pattern_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
+            rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::HyphenatedFunctionName) {
+            rules::portability::hyphenated_function_name::hyphenated_function_name(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionParamsInSh) {
+            rules::portability::function_params_in_sh::function_params_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SourceInsideFunctionInSh) {
+            rules::portability::source_inside_function_in_sh::source_inside_function_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ZshRedirPipe) {
+            rules::portability::zsh_redir_pipe::zsh_redir_pipe(self);
+        }
+        if self.is_rule_enabled(Rule::SourcedWithArgs) {
+            rules::portability::sourced_with_args::sourced_with_args(self);
+        }
+        if self.is_rule_enabled(Rule::CshSyntaxInSh) {
+            rules::portability::csh_syntax_in_sh::csh_syntax_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ZshAssignmentToZero) {
+            rules::portability::zsh_assignment_to_zero::zsh_assignment_to_zero(self);
+        }
+    }
+
+    fn check_word_and_expansion_facts(&mut self) {
+        if self.is_rule_enabled(Rule::UnquotedExpansion) {
+            rules::style::unquoted_expansion::unquoted_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedDollarStar) {
+            rules::style::unquoted_dollar_star::unquoted_dollar_star(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedDollarStarLoop) {
+            rules::style::quoted_dollar_star_loop::quoted_dollar_star_loop(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedArraySplit) {
+            rules::style::unquoted_array_split::unquoted_array_split(self);
+        }
+        if self.is_rule_enabled(Rule::CommandOutputArraySplit) {
+            rules::style::command_output_array_split::command_output_array_split(self);
+        }
+        if self.is_rule_enabled(Rule::PositionalArgsInString) {
+            rules::style::positional_args_in_string::positional_args_in_string(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedWordBetweenQuotes) {
+            rules::style::unquoted_word_between_quotes::unquoted_word_between_quotes(self);
+        }
+        if self.is_rule_enabled(Rule::DoubleQuoteNesting) {
+            rules::style::double_quote_nesting::double_quote_nesting(self);
+        }
+        if self.is_rule_enabled(Rule::EnvPrefixCommandOnly) {
+            rules::style::env_prefix_command_only::env_prefix_command_only(self);
+        }
+        if self.is_rule_enabled(Rule::MixedQuoteWord) {
+            rules::style::mixed_quote_word::mixed_quote_word(self);
+        }
+        if self.is_rule_enabled(Rule::BraceVariableBeforeBracket) {
+            rules::style::brace_variable_before_bracket::brace_variable_before_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::SuspiciousBracketGlob) {
+            rules::correctness::suspicious_bracket_glob::suspicious_bracket_glob(self);
+        }
+        if self.is_rule_enabled(Rule::DefaultValueInColonAssign) {
+            rules::style::default_value_in_colon_assign::default_value_in_colon_assign(self);
+        }
+        if self.is_rule_enabled(Rule::EscapedUnderscore) {
+            rules::style::escaped_underscore::escaped_underscore(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralControlEscape) {
+            rules::style::literal_control_escape::literal_control_escape(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralBackslash) {
+            rules::style::literal_backslash::literal_backslash(self);
+        }
+        if self.is_rule_enabled(Rule::BackslashBeforeCommand) {
+            rules::style::backslash_before_command::backslash_before_command(self);
+        }
+        if self.is_rule_enabled(Rule::AmpersandSemicolon) {
+            rules::style::ampersand_semicolon::ampersand_semicolon(self);
+        }
+        if self.is_rule_enabled(Rule::CombineAppends) {
+            rules::style::combine_appends::combine_appends(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
+            rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::TrapStringExpansion) {
+            rules::correctness::trap_string_expansion::trap_string_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ConstantCaseSubject) {
+            rules::correctness::constant_case_subject::constant_case_subject(self);
+        }
+        if self.is_rule_enabled(Rule::CasePatternVar) {
+            rules::correctness::case_pattern_var::case_pattern_var(self);
+        }
+        if self.is_rule_enabled(Rule::PatternWithVariable) {
+            rules::correctness::pattern_with_variable::pattern_with_variable(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedGlobsInFind) {
+            rules::correctness::unquoted_globs_in_find::unquoted_globs_in_find(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInFindSubstitution) {
+            rules::correctness::glob_in_find_substitution::glob_in_find_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInGrepPattern) {
+            rules::correctness::glob_in_grep_pattern::glob_in_grep_pattern(self);
+        }
+        if self.is_rule_enabled(Rule::UnquotedGrepRegex) {
+            rules::correctness::unquoted_grep_regex::unquoted_grep_regex(self);
+        }
+        if self.is_rule_enabled(Rule::GlobWithExpansionInLoop) {
+            rules::correctness::glob_with_expansion_in_loop::glob_with_expansion_in_loop(self);
+        }
+        if self.is_rule_enabled(Rule::GlobAssignedToVariable) {
+            rules::style::glob_assigned_to_variable::glob_assigned_to_variable(self);
+        }
+        if self.is_rule_enabled(Rule::ZshFlagExpansion) {
+            rules::portability::zsh_flag_expansion::zsh_flag_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::NestedZshSubstitution) {
+            rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::NestedDefaultExpansion) {
+            rules::portability::nested_default_expansion::nested_default_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::ZshPromptBracket) {
+            rules::portability::zsh_prompt_bracket::zsh_prompt_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::ZshArraySubscriptInCase) {
+            rules::portability::zsh_array_subscript_in_case::zsh_array_subscript_in_case(self);
+        }
+        if self.is_rule_enabled(Rule::ZshParameterFlag) {
+            rules::portability::zsh_parameter_flag::zsh_parameter_flag(self);
+        }
+        if self.is_rule_enabled(Rule::ZshParameterIndexFlag) {
+            rules::portability::zsh_parameter_index_flag::zsh_parameter_index_flag(self);
+        }
+        if self.is_rule_enabled(Rule::ZshNestedExpansion) {
+            rules::portability::zsh_nested_expansion::zsh_nested_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::MultiVarForLoop) {
+            rules::portability::multi_var_for_loop::multi_var_for_loop(self);
+        }
+    }
+
+    fn check_loop_list_and_pipeline_facts(&mut self) {
+        if self.is_rule_enabled(Rule::SingleIterationLoop) {
+            rules::style::single_iteration_loop::single_iteration_loop(self);
+        }
+        if self.is_rule_enabled(Rule::BareCommandNameAssignment) {
+            rules::style::bare_command_name_assignment::bare_command_name_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
+            rules::style::loop_from_command_output::loop_from_command_output(self);
+        }
+        if self.is_rule_enabled(Rule::PsGrepPipeline) {
+            rules::style::ps_grep_pipeline::ps_grep_pipeline(self);
+        }
+        if self.is_rule_enabled(Rule::LsGrepPipeline) {
+            rules::style::ls_grep_pipeline::ls_grep_pipeline(self);
+        }
+        if self.is_rule_enabled(Rule::LsPipedToXargs) {
+            rules::style::ls_piped_to_xargs::ls_piped_to_xargs(self);
+        }
+        if self.is_rule_enabled(Rule::LsInSubstitution) {
+            rules::style::ls_in_substitution::ls_in_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::ChainedTestBranches) {
+            rules::correctness::chained_test_branches::chained_test_branches(self);
+        }
+        if self.is_rule_enabled(Rule::TautologyChain) {
+            rules::correctness::tautology_chain::tautology_chain(self);
+        }
+        if self.is_rule_enabled(Rule::LineOrientedInput) {
+            rules::correctness::line_oriented_input::line_oriented_input(self);
+        }
+        if self.is_rule_enabled(Rule::LeadingGlobArgument) {
+            rules::correctness::leading_glob_argument::leading_glob_argument(self);
+        }
+        if self.is_rule_enabled(Rule::BareGlobCommandPath) {
+            rules::correctness::bare_glob_command_path::bare_glob_command_path(self);
+        }
+        if self.is_rule_enabled(Rule::FindOutputToXargs) {
+            rules::correctness::find_output_to_xargs::find_output_to_xargs(self);
+        }
+        if self.is_rule_enabled(Rule::FindOutputLoop) {
+            rules::correctness::find_output_loop::find_output_loop(self);
+        }
+        if self.is_rule_enabled(Rule::LoopControlOutsideLoop) {
+            rules::correctness::loop_control_outside_loop::loop_control_outside_loop(self);
+        }
+        if self.is_rule_enabled(Rule::ContinueOutsideLoopInFunction) {
+            rules::correctness::continue_outside_loop_in_function::continue_outside_loop_in_function(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::VariableAsCommandName) {
+            rules::correctness::variable_as_command_name::variable_as_command_name(self);
+        }
+        if self.is_rule_enabled(Rule::PipeToKill) {
+            rules::correctness::pipe_to_kill::pipe_to_kill(self);
+        }
+    }
+
+    fn check_redirect_and_substitution_facts(&mut self) {
+        if self.is_rule_enabled(Rule::UnquotedCommandSubstitution) {
+            rules::style::unquoted_command_substitution::unquoted_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::EchoInsideCommandSubstitution) {
+            rules::style::echo_inside_command_substitution::echo_inside_command_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::CommandSubstitutionInAlias) {
+            rules::style::command_substitution_in_alias::command_substitution_in_alias(self);
+        }
+        if self.is_rule_enabled(Rule::LeadingGlobInGrepPattern) {
+            rules::style::leading_glob_in_grep_pattern::leading_glob_in_grep_pattern(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionInAlias) {
+            rules::style::function_in_alias::function_in_alias(self);
+        }
+        if self.is_rule_enabled(Rule::SudoRedirectionOrder) {
+            rules::correctness::sudo_redirection_order::sudo_redirection_order(self);
+        }
+        if self.is_rule_enabled(Rule::ArithmeticRedirectionTarget) {
+            rules::correctness::arithmetic_redirection_target::arithmetic_redirection_target(self);
+        }
+        if self.is_rule_enabled(Rule::BadRedirectionFdOrder) {
+            rules::correctness::bad_redirection_fd_order::bad_redirection_fd_order(self);
+        }
+        if self.is_rule_enabled(Rule::DuplicateRedirect) {
+            rules::correctness::duplicate_redirect::duplicate_redirect(self);
+        }
+        if self.is_rule_enabled(Rule::StderrBeforeStdoutRedirect) {
+            rules::correctness::stderr_before_stdout_redirect::stderr_before_stdout_redirect(self);
+        }
+        if self.is_rule_enabled(Rule::RedirectClobbersInput) {
+            rules::correctness::redirect_clobbers_input::redirect_clobbers_input(self);
+        }
+        if self.is_rule_enabled(Rule::RedirectBeforePipe) {
+            rules::correctness::redirect_before_pipe::redirect_before_pipe(self);
+        }
+        if self.is_rule_enabled(Rule::AmpersandRedirection) {
+            rules::portability::ampersand_redirection::ampersand_redirection(self);
+        }
+        if self.is_rule_enabled(Rule::ProcessSubstitution) {
+            rules::portability::process_substitution::process_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::BashFileSlurp) {
+            rules::portability::bash_file_slurp::bash_file_slurp(self);
+        }
+        if self.is_rule_enabled(Rule::HereString) {
+            rules::portability::here_string::here_string(self);
+        }
+        if self.is_rule_enabled(Rule::BraceFdRedirection) {
+            rules::portability::brace_fd_redirection::brace_fd_redirection(self);
+        }
+        if self.is_rule_enabled(Rule::AmpersandRedirectInSh) {
+            rules::portability::ampersand_redirect_in_sh::ampersand_redirect_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::PipeStderrInSh) {
+            rules::portability::pipe_stderr_in_sh::pipe_stderr_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SubstWithRedirect) {
+            rules::correctness::subst_with_redirect::subst_with_redirect(self);
+        }
+        if self.is_rule_enabled(Rule::SubstWithRedirectErr) {
+            rules::correctness::subst_with_redirect_err::subst_with_redirect_err(self);
+        }
+        if self.is_rule_enabled(Rule::RedirectToCommandName) {
+            rules::correctness::redirect_to_command_name::redirect_to_command_name(self);
+        }
+        if self.is_rule_enabled(Rule::MapfileProcessSubstitution) {
+            rules::correctness::mapfile_process_substitution::mapfile_process_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::UnusedHeredoc) {
+            rules::correctness::unused_heredoc::unused_heredoc(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocMissingEnd) {
+            rules::correctness::heredoc_missing_end::heredoc_missing_end(self);
+        }
+        if self.is_rule_enabled(Rule::IndentedHeredocClose) {
+            rules::correctness::indented_heredoc_close::indented_heredoc_close(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocCloserNotAlone) {
+            rules::correctness::heredoc_closer_not_alone::heredoc_closer_not_alone(self);
+        }
+        if self.is_rule_enabled(Rule::MisquotedHeredocClose) {
+            rules::correctness::misquoted_heredoc_close::misquoted_heredoc_close(self);
+        }
+        if self.is_rule_enabled(Rule::HeredocEndSpace) {
+            rules::style::heredoc_end_space::heredoc_end_space(self);
+        }
+        if self.is_rule_enabled(Rule::SpacedTabstripClose) {
+            rules::style::spaced_tabstrip_close::spaced_tabstrip_close(self);
+        }
+    }
+
+    fn check_surface_fragment_facts(&mut self) {
+        if self.is_rule_enabled(Rule::LegacyBackticks) {
+            rules::style::legacy_backticks::legacy_backticks(self);
+        }
+        if self.is_rule_enabled(Rule::LegacyArithmeticExpansion) {
+            rules::style::legacy_arithmetic_expansion::legacy_arithmetic_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::LeadingZeroArithmetic) {
+            rules::correctness::leading_zero_arithmetic::leading_zero_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralBraces) {
+            rules::style::literal_braces::literal_braces(self);
+        }
+        if self.is_rule_enabled(Rule::AnsiCQuoting) {
+            rules::portability::ansi_c_quoting::ansi_c_quoting(self);
+        }
+        if self.is_rule_enabled(Rule::DollarStringInSh) {
+            rules::portability::dollar_string_in_sh::dollar_string_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::BraceExpansion) {
+            rules::portability::brace_expansion::brace_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::LegacyArithmeticInSh) {
+            rules::portability::legacy_arithmetic_in_sh::legacy_arithmetic_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::SubshellInArithmetic) {
+            rules::correctness::subshell_in_arithmetic::subshell_in_arithmetic(self);
+        }
+        if self.is_rule_enabled(Rule::SingleQuoteBackslash) {
+            rules::style::single_quote_backslash::single_quote_backslash(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralBackslashInSingleQuotes) {
+            rules::style::literal_backslash_in_single_quotes::literal_backslash_in_single_quotes(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::IfsEqualsAmbiguity) {
+            rules::style::ifs_equals_ambiguity::ifs_equals_ambiguity(self);
+        }
+        if self.is_rule_enabled(Rule::SingleQuotedLiteral) {
+            rules::correctness::single_quoted_literal::single_quoted_literal(self);
+        }
+        if self.is_rule_enabled(Rule::OpenDoubleQuote) {
+            rules::correctness::open_double_quote::open_double_quote(self);
+        }
+        if self.is_rule_enabled(Rule::SuspectClosingQuote) {
+            rules::style::suspect_closing_quote::suspect_closing_quote(self);
+        }
+        if self.is_rule_enabled(Rule::TrailingDirective) {
+            rules::style::trailing_directive::trailing_directive(self);
+        }
+        if self.is_rule_enabled(Rule::TodoFormat) {
+            rules::style::todo_format::todo_format(self);
+        }
+        if self.is_rule_enabled(Rule::PositionalTenBraces) {
+            rules::correctness::positional_ten_braces::positional_ten_braces(self);
+        }
+        if self.is_rule_enabled(Rule::NestedParameterExpansion) {
+            rules::correctness::nested_parameter_expansion::nested_parameter_expansion(self);
+        }
+        if self.is_rule_enabled(Rule::BackslashBeforeClosingBacktick) {
+            rules::correctness::backslash_before_closing_backtick::backslash_before_closing_backtick(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::PositionalParamAsOperator) {
+            rules::correctness::positional_param_as_operator::positional_param_as_operator(self);
+        }
+        if self.is_rule_enabled(Rule::DoubleParenGrouping) {
+            rules::correctness::double_paren_grouping::double_paren_grouping(self);
+        }
+        if self.is_rule_enabled(Rule::UnicodeQuoteInString) {
+            rules::correctness::unicode_quote_in_string::unicode_quote_in_string(self);
+        }
+        if self.is_rule_enabled(Rule::AssignmentLooksLikeComparison) {
+            rules::correctness::assignment_looks_like_comparison::assignment_looks_like_comparison(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::AssignmentToNumericVariable) {
+            rules::correctness::assignment_to_numeric_variable::assignment_to_numeric_variable(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::PlusPrefixInAssignment) {
+            rules::correctness::plus_prefix_in_assignment::plus_prefix_in_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::AssignSpecialZero) {
+            rules::correctness::assign_special_zero::assign_special_zero(self);
+        }
+        if self.is_rule_enabled(Rule::SpaceyAssign) {
+            rules::correctness::spacey_assign::spacey_assign(self);
+        }
+        if self.is_rule_enabled(Rule::IfsSetToLiteralBackslashN) {
+            rules::correctness::ifs_set_to_literal_backslash_n::ifs_set_to_literal_backslash_n(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::AppendWithEscapedQuotes) {
+            rules::correctness::append_with_escaped_quotes::append_with_escaped_quotes(self);
+        }
+        if self.is_rule_enabled(Rule::AssignmentSpacing) {
+            rules::correctness::assignment_spacing::assignment_spacing(self);
+        }
+        if self.is_rule_enabled(Rule::LocalCrossReference) {
+            rules::correctness::local_cross_reference::local_cross_reference(self);
+        }
+        if self.is_rule_enabled(Rule::SpacedAssignment) {
+            rules::correctness::spaced_assignment::spaced_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::BadVarName) {
+            rules::correctness::bad_var_name::bad_var_name(self);
+        }
+        if self.is_rule_enabled(Rule::ImplicitGlobalInFunction) {
+            rules::correctness::implicit_global_in_function::implicit_global_in_function(self);
+        }
+        if self.is_rule_enabled(Rule::CommentedContinuationLine) {
+            rules::correctness::commented_continuation_line::commented_continuation_line(self);
+        }
+        if self.is_rule_enabled(Rule::UnicodeSingleQuoteInSingleQuotes) {
+            rules::correctness::unicode_single_quote_in_single_quotes::unicode_single_quote_in_single_quotes(self);
+        }
+    }
+
+    fn check_test_and_conditional_facts(&mut self) {
+        if self.is_rule_enabled(Rule::DoubleBracketInSh) {
+            rules::portability::conditional_portability::double_bracket_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::GrepOutputInTest) {
+            rules::style::grep_output_in_test::grep_output_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInStringComparison) {
+            rules::correctness::glob_in_string_comparison::glob_in_string_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInTestDirectory) {
+            rules::correctness::glob_in_test_directory::glob_in_test_directory(self);
+        }
+        if self.is_rule_enabled(Rule::ExprSubstrInTest) {
+            rules::correctness::expr_substr_in_test::expr_substr_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::StringComparedWithEq) {
+            rules::correctness::string_compared_with_eq::string_compared_with_eq(self);
+        }
+        if self.is_rule_enabled(Rule::XPrefixInTest) {
+            rules::style::x_prefix_in_test::x_prefix_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::AFlagInDoubleBracket) {
+            rules::correctness::a_flag_in_double_bracket::a_flag_in_double_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::MalformedArithmeticInCondition) {
+            rules::correctness::malformed_arithmetic_in_condition::malformed_arithmetic_in_condition(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::UnquotedVariableInTest) {
+            rules::style::unquoted_variable_in_test::unquoted_variable_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::TestEqualityOperator) {
+            rules::portability::conditional_portability::test_equality_operator(self);
+        }
+        if self.is_rule_enabled(Rule::IfElifBashTest) {
+            rules::portability::conditional_portability::if_elif_bash_test(self);
+        }
+        if self.is_rule_enabled(Rule::ExtglobInSh) {
+            rules::portability::conditional_portability::extglob_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::CaretNegationInBracket) {
+            rules::portability::conditional_portability::caret_negation_in_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::ArraySubscriptTest) {
+            rules::portability::conditional_portability::array_subscript_test(self);
+        }
+        if self.is_rule_enabled(Rule::ArraySubscriptCondition) {
+            rules::portability::conditional_portability::array_subscript_condition(self);
+        }
+        if self.is_rule_enabled(Rule::ExtglobInTest) {
+            rules::portability::conditional_portability::extglob_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::LexicalComparisonInDoubleBracket) {
+            rules::portability::conditional_portability::lexical_comparison_in_double_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::RegexMatchInSh) {
+            rules::portability::conditional_portability::regex_match_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::VTestInSh) {
+            rules::portability::conditional_portability::v_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::ATestInSh) {
+            rules::portability::conditional_portability::a_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::OptionTestInSh) {
+            rules::portability::conditional_portability::option_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::StickyBitTestInSh) {
+            rules::portability::conditional_portability::sticky_bit_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::OwnershipTestInSh) {
+            rules::portability::conditional_portability::ownership_test_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedBashRegex) {
+            rules::correctness::quoted_bash_regex::quoted_bash_regex(self);
+        }
+        if self.is_rule_enabled(Rule::ConstantComparisonTest) {
+            rules::correctness::constant_comparison_test::constant_comparison_test(self);
+        }
+        if self.is_rule_enabled(Rule::AtSignInStringCompare) {
+            rules::correctness::at_sign_in_string_compare::at_sign_in_string_compare(self);
+        }
+        if self.is_rule_enabled(Rule::ArraySliceInComparison) {
+            rules::correctness::array_slice_in_comparison::array_slice_in_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::LiteralUnaryStringTest) {
+            rules::correctness::literal_unary_string_test::literal_unary_string_test(self);
+        }
+        if self.is_rule_enabled(Rule::TruthyLiteralTest) {
+            rules::correctness::truthy_literal_test::truthy_literal_test(self);
+        }
+        if self.is_rule_enabled(Rule::MissingBracketSpace) {
+            rules::correctness::missing_bracket_space::missing_bracket_space(self);
+        }
+        if self.is_rule_enabled(Rule::MissingSpaceBeforeBracketClose) {
+            rules::correctness::missing_space_before_bracket_close::missing_space_before_bracket_close(self);
+        }
+        if self.is_rule_enabled(Rule::JammedTestBracket) {
+            rules::correctness::jammed_test_bracket::jammed_test_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::EscapedNegationInTest) {
+            rules::correctness::escaped_negation_in_test::escaped_negation_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GreaterThanInTest) {
+            rules::correctness::greater_than_in_test::greater_than_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::StringComparisonForVersion) {
+            rules::correctness::string_comparison_for_version::string_comparison_for_version(self);
+        }
+        if self.is_rule_enabled(Rule::MixedAndOrInCondition) {
+            rules::correctness::mixed_and_or_in_condition::mixed_and_or_in_condition(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedCommandInTest) {
+            rules::correctness::quoted_command_in_test::quoted_command_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInTestComparison) {
+            rules::correctness::glob_in_test_comparison::glob_in_test_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::TildeInStringComparison) {
+            rules::correctness::tilde_in_string_comparison::tilde_in_string_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::IfDollarCommand) {
+            rules::correctness::if_dollar_command::if_dollar_command(self);
+        }
+        if self.is_rule_enabled(Rule::EmptyTest) {
+            rules::correctness::empty_test::empty_test(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenTestEnd) {
+            rules::correctness::broken_test_end::broken_test_end(self);
+        }
+        if self.is_rule_enabled(Rule::BrokenTestParse) {
+            rules::correctness::broken_test_parse::broken_test_parse(self);
+        }
+        if self.is_rule_enabled(Rule::LinebreakInTest) {
+            rules::correctness::linebreak_in_test::linebreak_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::ElseIf) {
+            rules::correctness::else_if::else_if(self);
+        }
+    }
+
+    fn check_flow(&mut self) {
+        if self.is_rule_enabled(Rule::IndentedShebang) {
+            rules::correctness::indented_shebang::indented_shebang(self);
+        }
+        if self.is_rule_enabled(Rule::SpaceAfterHashBang) {
+            rules::correctness::space_after_hash_bang::space_after_hash_bang(self);
+        }
+        if self.is_rule_enabled(Rule::ShebangNotOnFirstLine) {
+            rules::correctness::shebang_not_on_first_line::shebang_not_on_first_line(self);
+        }
+        if self.is_rule_enabled(Rule::MissingShebangLine) {
+            rules::style::missing_shebang_line::missing_shebang_line(self);
+        }
+        if self.is_rule_enabled(Rule::DuplicateShebangFlag) {
+            rules::style::duplicate_shebang_flag::duplicate_shebang_flag(self);
+        }
+        if self.is_rule_enabled(Rule::ShebangShellPolicy) {
+            rules::style::shebang_shell_policy::shebang_shell_policy(self);
+        }
+        if self.is_rule_enabled(Rule::ShebangFormPolicy) {
+            rules::style::shebang_form_policy::shebang_form_policy(self);
+        }
+        if self.is_rule_enabled(Rule::ScriptSizeThreshold) {
+            rules::style::script_size_threshold::script_size_threshold(self);
+        }
+        if self.is_rule_enabled(Rule::MissingFileDescription) {
+            rules::style::missing_file_description::missing_file_description(self);
+        }
+        if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
+            rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
+        }
+        if self.is_rule_enabled(Rule::IfMissingThen) {
+            rules::correctness::if_missing_then::if_missing_then(self);
+        }
+        if self.is_rule_enabled(Rule::ElseWithoutThen) {
+            rules::correctness::else_without_then::else_without_then(self);
+        }
+        if self.is_rule_enabled(Rule::MissingSemicolonBeforeBrace) {
+            rules::correctness::missing_semicolon_before_brace::missing_semicolon_before_brace(
+                self,
+            );
+        }
+        if self.is_rule_enabled(Rule::EmptyFunctionBody) {
+            rules::correctness::empty_function_body::empty_function_body(self);
+        }
+        if self.is_rule_enabled(Rule::BareClosingBrace) {
+            rules::correctness::bare_closing_brace::bare_closing_brace(self);
+        }
+        if self.is_rule_enabled(Rule::UnreachableAfterExit) {
+            rules::correctness::unreachable_after_exit::unreachable_after_exit(self);
+        }
+    }
+}

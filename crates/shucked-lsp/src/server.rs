@@ -1,0 +1,223 @@
+//! Server initialization, connection handling, and message processing loop.
+
+use std::num::NonZeroUsize;
+
+use lsp_server::Connection;
+use lsp_types::ClientCapabilities;
+use lsp_types::InitializeParams;
+
+pub use self::connection::{ConnectionInitializer, ConnectionSender};
+use self::schedule::spawn_main_loop;
+use crate::PositionEncoding;
+pub use crate::capabilities::{SupportedCodeAction, SupportedCommand};
+pub use crate::server::main_loop::MainLoopSender;
+pub(crate) use crate::server::main_loop::{Event, MainLoopReceiver};
+use crate::session::{AllOptions, Client, Session};
+use crate::workspace::Workspaces;
+pub(crate) use api::Error;
+
+pub(crate) mod api;
+pub(crate) mod connection;
+pub(crate) mod main_loop;
+pub(crate) mod schedule;
+
+pub(crate) type Result<T> = std::result::Result<T, api::Error>;
+
+/// Initialized Shucked LSP server.
+pub struct Server {
+    connection: Connection,
+    client_capabilities: ClientCapabilities,
+    worker_threads: NonZeroUsize,
+    main_loop_receiver: MainLoopReceiver,
+    main_loop_sender: MainLoopSender,
+    session: Session,
+}
+
+impl Server {
+    /// Initialize a new server instance.
+    pub fn new(
+        worker_threads: NonZeroUsize,
+        connection: ConnectionInitializer,
+    ) -> crate::Result<Self> {
+        let (id, init_params) = connection.initialize_start()?;
+        let client_capabilities = init_params.capabilities;
+        let position_encoding = Self::find_best_position_encoding(&client_capabilities);
+        #[allow(deprecated)]
+        let InitializeParams {
+            initialization_options,
+            root_path,
+            root_uri,
+            workspace_folders,
+            ..
+        } = init_params;
+        let all_options =
+            AllOptions::from_value(initialization_options.unwrap_or(serde_json::Value::Null));
+        let workspace_diagnostics_enabled = all_options.workspace_diagnostics_enabled();
+        let AllOptions { global, workspace } = all_options;
+        let server_capabilities = crate::capabilities::server_capabilities(
+            position_encoding,
+            workspace_diagnostics_enabled,
+        );
+        let connection = connection.initialize_finish(
+            id,
+            &server_capabilities,
+            crate::SERVER_NAME,
+            crate::version(),
+        )?;
+
+        let (main_loop_sender, main_loop_receiver) = crossbeam::channel::bounded(32);
+
+        let client = Client::new(main_loop_sender.clone(), connection.sender.clone());
+
+        crate::logging::init_logging(
+            global.tracing.log_level.unwrap_or_default(),
+            global.tracing.log_file.as_deref(),
+        );
+
+        let workspaces = Workspaces::from_workspace_folders(
+            workspace_folders,
+            root_uri,
+            root_path,
+            workspace.unwrap_or_default(),
+        )?;
+        let global = global.into_settings(client.clone());
+
+        Ok(Self {
+            connection,
+            client_capabilities: client_capabilities.clone(),
+            worker_threads,
+            main_loop_receiver,
+            main_loop_sender,
+            session: Session::new(
+                &client_capabilities,
+                position_encoding,
+                global,
+                &workspaces,
+                &client,
+            )?,
+        })
+    }
+
+    /// Run the server main loop until shutdown or error.
+    pub fn run(mut self) -> crate::Result<()> {
+        let panic_client = Client::new(
+            self.main_loop_sender.clone(),
+            self.connection.sender.clone(),
+        );
+        let _panic_hook = install_panic_hook(panic_client);
+        spawn_main_loop(move || self.main_loop())?
+            .join()
+            .map_err(|_| anyhow::anyhow!("main loop thread panicked"))?
+    }
+
+    fn find_best_position_encoding(client_capabilities: &ClientCapabilities) -> PositionEncoding {
+        client_capabilities
+            .general
+            .as_ref()
+            .and_then(|general| general.position_encodings.as_ref())
+            .and_then(|encodings| {
+                encodings
+                    .iter()
+                    .filter_map(|encoding| PositionEncoding::try_from(encoding).ok())
+                    .max()
+            })
+            .unwrap_or_default()
+    }
+}
+
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+struct PanicHookGuard {
+    previous: Option<PanicHook>,
+}
+
+impl Drop for PanicHookGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            std::panic::set_hook(previous);
+        }
+    }
+}
+
+fn install_panic_hook(client: Client) -> PanicHookGuard {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        report_panic(&client, panic_info);
+    }));
+    PanicHookGuard {
+        previous: Some(previous),
+    }
+}
+
+fn report_panic(client: &Client, panic_info: &std::panic::PanicHookInfo<'_>) {
+    let summary = panic_info
+        .payload()
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| {
+            panic_info
+                .payload()
+                .downcast_ref::<&'static str>()
+                .map(|message| (*message).to_owned())
+        })
+        .unwrap_or_else(|| "unknown panic".to_owned());
+    let location = panic_info.location().map(|location| {
+        format!(
+            "{}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        )
+    });
+    let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    emit_panic_report(client, &summary, location.as_deref(), &backtrace);
+}
+
+fn emit_panic_report(client: &Client, summary: &str, location: Option<&str>, backtrace: &str) {
+    let location = location.unwrap_or("unknown location");
+    let details = format!("Shucked server panicked at {location}: {summary}\n{backtrace}");
+    tracing::error!("{details}");
+    eprintln!("{details}");
+    if let Err(error) = client.log_message(&details, lsp_types::MessageType::ERROR) {
+        tracing::error!("Failed to send panic log message to client: {error}");
+    }
+    client.show_error_message(format!("Shucked server panicked: {summary}"));
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam::channel;
+    use lsp_server::Message;
+    use lsp_types::notification::Notification;
+
+    use super::*;
+    use crate::Client;
+
+    #[test]
+    fn panic_reports_are_sent_to_the_client() {
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+
+        emit_panic_report(&client, "boom", Some("test.rs:1:1"), "stack backtrace");
+
+        let first = client_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("panic log notification should be sent");
+        let second = client_receiver
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .expect("panic showMessage notification should be sent");
+
+        let messages = [first, second];
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::LogMessage::METHOD
+        )));
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            Message::Notification(notification)
+                if notification.method == lsp_types::notification::ShowMessage::METHOD
+        )));
+    }
+}

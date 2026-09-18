@@ -1,0 +1,1665 @@
+use super::*;
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn build_literal_brace_spans(
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
+    commands: CommandFacts<'_, '_>,
+    fact_store: &FactStore<'_>,
+    locator: Locator<'_>,
+    region_index: &RegionIndex,
+) -> Vec<Span> {
+    let source = locator.source();
+    let heredoc_ranges = region_index.heredoc_ranges();
+    let mut spans = Vec::new();
+    let mut scratch = LiteralBraceScratch::default();
+    scratch.processed_word_nodes.resize(nodes.len(), false);
+
+    for fact in occurrences {
+        if fact.context == WordFactContext::Expansion(ExpansionContext::RegexOperand) {
+            continue;
+        }
+
+        let is_find_exec_placeholder_word =
+            is_find_exec_placeholder_word(commands, nodes, fact, source, locator);
+        let is_xargs_replacement_word = is_xargs_replacement_word(commands, nodes, fact, source);
+        if is_find_exec_placeholder_word || is_xargs_replacement_word {
+            continue;
+        }
+
+        let node_index = fact.node_id.index();
+        if scratch.processed_word_nodes[node_index] {
+            continue;
+        }
+        scratch.processed_word_nodes[node_index] = true;
+
+        collect_literal_brace_spans_for_word(
+            nodes,
+            fact,
+            fact_store,
+            source,
+            region_index,
+            &mut spans,
+            &mut scratch,
+        );
+    }
+
+    collect_uncovered_command_brace_spans(
+        commands,
+        locator,
+        heredoc_ranges,
+        &mut spans,
+        &mut scratch,
+    );
+    collect_unmatched_command_substitution_brace_spans(
+        commands,
+        locator,
+        heredoc_ranges,
+        &mut spans,
+        &mut scratch,
+    );
+    spans.retain(|span| {
+        !region_index.is_expansion_brace_edge(TextSize::new(span.start.offset() as u32))
+    });
+    spans.sort_by_key(|span| (span.start.offset(), span.end.offset()));
+    spans.dedup_by_key(|span| (span.start.offset(), span.end.offset()));
+    spans
+}
+
+#[derive(Default)]
+pub(crate) struct LiteralBraceScratch {
+    processed_word_nodes: Vec<bool>,
+    dynamic_exclusions: Vec<DynamicBraceExcludedSpan>,
+    raw_escaped_exclusions: Vec<DynamicBraceExcludedSpan>,
+    relevant_excluded_ranges: Vec<(usize, usize)>,
+    covered_spans: Vec<Span>,
+    unmatched_spans: Vec<Span>,
+    unmatched_offsets: Vec<usize>,
+    literal_stack: Vec<LiteralBraceCandidate>,
+    escaped_parameter_stack: Vec<usize>,
+}
+
+pub(crate) fn collect_literal_brace_spans_for_word(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
+    source: &str,
+    region_index: &RegionIndex,
+    spans: &mut Vec<Span>,
+    scratch: &mut LiteralBraceScratch,
+) {
+    let word = occurrence_word(nodes, fact);
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+    let nested_escaped_templates =
+        fact_store.word_spans(derived.nested_escaped_parameter_template_body_spans);
+    scratch.dynamic_exclusions.clear();
+    collect_dynamic_brace_exclusions(
+        &word.parts,
+        word.span.start.offset(),
+        source,
+        region_index,
+        &mut scratch.dynamic_exclusions,
+    );
+    scratch
+        .dynamic_exclusions
+        .sort_by_key(|span| (span.start_offset, span.end_offset));
+
+    for brace in word
+        .brace_syntax()
+        .iter()
+        .copied()
+        .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
+        .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
+        .filter(|brace| {
+            matches!(
+                brace.kind,
+                BraceSyntaxKind::Literal | BraceSyntaxKind::TemplatePlaceholder
+            ) || brace_syntax_with_whitespace_is_literal(*brace, source)
+        })
+        .filter(|brace| {
+            brace.span.slice(source) != "{}"
+                && !brace_span_has_escaped_dollar_prefix(brace.span, source)
+        })
+    {
+        collect_brace_character_spans(brace.span, source, spans, |span| {
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
+        });
+    }
+
+    collect_escaped_parameter_expansion_brace_edge_spans(
+        word,
+        source,
+        &scratch.dynamic_exclusions,
+        EscapedParameterBraceEdgeScratch {
+            literal_stack: &mut scratch.literal_stack,
+            raw_escaped_exclusions: &mut scratch.raw_escaped_exclusions,
+            escaped_parameter_stack: &mut scratch.escaped_parameter_stack,
+        },
+        spans,
+        |span| {
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
+        },
+    );
+    collect_unclassified_literal_brace_spans(
+        word,
+        source,
+        &mut scratch.dynamic_exclusions,
+        &mut scratch.unmatched_offsets,
+        spans,
+        |span| {
+            literal_brace_word_span_is_reportable(
+                nodes,
+                fact,
+                fact_store,
+                span,
+                nested_escaped_templates,
+            )
+        },
+    );
+}
+
+pub(crate) fn literal_brace_word_span_is_reportable(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
+    span: Span,
+    nested_escaped_templates: &[Span],
+) -> bool {
+    !nested_escaped_templates.iter().copied().any(|body| {
+        body.start.offset() <= span.start.offset() && span.start.offset() < body.end.offset()
+    }) && !word_span_is_inside_command_substitution(nodes, fact, fact_store, span)
+}
+
+pub(crate) fn word_span_is_inside_command_substitution(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    fact_store: &FactStore<'_>,
+    span: Span,
+) -> bool {
+    let derived = word_node_derived(&nodes[fact.node_id.index()]);
+    fact_store
+        .word_spans(derived.command_substitution_spans)
+        .iter()
+        .copied()
+        .any(|substitution| contains_span(substitution, span))
+}
+
+pub(crate) fn is_find_exec_placeholder_word(
+    commands: CommandFacts<'_, '_>,
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+    locator: Locator<'_>,
+) -> bool {
+    if !word_is_empty_brace_pair_variant(occurrence_word(nodes, fact), source) {
+        return false;
+    }
+    if fact.context != WordFactContext::Expansion(ExpansionContext::CommandArgument) {
+        return false;
+    }
+
+    let command = command_fact_ref(commands, fact.command_id);
+    if command.has_wrapper(WrapperKind::FindExec) || command.has_wrapper(WrapperKind::FindExecDir) {
+        return true;
+    }
+
+    commands.iter().any(|command| {
+        command.stmt().span.start.offset() <= occurrence_span(nodes, fact).start.offset()
+            && command.stmt().span.end.offset() >= occurrence_span(nodes, fact).end.offset()
+            && is_find_exec_command(command, source)
+    }) || line_has_find_exec_placeholder_context(locator, occurrence_span(nodes, fact))
+}
+
+pub(crate) fn is_find_exec_command(command: CommandFactRef<'_, '_>, source: &str) -> bool {
+    let is_find = command.static_utility_name_is("find")
+        || command.body_name_word().is_some_and(|name_word| {
+            name_word
+                .span
+                .slice(source)
+                .rsplit('/')
+                .next()
+                .is_some_and(|name| name == "find")
+        });
+    if !is_find {
+        return false;
+    }
+
+    let has_exec_flag = command.body_args().iter().any(|arg| {
+        matches!(
+            arg.span.slice(source),
+            "-exec" | "-execdir" | "-ok" | "-okdir"
+        )
+    });
+    let has_exec_terminator = command
+        .body_args()
+        .iter()
+        .any(|arg| matches!(arg.span.slice(source), "+" | "\\;"));
+
+    has_exec_flag && has_exec_terminator
+}
+
+pub(crate) fn line_has_find_exec_placeholder_context(
+    locator: Locator<'_>,
+    brace_span: Span,
+) -> bool {
+    let source = locator.source();
+    let Some(line_range) = locator.line_range(brace_span.start.line()) else {
+        return false;
+    };
+    let line_start_offset = usize::from(line_range.start());
+    let line_text = line_range.slice(source);
+    let Some(relative_start) = brace_span.start.offset().checked_sub(line_start_offset) else {
+        return false;
+    };
+    let Some(relative_end) = brace_span.end.offset().checked_sub(line_start_offset) else {
+        return false;
+    };
+    if relative_end > line_text.len() {
+        return false;
+    }
+
+    let prefix = &line_text[..relative_start];
+    let suffix = &line_text[relative_end..];
+    let first_word = shellish_words(prefix).next();
+    let has_exec_flag_before =
+        shellish_words(prefix).any(|word| matches!(word, "-exec" | "-execdir" | "-ok" | "-okdir"));
+    let has_exec_terminator_after = shellish_words(suffix).any(|word| matches!(word, "+" | "\\;"));
+
+    first_word
+        .and_then(|word| word.rsplit('/').next())
+        .is_some_and(|word| word == "find")
+        && has_exec_flag_before
+        && has_exec_terminator_after
+}
+
+pub(crate) fn is_xargs_replacement_word(
+    commands: CommandFacts<'_, '_>,
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+) -> bool {
+    if fact.context != WordFactContext::Expansion(ExpansionContext::CommandArgument) {
+        return false;
+    }
+
+    let command = command_fact_ref(commands, fact.command_id);
+    if !command.effective_name_is("xargs") {
+        return false;
+    }
+
+    xargs_replacement_spans_contain(command.body_args(), source, occurrence_span(nodes, fact))
+}
+
+pub(crate) fn xargs_replacement_spans_contain(args: &[&Word], source: &str, target: Span) -> bool {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if let Some(long) = text.strip_prefix("--") {
+            if let Some(replacement) = long.strip_prefix("replace=") {
+                if !replacement.is_empty() && word.span == target {
+                    return true;
+                }
+                index += 1;
+                continue;
+            }
+
+            if long == "replace" {
+                let Some(next_word) = args.get(index + 1) else {
+                    break;
+                };
+                if next_word.span == target {
+                    return true;
+                }
+                index += 2;
+                continue;
+            }
+
+            let consume_next_argument = xargs_long_option_requires_separate_argument(long);
+            index += 1;
+            if consume_next_argument {
+                index += 1;
+            }
+            continue;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
+
+        while let Some(flag) = chars.next() {
+            match flag {
+                'i' => {
+                    if chars.peek().is_some() && word.span == target {
+                        return true;
+                    }
+                    break;
+                }
+                'I' => {
+                    if chars.peek().is_some() {
+                        if word.span == target {
+                            return true;
+                        }
+                    } else {
+                        let Some(next_word) = args.get(index + 1) else {
+                            return false;
+                        };
+                        if next_word.span == target {
+                            return true;
+                        }
+                        consume_next_argument = true;
+                    }
+                    break;
+                }
+                _ => match xargs_short_option_argument_style(flag) {
+                    XargsShortOptionArgumentStyle::None => {}
+                    XargsShortOptionArgumentStyle::OptionalInlineOnly => break,
+                    XargsShortOptionArgumentStyle::Required => {
+                        if chars.peek().is_none() {
+                            consume_next_argument = true;
+                        }
+                        break;
+                    }
+                },
+            }
+        }
+
+        index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    false
+}
+
+pub(crate) struct ShellishWords<'a> {
+    text: &'a str,
+    cursor: usize,
+}
+
+impl<'a> Iterator for ShellishWords<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut start = None;
+
+        for (relative_index, ch) in self.text[self.cursor..].char_indices() {
+            let index = self.cursor + relative_index;
+            let is_word = ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | '-' | '+' | '/' | '\\' | ';' | '.');
+            if is_word {
+                if start.is_none() {
+                    start = Some(index);
+                }
+            } else if let Some(word_start) = start {
+                self.cursor = index + ch.len_utf8();
+                return Some(&self.text[word_start..index]);
+            }
+        }
+
+        if let Some(word_start) = start {
+            self.cursor = self.text.len();
+            return Some(&self.text[word_start..]);
+        }
+
+        self.cursor = self.text.len();
+        None
+    }
+}
+
+pub(crate) fn shellish_words(text: &str) -> ShellishWords<'_> {
+    ShellishWords { text, cursor: 0 }
+}
+
+pub(crate) fn collect_brace_character_spans(
+    span: Span,
+    source: &str,
+    out: &mut Vec<Span>,
+    mut is_reportable: impl FnMut(Span) -> bool,
+) {
+    let text = span.slice(source);
+    for (offset, ch) in text.char_indices() {
+        if !matches!(ch, '{' | '}') {
+            continue;
+        }
+        let absolute_offset = span.start.offset() + offset;
+        if has_odd_backslash_run_before(source, absolute_offset) {
+            continue;
+        }
+        let position = span.start.advanced_by(&text[..offset]);
+        let brace_span = Span::from_positions(position, position);
+        if is_reportable(brace_span) {
+            out.push(brace_span);
+        }
+    }
+}
+
+pub(crate) fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
+    let span_text = span.slice(source);
+    if span_text.starts_with("${") {
+        return has_odd_backslash_run_before(source, span.start.offset());
+    }
+
+    has_escaped_dollar_before(source, span.start.offset())
+}
+
+pub(crate) fn brace_syntax_with_whitespace_is_literal(
+    brace: shucked_ast::BraceSyntax,
+    source: &str,
+) -> bool {
+    if !matches!(brace.kind, BraceSyntaxKind::Expansion(_)) {
+        return false;
+    }
+
+    #[derive(Clone, Copy)]
+    enum QuoteState {
+        Single,
+        Double,
+    }
+
+    let text = brace.span.slice(source);
+    let mut index = 0usize;
+    let mut quote_state = None;
+
+    while index < text.len() {
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if let Some(state) = quote_state {
+            match state {
+                QuoteState::Single => {
+                    if ch == '\'' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+                QuoteState::Double => {
+                    if ch == '\\' {
+                        index += ch_len;
+                        if let Some(escaped) = text[index..].chars().next() {
+                            index += escaped.len_utf8();
+                        }
+                        continue;
+                    }
+                    if ch == '"' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+            }
+        }
+
+        if ch == '\\' {
+            index += ch_len;
+            if text[index..].starts_with("\r\n") {
+                index += "\r\n".len();
+                continue;
+            }
+            if text[index..].starts_with('\n') {
+                index += '\n'.len_utf8();
+                continue;
+            }
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if ch == '\'' {
+            quote_state = Some(QuoteState::Single);
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '"' {
+            quote_state = Some(QuoteState::Double);
+            index += ch_len;
+            continue;
+        }
+
+        if ch.is_whitespace() {
+            return true;
+        }
+
+        index += ch_len;
+    }
+
+    false
+}
+
+pub(crate) fn word_is_empty_brace_pair_variant(word: &Word, source: &str) -> bool {
+    matches!(word.span.slice(source), "{}" | "\\{\\}")
+}
+
+pub(crate) fn collect_unclassified_literal_brace_spans(
+    word: &Word,
+    source: &str,
+    excluded: &mut Vec<DynamicBraceExcludedSpan>,
+    unmatched_opens: &mut Vec<usize>,
+    out: &mut Vec<Span>,
+    mut is_reportable: impl FnMut(Span) -> bool,
+) {
+    let span = word.span;
+    let text = span.slice(source);
+    excluded.extend(
+        word.brace_syntax()
+            .iter()
+            .map(|brace| DynamicBraceExcludedSpan {
+                start_offset: brace.span.start.offset() - span.start.offset(),
+                end_offset: brace.span.end.offset() - span.start.offset(),
+                kind: DynamicBraceExcludedSpanKind::RuntimeShellSyntax,
+            }),
+    );
+    excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
+
+    let mut excluded_index = 0usize;
+    let mut index = 0usize;
+    unmatched_opens.clear();
+
+    while index < text.len() {
+        while let Some(excluded_span) = excluded.get(excluded_index).copied() {
+            if excluded_span.end_offset <= index {
+                excluded_index += 1;
+                continue;
+            }
+            if excluded_span.start_offset > index {
+                break;
+            }
+
+            index = excluded_span.end_offset;
+            excluded_index += 1;
+        }
+
+        if index >= text.len() {
+            break;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if text[index..].starts_with("\\${")
+            && let Some(end_offset) =
+                find_runtime_parameter_closing_brace(text, index + '\\'.len_utf8())
+        {
+            index = end_offset;
+            continue;
+        }
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if ch == '{' {
+            unmatched_opens.push(index);
+        } else if ch == '}' && unmatched_opens.pop().is_none() {
+            let position = span.start.advanced_by(&text[..index]);
+            let brace_span = Span::from_positions(position, position);
+            if is_reportable(brace_span) {
+                out.push(brace_span);
+            }
+        }
+
+        index += ch_len;
+    }
+
+    for offset in unmatched_opens.drain(..) {
+        let position = span.start.advanced_by(&text[..offset]);
+        let brace_span = Span::from_positions(position, position);
+        if is_reportable(brace_span) {
+            out.push(brace_span);
+        }
+    }
+}
+
+pub(crate) fn collect_uncovered_command_brace_spans(
+    commands: CommandFacts<'_, '_>,
+    locator: Locator<'_>,
+    heredoc_ranges: &[TextRange],
+    out: &mut Vec<Span>,
+    scratch: &mut LiteralBraceScratch,
+) {
+    let source = locator.source();
+    for command in commands {
+        let Command::Simple(simple) = command.command() else {
+            continue;
+        };
+        let command_span = command.span();
+        scratch.covered_spans.clear();
+
+        if !simple.name.span.slice(source).is_empty() {
+            scratch.covered_spans.push(simple.name.span);
+        }
+        scratch
+            .covered_spans
+            .extend(simple.args.iter().map(|word| word.span));
+        scratch
+            .covered_spans
+            .extend(simple.assignments.iter().map(|assignment| assignment.span));
+        scratch
+            .covered_spans
+            .extend(command.redirects().iter().map(|redirect| redirect.span));
+        scratch
+            .covered_spans
+            .extend(command.substitution_facts().iter().map(|fact| fact.span()));
+        scratch.covered_spans.extend(
+            command
+                .redirects()
+                .iter()
+                .filter_map(|redirect| redirect.fd_var_span),
+        );
+        scratch.covered_spans.extend(
+            command
+                .redirects()
+                .iter()
+                .filter_map(|redirect| redirect_fd_var_brace_span(redirect, source)),
+        );
+        scratch.covered_spans.extend(
+            command
+                .redirects()
+                .iter()
+                .filter_map(|redirect| redirect.heredoc().map(|heredoc| heredoc.body.span)),
+        );
+        scratch.covered_spans.extend(
+            command
+                .redirects()
+                .iter()
+                .filter_map(|redirect| redirect.fd_var_span),
+        );
+
+        if scratch.covered_spans.is_empty() {
+            continue;
+        }
+
+        scratch
+            .covered_spans
+            .sort_by_key(|span| (span.start.offset(), span.end.offset()));
+
+        let mut cursor = command_span.start.offset();
+        for span in scratch.covered_spans.iter().copied() {
+            if span.start.offset() > cursor {
+                collect_raw_literal_brace_spans(
+                    RawLiteralBraceScan {
+                        locator,
+                        mode: RawLiteralBraceScanMode::All,
+                        excluded_ranges: heredoc_ranges,
+                    },
+                    cursor,
+                    span.start.offset(),
+                    out,
+                    &mut scratch.relevant_excluded_ranges,
+                    &mut scratch.unmatched_spans,
+                );
+            }
+            cursor = cursor.max(span.end.offset());
+        }
+
+        if command_span.end.offset() > cursor {
+            collect_raw_literal_brace_spans(
+                RawLiteralBraceScan {
+                    locator,
+                    mode: RawLiteralBraceScanMode::All,
+                    excluded_ranges: heredoc_ranges,
+                },
+                cursor,
+                command_span.end.offset(),
+                out,
+                &mut scratch.relevant_excluded_ranges,
+                &mut scratch.unmatched_spans,
+            );
+        }
+    }
+}
+
+pub(crate) fn redirect_fd_var_brace_span(redirect: &Redirect, source: &str) -> Option<Span> {
+    let fd_var_span = redirect.fd_var_span?;
+    let start_offset = fd_var_span.start.offset().checked_sub('{'.len_utf8())?;
+    let end_offset = fd_var_span.end.offset().checked_add('}'.len_utf8())?;
+    if source.get(start_offset..fd_var_span.start.offset())? != "{" {
+        return None;
+    }
+    if source.get(fd_var_span.end.offset()..end_offset)? != "}" {
+        return None;
+    }
+
+    Some(Span::from_positions(
+        Position::at(
+            fd_var_span.start.line(),
+            fd_var_span.start.column().checked_sub(1)?,
+            start_offset,
+        ),
+        Position::at(
+            fd_var_span.end.line(),
+            fd_var_span.end.column() + 1,
+            end_offset,
+        ),
+    ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawLiteralBraceScanMode {
+    All,
+    UnmatchedOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawLiteralBraceQuoteState {
+    Single,
+    Double,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RawLiteralBraceScan<'a> {
+    locator: Locator<'a>,
+    mode: RawLiteralBraceScanMode,
+    excluded_ranges: &'a [TextRange],
+}
+
+pub(crate) fn collect_raw_literal_brace_spans(
+    scan: RawLiteralBraceScan<'_>,
+    scan_start: usize,
+    scan_end: usize,
+    out: &mut Vec<Span>,
+    relevant_excluded: &mut Vec<(usize, usize)>,
+    unmatched_opens: &mut Vec<Span>,
+) {
+    relevant_excluded.clear();
+    relevant_excluded.extend(scan.excluded_ranges.iter().filter_map(|range| {
+        let start = usize::from(range.start());
+        let end = usize::from(range.end());
+        if end <= scan_start || start >= scan_end {
+            return None;
+        }
+        Some((start.max(scan_start), end.min(scan_end)))
+    }));
+    relevant_excluded.sort_unstable_by_key(|&(start, end)| (start, end));
+
+    unmatched_opens.clear();
+    let mut cursor = scan_start;
+    for (start, end) in relevant_excluded.iter().copied() {
+        if start > cursor {
+            collect_raw_literal_brace_spans_without_exclusions(
+                scan,
+                cursor,
+                start,
+                unmatched_opens,
+                out,
+            );
+        }
+        cursor = cursor.max(end);
+    }
+
+    if scan_end > cursor {
+        collect_raw_literal_brace_spans_without_exclusions(
+            scan,
+            cursor,
+            scan_end,
+            unmatched_opens,
+            out,
+        );
+    }
+
+    if scan.mode == RawLiteralBraceScanMode::UnmatchedOnly {
+        out.append(unmatched_opens);
+    }
+}
+
+pub(crate) fn collect_raw_literal_brace_spans_without_exclusions(
+    scan: RawLiteralBraceScan<'_>,
+    scan_start: usize,
+    scan_end: usize,
+    unmatched_opens: &mut Vec<Span>,
+    out: &mut Vec<Span>,
+) {
+    let locator = scan.locator;
+    let source = locator.source();
+    let mode = scan.mode;
+    let Some(text) = source.get(scan_start..scan_end) else {
+        return;
+    };
+    if text.is_empty() {
+        return;
+    }
+
+    let mut index = 0usize;
+    let mut quote_state = None;
+    let mut in_comment = false;
+
+    while index < text.len() {
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            index += ch_len;
+            continue;
+        }
+
+        if let Some(state) = quote_state {
+            match state {
+                RawLiteralBraceQuoteState::Single => {
+                    if ch == '\'' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+                RawLiteralBraceQuoteState::Double => {
+                    if ch == '\\' {
+                        index += ch_len;
+                        if let Some(escaped) = text[index..].chars().next() {
+                            index += escaped.len_utf8();
+                        }
+                        continue;
+                    }
+                    if ch == '"' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+            }
+        }
+
+        if text[index..].starts_with("${")
+            && let Some(end_offset) = find_runtime_parameter_closing_brace(text, index)
+        {
+            index = end_offset;
+            continue;
+        }
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        if ch == '#' {
+            in_comment = true;
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '\'' {
+            quote_state = Some(RawLiteralBraceQuoteState::Single);
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '"' {
+            quote_state = Some(RawLiteralBraceQuoteState::Double);
+            index += ch_len;
+            continue;
+        }
+
+        if matches!(ch, '{' | '}') {
+            if mode == RawLiteralBraceScanMode::UnmatchedOnly
+                && brace_at_command_start(text, index, ch)
+            {
+                index += ch_len;
+                continue;
+            }
+
+            let Some(position) = locator.position_at_offset(scan_start + index) else {
+                index += ch_len;
+                continue;
+            };
+            let span = Span::from_positions(position, position);
+            match mode {
+                RawLiteralBraceScanMode::All => out.push(span),
+                RawLiteralBraceScanMode::UnmatchedOnly => {
+                    if ch == '{' {
+                        unmatched_opens.push(span);
+                    } else if unmatched_opens.pop().is_none() {
+                        out.push(span);
+                    }
+                }
+            }
+        }
+
+        index += ch_len;
+    }
+}
+
+pub(crate) fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
+    match ch {
+        '{' => opening_brace_starts_shell_group(text, index),
+        '}' => closing_brace_ends_shell_group(text, index),
+        _ => false,
+    }
+}
+
+pub(crate) fn literal_brace_syntax_looks_like_active_expansion(
+    brace: shucked_ast::BraceSyntax,
+    source: &str,
+) -> bool {
+    if !matches!(brace.kind, BraceSyntaxKind::Literal) {
+        return false;
+    }
+
+    let text = brace.span.slice(source);
+    brace_text_has_unescaped_comma_or_sequence(text) && !text.chars().any(char::is_whitespace)
+}
+
+pub(crate) fn brace_text_has_unescaped_comma_or_sequence(text: &str) -> bool {
+    let Some(inner) = text
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let mut chars = inner.chars().peekable();
+    let mut previous = None;
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            chars.next();
+            previous = None;
+            continue;
+        }
+
+        if ch == ',' {
+            return true;
+        }
+        if ch == '.' && previous == Some('.') {
+            return true;
+        }
+
+        previous = Some(ch);
+    }
+
+    false
+}
+
+pub(crate) fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
+    let Some(next) = text[index + '{'.len_utf8()..].chars().next() else {
+        return false;
+    };
+    if !next.is_whitespace() {
+        return false;
+    }
+
+    let prefix = text[..index].trim_end_matches([' ', '\t']);
+    let Some(last) = prefix.chars().next_back() else {
+        return true;
+    };
+
+    match last {
+        '\n' | '&' | '|' | '(' | ')' => true,
+        ';' => prefix.chars().rev().nth(1) != Some('\\'),
+        'o' => prefix.ends_with("do"),
+        'n' => prefix.ends_with("then"),
+        'e' => prefix.ends_with("else"),
+        'f' => prefix.ends_with("elif"),
+        _ => false,
+    }
+}
+
+pub(crate) fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
+    let prefix = text[..index].trim_end_matches([' ', '\t']);
+    let Some(last) = prefix.chars().next_back() else {
+        return true;
+    };
+
+    match last {
+        '\n' | '&' | '|' | '(' => true,
+        ';' => prefix.chars().rev().nth(1) != Some('\\'),
+        _ => false,
+    }
+}
+
+pub(crate) fn collect_unmatched_command_substitution_brace_spans(
+    commands: CommandFacts<'_, '_>,
+    locator: Locator<'_>,
+    heredoc_ranges: &[TextRange],
+    out: &mut Vec<Span>,
+    scratch: &mut LiteralBraceScratch,
+) {
+    let source = locator.source();
+    for substitution in commands
+        .iter()
+        .flat_map(|command| command.substitution_facts())
+    {
+        let Some((_container_span, body_start, body_end)) =
+            command_substitution_body_offsets(substitution.span(), source)
+        else {
+            continue;
+        };
+
+        if body_end > body_start {
+            collect_raw_literal_brace_spans(
+                RawLiteralBraceScan {
+                    locator,
+                    mode: RawLiteralBraceScanMode::UnmatchedOnly,
+                    excluded_ranges: heredoc_ranges,
+                },
+                body_start,
+                body_end,
+                out,
+                &mut scratch.relevant_excluded_ranges,
+                &mut scratch.unmatched_spans,
+            );
+        }
+    }
+}
+
+pub(crate) fn command_substitution_body_offsets(
+    span: Span,
+    source: &str,
+) -> Option<(Span, usize, usize)> {
+    let text = span.slice(source);
+    if text.starts_with("$(") && text.ends_with(')') && text.len() >= 3 {
+        return Some((
+            span,
+            span.start.offset() + "$(".len(),
+            span.end.offset() - ')'.len_utf8(),
+        ));
+    }
+    if text.starts_with('`') && text.ends_with('`') && text.len() >= 2 {
+        return Some((
+            span,
+            span.start.offset() + '`'.len_utf8(),
+            span.end.offset() - '`'.len_utf8(),
+        ));
+    }
+    None
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LiteralBraceCandidate {
+    open_offset: usize,
+    after_escaped_dollar: bool,
+    has_excluded_content_inside: bool,
+    has_runtime_shell_sigil_inside: bool,
+    has_brace_expansion_delimiter: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DynamicBraceExcludedSpanKind {
+    Quoted,
+    RuntimeShellSyntax,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DynamicBraceExcludedSpan {
+    start_offset: usize,
+    end_offset: usize,
+    kind: DynamicBraceExcludedSpanKind,
+}
+
+pub(crate) struct EscapedParameterBraceEdgeScratch<'a> {
+    literal_stack: &'a mut Vec<LiteralBraceCandidate>,
+    raw_escaped_exclusions: &'a mut Vec<DynamicBraceExcludedSpan>,
+    escaped_parameter_stack: &'a mut Vec<usize>,
+}
+
+pub(crate) fn collect_escaped_parameter_expansion_brace_edge_spans(
+    word: &Word,
+    source: &str,
+    excluded: &[DynamicBraceExcludedSpan],
+    scratch: EscapedParameterBraceEdgeScratch<'_>,
+    out: &mut Vec<Span>,
+    mut is_reportable: impl FnMut(Span) -> bool,
+) {
+    let span = word.span;
+    let text = span.slice(source);
+    scratch.literal_stack.clear();
+    let mut excluded_index = 0usize;
+    let mut index = 0usize;
+    let mut previous_char = None;
+    let mut previous_char_escaped = false;
+
+    while index < text.len() {
+        while let Some(excluded_span) = excluded.get(excluded_index).copied() {
+            if excluded_span.end_offset <= index {
+                excluded_index += 1;
+                continue;
+            }
+
+            if excluded_span.start_offset > index {
+                break;
+            }
+
+            if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
+                && let Some(current) = scratch.literal_stack.last_mut()
+            {
+                current.has_runtime_shell_sigil_inside = true;
+            }
+            if let Some(current) = scratch.literal_stack.last_mut() {
+                current.has_excluded_content_inside = true;
+            }
+            if excluded_span.kind == DynamicBraceExcludedSpanKind::RuntimeShellSyntax
+                && excluded_runtime_syntax_has_escaped_dollar_prefix(
+                    text,
+                    excluded_span.start_offset,
+                    excluded_span.end_offset,
+                )
+            {
+                let excluded_text = &text[excluded_span.start_offset..excluded_span.end_offset];
+                let open_offset = if excluded_text.starts_with("${") {
+                    Some(excluded_span.start_offset + '$'.len_utf8())
+                } else if excluded_text.starts_with('{') {
+                    Some(excluded_span.start_offset)
+                } else {
+                    None
+                };
+                if let Some(open_offset) = open_offset
+                    && excluded_text.ends_with('}')
+                    && excluded_span.end_offset > open_offset + 1
+                {
+                    let open = span.start.advanced_by(&text[..open_offset]);
+                    let close = span
+                        .start
+                        .advanced_by(&text[..excluded_span.end_offset - '}'.len_utf8()]);
+                    let open_span = Span::from_positions(open, open);
+                    let close_span = Span::from_positions(close, close);
+                    if is_reportable(open_span) {
+                        out.push(open_span);
+                    }
+                    if is_reportable(close_span) {
+                        out.push(close_span);
+                    }
+                }
+            }
+            previous_char = None;
+            previous_char_escaped = false;
+            index = excluded_span.end_offset;
+            excluded_index += 1;
+        }
+
+        if index >= text.len() {
+            break;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                previous_char = Some(escaped);
+                previous_char_escaped = true;
+                index += escaped.len_utf8();
+            } else {
+                previous_char = Some('\\');
+                previous_char_escaped = false;
+            }
+            continue;
+        }
+
+        if ch == '{' {
+            scratch.literal_stack.push(LiteralBraceCandidate {
+                open_offset: index,
+                after_escaped_dollar: previous_char == Some('$') && previous_char_escaped,
+                has_excluded_content_inside: false,
+                has_runtime_shell_sigil_inside: false,
+                has_brace_expansion_delimiter: false,
+            });
+        } else if ch == ','
+            && let Some(candidate) = scratch.literal_stack.last_mut()
+        {
+            candidate.has_brace_expansion_delimiter = true;
+        } else if ch == '.'
+            && previous_char == Some('.')
+            && !previous_char_escaped
+            && let Some(candidate) = scratch.literal_stack.last_mut()
+        {
+            candidate.has_brace_expansion_delimiter = true;
+        } else if ch == '}'
+            && let Some(candidate) = scratch.literal_stack.pop()
+            && index > candidate.open_offset + 1
+            && (candidate.after_escaped_dollar
+                || candidate.has_excluded_content_inside
+                || candidate.has_runtime_shell_sigil_inside)
+            && !candidate.has_brace_expansion_delimiter
+            && !brace_pair_matches_nonliteral_syntax(word, candidate.open_offset, index)
+        {
+            let open = span.start.advanced_by(&text[..candidate.open_offset]);
+            let close = span.start.advanced_by(&text[..index]);
+            let open_span = Span::from_positions(open, open);
+            let close_span = Span::from_positions(close, close);
+            if is_reportable(open_span) {
+                out.push(open_span);
+            }
+            if is_reportable(close_span) {
+                out.push(close_span);
+            }
+        }
+
+        previous_char = Some(ch);
+        previous_char_escaped = false;
+        index += ch_len;
+    }
+
+    collect_raw_escaped_parameter_brace_edge_spans(
+        word,
+        source,
+        scratch.raw_escaped_exclusions,
+        scratch.escaped_parameter_stack,
+        out,
+        &mut is_reportable,
+    );
+}
+
+pub(crate) fn excluded_runtime_syntax_has_escaped_dollar_prefix(
+    text: &str,
+    start_offset: usize,
+    end_offset: usize,
+) -> bool {
+    let start_offset = start_offset.min(text.len());
+    let end_offset = end_offset.min(text.len());
+    if start_offset >= end_offset {
+        return false;
+    }
+
+    let excluded_text = &text[start_offset..end_offset];
+    if excluded_text.starts_with("${") {
+        return has_odd_backslash_run_before(text, start_offset);
+    }
+    if excluded_text.starts_with('{') {
+        return has_escaped_dollar_before(text, start_offset);
+    }
+    false
+}
+
+pub(crate) fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
+    let offset = offset.min(text.len());
+    text[..offset]
+        .chars()
+        .rev()
+        .take_while(|&ch| ch == '\\')
+        .count()
+        % 2
+        == 1
+}
+
+pub(crate) fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
+    let offset = offset.min(text.len());
+    let prefix = &text[..offset];
+    let Some((dollar_offset, '$')) = prefix.char_indices().next_back() else {
+        return false;
+    };
+
+    has_odd_backslash_run_before(text, dollar_offset)
+}
+
+pub(crate) fn collect_dynamic_brace_exclusions(
+    parts: &[WordPartNode],
+    word_base_offset: usize,
+    source: &str,
+    region_index: &RegionIndex,
+    out: &mut Vec<DynamicBraceExcludedSpan>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) => {}
+            WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_dynamic_brace_exclusions(
+                    parts,
+                    word_base_offset,
+                    source,
+                    region_index,
+                    out,
+                );
+            }
+            WordPart::SingleQuoted { .. } => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => out.push(runtime_shell_dynamic_brace_exclusion(
+                part,
+                word_base_offset,
+                region_index,
+            )),
+        }
+    }
+}
+
+pub(crate) fn runtime_shell_dynamic_brace_exclusion(
+    part: &WordPartNode,
+    word_base_offset: usize,
+    region_index: &RegionIndex,
+) -> DynamicBraceExcludedSpan {
+    let start_offset = part.span.start.offset() - word_base_offset;
+    let mut end_offset = part.span.end.offset() - word_base_offset;
+
+    let part_range = TextRange::new(
+        TextSize::new(part.span.start.offset() as u32),
+        TextSize::new(part.span.end.offset() as u32),
+    );
+    if let Some(pair) = region_index.first_dollar_brace_pair_in(part_range) {
+        let pair_end_relative = pair.end().to_u32() as usize - word_base_offset;
+        end_offset = end_offset.max(pair_end_relative);
+    }
+
+    DynamicBraceExcludedSpan {
+        start_offset,
+        end_offset,
+        kind: DynamicBraceExcludedSpanKind::RuntimeShellSyntax,
+    }
+}
+
+pub(crate) fn find_runtime_parameter_closing_brace(
+    text: &str,
+    start_offset: usize,
+) -> Option<usize> {
+    if start_offset >= text.len() || !text[start_offset..].starts_with("${") {
+        return None;
+    }
+
+    let bytes = text.as_bytes();
+    let mut index = start_offset + "${".len();
+    let mut depth = 1usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = advance_escaped_char_boundary(text, index);
+            continue;
+        }
+
+        if index + 2 < bytes.len()
+            && is_unescaped_dollar(bytes, index)
+            && bytes[index + 1] == b'('
+            && bytes[index + 2] == b'('
+        {
+            index = find_wrapped_arithmetic_end(text, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'('
+        {
+            index = find_command_substitution_end(text, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'{'
+        {
+            depth += 1;
+            index += "${".len();
+            continue;
+        }
+
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted(bytes, index + 1)?,
+            b'"' => index = skip_double_quoted(text, index + 1)?,
+            b'`' => index = skip_backticks(bytes, index + 1)?,
+            b'}' => {
+                depth -= 1;
+                index += '}'.len_utf8();
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {
+                index += text[index..].chars().next()?.len_utf8();
+            }
+        }
+    }
+
+    None
+}
+
+pub(crate) fn collect_raw_escaped_parameter_brace_edge_spans(
+    word: &Word,
+    source: &str,
+    excluded: &mut Vec<DynamicBraceExcludedSpan>,
+    escaped_parameter_stack: &mut Vec<usize>,
+    out: &mut Vec<Span>,
+    mut is_reportable: impl FnMut(Span) -> bool,
+) {
+    let span = word.span;
+    let text = span.slice(source);
+    excluded.clear();
+    collect_raw_escaped_parameter_exclusions(&word.parts, span.start.offset(), source, excluded);
+    excluded.sort_by_key(|span| (span.start_offset, span.end_offset));
+
+    let mut excluded_index = 0usize;
+    let mut index = 0usize;
+    let mut previous_char = None;
+    let mut previous_char_escaped = false;
+    escaped_parameter_stack.clear();
+    let mut parameter_depth = 0usize;
+
+    while index < text.len() {
+        while let Some(excluded_span) = excluded.get(excluded_index).copied() {
+            if excluded_span.end_offset <= index {
+                excluded_index += 1;
+                continue;
+            }
+            if excluded_span.start_offset > index {
+                break;
+            }
+
+            previous_char = None;
+            previous_char_escaped = false;
+            index = excluded_span.end_offset;
+            excluded_index += 1;
+        }
+
+        if index >= text.len() {
+            break;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                previous_char = Some(escaped);
+                previous_char_escaped = true;
+                index += escaped.len_utf8();
+            } else {
+                previous_char = Some('\\');
+                previous_char_escaped = false;
+            }
+            continue;
+        }
+
+        if ch == '{' {
+            if previous_char == Some('$') && previous_char_escaped {
+                escaped_parameter_stack.push(index);
+            } else if previous_char == Some('$') && !previous_char_escaped {
+                parameter_depth += 1;
+            }
+        } else if ch == '}' {
+            if parameter_depth > 0 {
+                parameter_depth -= 1;
+            } else if let Some(open_offset) = escaped_parameter_stack.pop()
+                && !brace_pair_matches_nonliteral_syntax(word, open_offset, index)
+            {
+                let open = span.start.advanced_by(&text[..open_offset]);
+                let close = span.start.advanced_by(&text[..index]);
+                let open_span = Span::from_positions(open, open);
+                let close_span = Span::from_positions(close, close);
+                if is_reportable(open_span) {
+                    out.push(open_span);
+                }
+                if is_reportable(close_span) {
+                    out.push(close_span);
+                }
+            }
+        }
+
+        previous_char = Some(ch);
+        previous_char_escaped = false;
+        index += ch_len;
+    }
+}
+
+pub(crate) fn brace_pair_matches_nonliteral_syntax(
+    word: &Word,
+    open_offset: usize,
+    close_offset: usize,
+) -> bool {
+    let absolute_open_offset = word.span.start.offset() + open_offset;
+    let absolute_close_offset = word.span.start.offset() + close_offset + '}'.len_utf8();
+
+    word.brace_syntax().iter().any(|brace| {
+        brace.kind != BraceSyntaxKind::Literal
+            && brace.span.start.offset() == absolute_open_offset
+            && brace.span.end.offset() == absolute_close_offset
+    })
+}
+
+pub(crate) fn collect_raw_escaped_parameter_exclusions(
+    parts: &[WordPartNode],
+    word_base_offset: usize,
+    source: &str,
+    out: &mut Vec<DynamicBraceExcludedSpan>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_)
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::DoubleQuoted { .. } if !part.span.slice(source).starts_with("\\\"") => {
+                out.push(DynamicBraceExcludedSpan {
+                    start_offset: part.span.start.offset() - word_base_offset,
+                    end_offset: part.span.end.offset() - word_base_offset,
+                    kind: DynamicBraceExcludedSpanKind::Quoted,
+                });
+            }
+            WordPart::DoubleQuoted { .. } => {}
+            WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. } => out.push(DynamicBraceExcludedSpan {
+                start_offset: part.span.start.offset() - word_base_offset,
+                end_offset: part.span.end.offset() - word_base_offset,
+                kind: DynamicBraceExcludedSpanKind::Quoted,
+            }),
+        }
+    }
+}
+
+pub(crate) fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
+    let body = comment_text
+        .trim_start()
+        .trim_start_matches('#')
+        .trim_start();
+
+    if let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shellcheck") {
+        let Some(first) = remainder.chars().next() else {
+            return false;
+        };
+        if !first.is_ascii_whitespace() {
+            return false;
+        }
+
+        let mut body = remainder;
+        if let Some((before, _)) = body.split_once('#') {
+            body = before;
+        }
+
+        return body.split_ascii_whitespace().any(|part| {
+            [
+                "disable=",
+                "enable=",
+                "disable-file=",
+                "source=",
+                "shell=",
+                "external-sources=",
+            ]
+            .into_iter()
+            .any(|prefix| {
+                strip_prefix_ignore_ascii_case(part, prefix)
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        });
+    }
+
+    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") else {
+        return false;
+    };
+    let body = remainder
+        .split_once('#')
+        .map_or(remainder, |(before, _)| before);
+    strip_prefix_ignore_ascii_case(body.trim(), "disable=")
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+pub(crate) fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let candidate = text.get(..prefix.len())?;
+    candidate
+        .eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
+}

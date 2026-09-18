@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use shuck_ast::Span;
-use shuck_linter::{AnalysisRequest, Diagnostic, LinterSettings, ShellCheckCodeMap};
-use shuck_parser::{ShellDialect as ParseDialect, parser::Parser};
+use shucked_ast::Span;
+use shucked_linter::{AnalysisRequest, Diagnostic, LinterSettings, ShellCheckCodeMap};
+use shucked_parser::{ShellDialect as ParseDialect, parser::Parser};
 
 pub(crate) const LINT_CASES: [LintCase; 4] = [
     LintCase::new("fuzz.sh", ParseDialect::Posix),

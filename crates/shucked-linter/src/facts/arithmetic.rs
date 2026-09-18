@@ -1,0 +1,2206 @@
+use super::*;
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn collect_zsh_option_map_arithmetic_suppressed_subscripts(
+    command: &Command,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Compound(CompoundCommand::Arithmetic(command)) => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.expr_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.init_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.condition_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                command.step_ast.as_ref(),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn collect_zsh_option_map_suppressed_subscripts_in_expr(
+    expression: Option<&ArithmeticExprNode>,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(expression) = expression else {
+        return;
+    };
+
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) | ArithmeticExpr::ShellWord(_) => {}
+        ArithmeticExpr::Indexed { name, index } => {
+            if arithmetic_index_uses_zsh_option_map_key_semantics(
+                semantic,
+                command_scope,
+                name,
+                index,
+                source,
+            ) {
+                spans.push(index.span);
+            } else {
+                collect_zsh_option_map_suppressed_subscripts_in_expr(
+                    Some(index),
+                    semantic,
+                    command_scope,
+                    source,
+                    spans,
+                );
+            }
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(expression),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(left),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(right),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(condition),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(then_expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(else_expr),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_zsh_option_map_suppressed_subscripts_in_lvalue(
+                target,
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+            collect_zsh_option_map_suppressed_subscripts_in_expr(
+                Some(value),
+                semantic,
+                command_scope,
+                source,
+                spans,
+            );
+        }
+    }
+}
+
+pub(crate) fn collect_zsh_option_map_suppressed_subscripts_in_lvalue(
+    target: &ArithmeticLvalue,
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { name, index } => {
+            if arithmetic_index_uses_zsh_option_map_key_semantics(
+                semantic,
+                command_scope,
+                name,
+                index,
+                source,
+            ) {
+                spans.push(index.span);
+            } else {
+                collect_zsh_option_map_suppressed_subscripts_in_expr(
+                    Some(index),
+                    semantic,
+                    command_scope,
+                    source,
+                    spans,
+                );
+            }
+        }
+    }
+}
+
+pub(crate) fn arithmetic_index_uses_zsh_option_map_key_semantics(
+    semantic: &SemanticModel,
+    command_scope: ScopeId,
+    owner_name: &Name,
+    index: &ArithmeticExprNode,
+    source: &str,
+) -> bool {
+    if let Some(binding) =
+        semantic.visible_assoc_lookup_binding_for_lookup(owner_name, command_scope, index.span)
+    {
+        if binding
+            .attributes
+            .contains(shucked_semantic::BindingAttributes::ASSOC)
+        {
+            return true;
+        }
+        if !zsh_option_map_binding_origin(owner_name, binding, source)
+            || zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+                semantic, owner_name, binding, source,
+            )
+        {
+            return false;
+        }
+    }
+
+    zsh_option_map_binding_permits_implicit_assoc_key(
+        semantic,
+        semantic.visible_binding_for_lookup(owner_name, command_scope, index.span),
+        owner_name,
+        source,
+    ) && semantic.shell_profile().dialect == shucked_parser::parser::ShellDialect::Zsh
+        && zsh_option_map_subscript_key(owner_name.as_str(), index.span.slice(source))
+}
+
+pub(crate) fn zsh_option_map_binding_permits_implicit_assoc_key(
+    semantic: &SemanticModel,
+    binding: Option<&Binding>,
+    owner_name: &Name,
+    source: &str,
+) -> bool {
+    let Some(binding) = binding else {
+        return true;
+    };
+    if binding
+        .attributes
+        .contains(shucked_semantic::BindingAttributes::ASSOC)
+    {
+        return true;
+    }
+
+    zsh_option_map_binding_origin(owner_name, binding, source)
+        && !zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+            semantic, owner_name, binding, source,
+        )
+}
+
+pub(crate) fn zsh_option_map_binding_origin(
+    owner_name: &Name,
+    binding: &Binding,
+    source: &str,
+) -> bool {
+    match &binding.origin {
+        shucked_semantic::BindingOrigin::Assignment {
+            definition_span, ..
+        } => zsh_option_map_assignment_target(owner_name, definition_span.slice(source)),
+        shucked_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } => {
+            zsh_option_map_assignment_target(owner_name, target_span.slice(source))
+        }
+        shucked_semantic::BindingOrigin::ParameterDefaultAssignment { .. }
+        | shucked_semantic::BindingOrigin::LoopVariable { .. }
+        | shucked_semantic::BindingOrigin::Imported { .. }
+        | shucked_semantic::BindingOrigin::FunctionDefinition { .. }
+        | shucked_semantic::BindingOrigin::BuiltinTarget { .. }
+        | shucked_semantic::BindingOrigin::Declaration { .. }
+        | shucked_semantic::BindingOrigin::Nameref { .. } => false,
+    }
+}
+
+pub(crate) fn zsh_option_map_binding_has_prior_assoc_lookup_blocker(
+    semantic: &SemanticModel,
+    owner_name: &Name,
+    binding: &Binding,
+    source: &str,
+) -> bool {
+    semantic.bindings_for(owner_name).iter().copied().any(|id| {
+        let candidate = semantic.binding(id);
+        candidate.scope == binding.scope
+            && candidate.span.start.offset() < binding.span.start.offset()
+            && zsh_option_map_binding_blocks_assoc_lookup(candidate)
+            && !zsh_option_map_binding_origin(owner_name, candidate, source)
+    })
+}
+
+pub(crate) fn zsh_option_map_binding_blocks_assoc_lookup(binding: &Binding) -> bool {
+    binding
+        .attributes
+        .contains(shucked_semantic::BindingAttributes::LOCAL)
+        || !matches!(
+            binding.kind,
+            BindingKind::Assignment
+                | BindingKind::AppendAssignment
+                | BindingKind::ArrayAssignment
+                | BindingKind::ArithmeticAssignment
+        )
+}
+
+pub(crate) fn zsh_option_map_assignment_target(owner_name: &Name, text: &str) -> bool {
+    let Some(rest) = text.strip_prefix(owner_name.as_str()) else {
+        return false;
+    };
+    let Some(subscript) = rest
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return false;
+    };
+
+    zsh_option_map_subscript_key(owner_name.as_str(), subscript)
+}
+
+pub(crate) fn zsh_option_map_subscript_key(owner_name: &str, text: &str) -> bool {
+    if owner_name != "OPTS" {
+        return false;
+    }
+
+    let text = text.trim();
+    let Some((short_option, long_option)) = text.rsplit_once(',') else {
+        return false;
+    };
+    let Some(short_option) = short_option.strip_prefix("opt_-") else {
+        return false;
+    };
+    let Some(long_option) = long_option.strip_prefix("--") else {
+        return false;
+    };
+
+    !short_option.is_empty()
+        && short_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+        && !long_option.is_empty()
+        && long_option
+            .chars()
+            .all(|ch| ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn collect_base_prefix_spans_in_command_parts(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                collect_base_prefix_spans_in_assignment(assignment, source, spans);
+            }
+            collect_base_prefix_spans_in_word(&command.name, source, spans);
+            for word in &command.args {
+                collect_base_prefix_spans_in_word(word, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.depth {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.depth {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.code {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                }
+                if let Some(word) = &command.code {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_base_prefix_spans_in_assignment(assignment, source, spans);
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_base_prefix_spans_in_assignment(assignment, source, spans);
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_base_prefix_spans_in_word(&command.count, source, spans);
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(command) => {
+                if let Some(expression) = &command.expr_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.expr_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                if let Some(expression) = &command.init_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.init_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+                if let Some(expression) = &command.condition_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.condition_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+                if let Some(expression) = &command.step_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(span) = command.step_span {
+                    collect_base_prefix_spans_in_text(span, source, spans);
+                }
+            }
+            CompoundCommand::Case(command) => {
+                collect_base_prefix_spans_in_word(&command.word, source, spans);
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        collect_base_prefix_spans_in_pattern(pattern, source, spans);
+                    }
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                collect_base_prefix_spans_in_conditional_expr(&command.expression, source, spans);
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    collect_base_prefix_spans_in_word(word, source, spans);
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            if conditional_binary_op_is_arithmetic(expr.op) {
+                collect_base_prefix_spans_in_conditional_arithmetic_operand(
+                    &expr.left, source, spans,
+                );
+                collect_base_prefix_spans_in_conditional_arithmetic_operand(
+                    &expr.right,
+                    source,
+                    spans,
+                );
+            } else {
+                collect_base_prefix_spans_in_conditional_expr(&expr.left, source, spans);
+                collect_base_prefix_spans_in_conditional_expr(&expr.right, source, spans);
+            }
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_base_prefix_spans_in_conditional_expr(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_base_prefix_spans_in_conditional_expr(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_base_prefix_spans_in_word(word, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_base_prefix_spans_in_pattern(pattern, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_operand(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match expression {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_base_prefix_spans_in_conditional_arithmetic_word(word, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_base_prefix_spans_in_conditional_arithmetic_operand(&expr.expr, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        ConditionalExpr::Binary(_) | ConditionalExpr::Unary(_) | ConditionalExpr::Pattern(_) => {
+            collect_base_prefix_spans_in_conditional_expr(expression, source, spans);
+        }
+    }
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    collect_base_prefix_spans_in_word(word, source, spans);
+    collect_base_prefix_spans_in_conditional_arithmetic_word_parts(&word.parts, source, spans);
+}
+
+fn collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {
+                collect_base_prefix_spans_in_text(part.span, source, spans);
+                collect_leading_zero_integer_spans_in_text(part.span, source, spans);
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_base_prefix_spans_in_conditional_arithmetic_word_parts(
+                    parts, source, spans,
+                );
+            }
+            WordPart::ZshQualifiedGlob(_)
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn conditional_binary_op_is_arithmetic(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::ArithmeticEq
+            | ConditionalBinaryOp::ArithmeticNe
+            | ConditionalBinaryOp::ArithmeticLe
+            | ConditionalBinaryOp::ArithmeticGe
+            | ConditionalBinaryOp::ArithmeticLt
+            | ConditionalBinaryOp::ArithmeticGt
+    )
+}
+
+pub(crate) fn collect_base_prefix_spans_in_assignment(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    collect_base_prefix_spans_in_var_ref(&assignment.target, source, spans);
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => collect_base_prefix_spans_in_word(word, source, spans),
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_base_prefix_spans_in_word(word, source, spans);
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        collect_base_prefix_spans_in_subscript(Some(key), source, spans);
+                        collect_base_prefix_spans_in_word(value, source, spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for part in &word.parts {
+        collect_base_prefix_spans_in_word_part(part, source, spans);
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_word_part(
+    part: &WordPartNode,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_base_prefix_spans_in_word_part(part, source, spans);
+            }
+        }
+        WordPart::ArithmeticExpansion {
+            expression: _,
+            expression_ast,
+            expression_word_ast,
+            ..
+        } => {
+            if let Some(expression) = expression_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_arithmetic_word(expression_word_ast, source, spans);
+            }
+        }
+        WordPart::Parameter(parameter) => {
+            collect_base_prefix_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        WordPart::ParameterExpansion { reference, .. }
+        | WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::IndirectExpansion { reference, .. }
+        | WordPart::Transformation { reference, .. } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        WordPart::Substring {
+            reference,
+            offset_word_ast,
+            offset_ast,
+            length_word_ast,
+            length_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_word_ast,
+            offset_ast,
+            length_word_ast,
+            length_ast,
+            ..
+        } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            if let Some(expression) = offset_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_arithmetic_word(offset_word_ast, source, spans);
+            }
+            if let Some(expression) = length_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else if let Some(length_word_ast) = length_word_ast {
+                collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
+            }
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::PrefixMatch { .. } => {}
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_parameter_expansion(
+    parameter: &shucked_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                collect_base_prefix_spans_in_fragment(
+                    operand_word_ast.as_deref(),
+                    operand.as_ref(),
+                    source,
+                    spans,
+                );
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_word_ast,
+                offset_ast,
+                length_word_ast,
+                length_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else {
+                    collect_base_prefix_spans_in_arithmetic_word(offset_word_ast, source, spans);
+                }
+                if let Some(expression) = length_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_base_prefix_spans_in_zsh_target(&syntax.target, source, spans);
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shucked_ast::ZshExpansionOperation::Slice { .. }
+                    | shucked_ast::ZshExpansionOperation::PatternOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::Defaulting { .. }
+                    | shucked_ast::ZshExpansionOperation::TrimOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::ReplacementOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::Unknown { .. } => {}
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
+    parameter: &shucked_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                collect_base_prefix_spans_in_arithmetic_fragment(
+                    operand_word_ast.as_deref(),
+                    operand.as_ref(),
+                    source,
+                    spans,
+                );
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_word_ast,
+                offset_ast,
+                length_word_ast,
+                length_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else {
+                    collect_base_prefix_spans_in_arithmetic_word(offset_word_ast, source, spans);
+                }
+                if let Some(expression) = length_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_base_prefix_spans_in_arithmetic_zsh_target(&syntax.target, source, spans);
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shucked_ast::ZshExpansionOperation::Slice { .. }
+                    | shucked_ast::ZshExpansionOperation::PatternOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::Defaulting { .. }
+                    | shucked_ast::ZshExpansionOperation::TrimOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::ReplacementOperation { .. }
+                    | shucked_ast::ZshExpansionOperation::Unknown { .. } => {}
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_zsh_target(
+    target: &shucked_ast::ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match target {
+        shucked_ast::ZshExpansionTarget::Reference(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Nested(parameter) => {
+            collect_base_prefix_spans_in_parameter_expansion(parameter, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Word(word) => {
+            collect_base_prefix_spans_in_word(word, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Empty => {}
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_zsh_target(
+    target: &shucked_ast::ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match target {
+        shucked_ast::ZshExpansionTarget::Reference(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Nested(parameter) => {
+            collect_base_prefix_spans_in_arithmetic_parameter_expansion(parameter, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Word(word) => {
+            collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
+        }
+        shucked_ast::ZshExpansionTarget::Empty => {}
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_pattern(
+    pattern: &Pattern,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_base_prefix_spans_in_pattern(pattern, source, spans);
+                }
+            }
+            PatternPart::Word(word) => collect_base_prefix_spans_in_word(word, source, spans),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    collect_base_prefix_spans_in_subscript(reference.subscript.as_deref(), source, spans);
+}
+
+pub(crate) fn collect_base_prefix_spans_in_subscript(
+    subscript: Option<&Subscript>,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+        collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+    } else if let Some(word) = subscript.word_ast() {
+        collect_base_prefix_spans_in_word(word, source, spans);
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic(
+    expression: &ArithmeticExprNode,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match &expression.kind {
+        ArithmeticExpr::Number(number) => {
+            collect_base_prefix_spans_in_text(number.span(), source, spans);
+            collect_leading_zero_integer_spans_in_text(number.span(), source, spans);
+        }
+        ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => {
+            collect_base_prefix_spans_in_arithmetic(index, source, spans);
+        }
+        ArithmeticExpr::ShellWord(word) => {
+            collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_base_prefix_spans_in_arithmetic(expr, source, spans);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_base_prefix_spans_in_arithmetic(left, source, spans);
+            collect_base_prefix_spans_in_arithmetic(right, source, spans);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_base_prefix_spans_in_arithmetic(condition, source, spans);
+            collect_base_prefix_spans_in_arithmetic(then_expr, source, spans);
+            collect_base_prefix_spans_in_arithmetic(else_expr, source, spans);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_base_prefix_spans_in_arithmetic_lvalue(target, source, spans);
+            collect_base_prefix_spans_in_arithmetic(value, source, spans);
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_lvalue(
+    target: &ArithmeticLvalue,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => {
+            collect_base_prefix_spans_in_arithmetic(index, source, spans);
+        }
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    for part in &word.parts {
+        collect_base_prefix_spans_in_arithmetic_word_part(part, source, spans);
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_word_part(
+    part: &WordPartNode,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    match &part.kind {
+        WordPart::Literal(_) => {
+            collect_base_prefix_spans_in_text(part.span, source, spans);
+            collect_leading_zero_integer_spans_in_text(part.span, source, spans);
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_base_prefix_spans_in_arithmetic_word_part(part, source, spans);
+            }
+        }
+        WordPart::ArithmeticExpansion {
+            expression: _,
+            expression_ast,
+            expression_word_ast,
+            ..
+        } => {
+            if let Some(expression) = expression_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_arithmetic_word(expression_word_ast, source, spans);
+            }
+        }
+        WordPart::Parameter(parameter) => {
+            collect_base_prefix_spans_in_arithmetic_parameter_expansion(parameter, source, spans);
+        }
+        WordPart::ParameterExpansion {
+            reference,
+            operand,
+            operand_word_ast,
+            ..
+        }
+        | WordPart::IndirectExpansion {
+            reference,
+            operand,
+            operand_word_ast,
+            ..
+        } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            collect_base_prefix_spans_in_arithmetic_fragment(
+                operand_word_ast.as_deref(),
+                operand.as_ref().map(|v| &**v),
+                source,
+                spans,
+            );
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        WordPart::Substring {
+            reference,
+            offset_word_ast,
+            offset_ast,
+            length_word_ast,
+            length_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_word_ast,
+            offset_ast,
+            length_word_ast,
+            length_ast,
+            ..
+        } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            if let Some(expression) = offset_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else {
+                collect_base_prefix_spans_in_arithmetic_word(offset_word_ast, source, spans);
+            }
+            if let Some(expression) = length_ast {
+                collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+            } else if let Some(length_word_ast) = length_word_ast {
+                collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
+            }
+        }
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::PrefixMatch { .. } => {}
+    }
+}
+
+pub(crate) fn collect_base_prefix_spans_in_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let Some(text) = text else {
+        return;
+    };
+    let snippet = text.slice(source);
+    if !snippet.contains('#') && !contains_leading_zero_integer(snippet) {
+        return;
+    }
+
+    debug_assert!(
+        word.is_some(),
+        "parser-backed fragment text should always carry a word AST"
+    );
+    let Some(word) = word else {
+        collect_leading_zero_integer_spans_in_text(text.span(), source, spans);
+        return;
+    };
+    collect_base_prefix_spans_in_word(word, source, spans);
+}
+
+pub(crate) fn collect_base_prefix_spans_in_arithmetic_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let Some(text) = text else {
+        return;
+    };
+    let snippet = text.slice(source);
+    if !snippet.contains('#') && !contains_leading_zero_integer(snippet) {
+        return;
+    }
+
+    let Some(word) = word else {
+        collect_base_prefix_spans_in_text(text.span(), source, spans);
+        collect_leading_zero_integer_spans_in_text(text.span(), source, spans);
+        return;
+    };
+    collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
+}
+
+pub(crate) fn collect_base_prefix_spans_in_text(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+
+        if index > 0 {
+            let previous = bytes[index - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' {
+                index += 1;
+                continue;
+            }
+        }
+
+        let mut prefix_end = index;
+        while prefix_end < bytes.len() && bytes[prefix_end].is_ascii_digit() {
+            prefix_end += 1;
+        }
+
+        if prefix_end == bytes.len() || bytes[prefix_end] != b'#' {
+            index = prefix_end.max(index + 1);
+            continue;
+        }
+
+        let mut match_end = prefix_end + 1;
+        while match_end < bytes.len() {
+            let byte = bytes[match_end];
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'@' | b'_') {
+                match_end += 1;
+            } else {
+                break;
+            }
+        }
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = start.advanced_by(&text[index..match_end]);
+        spans.push((
+            Span::from_positions(start, end),
+            ArithmeticLiteralKind::ExplicitBasePrefix,
+        ));
+        index = match_end;
+    }
+}
+
+pub(crate) fn collect_leading_zero_integer_spans_in_text(
+    span: Span,
+    source: &str,
+    spans: &mut Vec<(Span, ArithmeticLiteralKind)>,
+) {
+    let text = span.slice(source);
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'0' {
+            index += 1;
+            continue;
+        }
+
+        if index > 0 {
+            let previous = bytes[index - 1];
+            if previous.is_ascii_alphanumeric() || previous == b'_' || previous == b'#' {
+                index += 1;
+                continue;
+            }
+        }
+
+        if matches!(bytes.get(index + 1), Some(b'x' | b'X')) {
+            index += 2;
+            continue;
+        }
+
+        let mut match_end = index + 1;
+        while match_end < bytes.len() && bytes[match_end].is_ascii_digit() {
+            match_end += 1;
+        }
+
+        if match_end == index + 1 {
+            index = match_end;
+            continue;
+        }
+
+        if matches!(bytes.get(match_end), Some(b'#')) {
+            index = match_end + 1;
+            continue;
+        }
+
+        let start = span.start.advanced_by(&text[..index]);
+        let end = start.advanced_by(&text[index..match_end]);
+        spans.push((
+            Span::from_positions(start, end),
+            ArithmeticLiteralKind::LeadingZeroInteger,
+        ));
+        index = match_end;
+    }
+}
+
+pub(crate) fn contains_leading_zero_integer(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.windows(2).enumerate().any(|(index, window)| {
+        window[0] == b'0'
+            && window[1].is_ascii_digit()
+            && (index == 0 || {
+                let previous = bytes[index - 1];
+                !previous.is_ascii_alphanumeric() && previous != b'_' && previous != b'#'
+            })
+            && {
+                let mut match_end = index + 2;
+                while match_end < bytes.len() && bytes[match_end].is_ascii_digit() {
+                    match_end += 1;
+                }
+                !matches!(bytes.get(match_end), Some(b'#'))
+            }
+    })
+}
+
+pub(crate) fn build_double_paren_grouping_spans(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Compound(CompoundCommand::Subshell(_)) => {
+                double_paren_grouping_anchor(fact.span(), source)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg_attr(shuck_profiling, inline(never))]
+pub(crate) fn collect_arithmetic_update_operator_spans_in_command(
+    command: &Command,
+    semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment,
+                    semantic,
+                    semantic_artifacts,
+                    scope,
+                    source,
+                    spans,
+                );
+            }
+            collect_arithmetic_update_operator_spans_in_word(
+                &command.name,
+                semantic,
+                source,
+                spans,
+            );
+            for word in &command.args {
+                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment,
+                        semantic,
+                        semantic_artifacts,
+                        scope,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment,
+                        semantic,
+                        semantic_artifacts,
+                        scope,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment,
+                        semantic,
+                        semantic_artifacts,
+                        scope,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment,
+                        semantic,
+                        semantic_artifacts,
+                        scope,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment,
+                    semantic,
+                    semantic_artifacts,
+                    scope,
+                    source,
+                    spans,
+                );
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_arithmetic_update_operator_spans_in_assignment(
+                            assignment,
+                            semantic,
+                            semantic_artifacts,
+                            scope,
+                            source,
+                            spans,
+                        );
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_arithmetic_update_operator_spans_in_word(
+                    &command.count,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(command) => {
+                collect_arithmetic_update_operator_spans(command.expr_ast.as_ref(), source, spans);
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                collect_arithmetic_update_operator_spans(command.init_ast.as_ref(), source, spans);
+                collect_arithmetic_update_operator_spans(
+                    command.condition_ast.as_ref(),
+                    source,
+                    spans,
+                );
+                collect_arithmetic_update_operator_spans(command.step_ast.as_ref(), source, spans);
+            }
+            CompoundCommand::Case(command) => {
+                collect_arithmetic_update_operator_spans_in_word(
+                    &command.word,
+                    semantic,
+                    source,
+                    spans,
+                );
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        collect_arithmetic_update_operator_spans_in_pattern(
+                            pattern, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                collect_arithmetic_update_operator_spans_in_conditional_expr(
+                    &command.expression,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_assignment(
+    assignment: &Assignment,
+    semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_arithmetic_update_operator_spans_in_assignment_target(
+        &assignment.target,
+        semantic,
+        scope,
+        source,
+        spans,
+    );
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+        }
+        AssignmentValue::Compound(array) => {
+            let target_is_contextual_assoc = array.kind == ArrayKind::Contextual
+                && var_ref_name_has_visible_assoc_binding_at(&assignment.target, semantic, scope);
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        if array.kind != ArrayKind::Associative
+                            && !(array.kind == ArrayKind::Contextual && target_is_contextual_assoc)
+                        {
+                            collect_arithmetic_update_operator_spans_in_subscript(
+                                Some(key),
+                                source,
+                                spans,
+                            );
+                        }
+                        collect_arithmetic_update_operator_spans_in_subscript_words(
+                            key,
+                            semantic,
+                            semantic_artifacts,
+                            source,
+                            spans,
+                        );
+                        collect_arithmetic_update_operator_spans_in_word(
+                            value, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_assignment_target(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if !var_ref_subscript_has_assoc_semantics_in_scope(reference, semantic, scope) {
+        collect_arithmetic_update_operator_spans_in_subscript(
+            reference.subscript.as_deref(),
+            source,
+            spans,
+        );
+    }
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
+    });
+}
+
+pub(crate) fn var_ref_subscript_has_assoc_semantics(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+) -> bool {
+    let Some(subscript) = reference.subscript.as_deref() else {
+        return false;
+    };
+    if matches!(
+        subscript.interpretation,
+        shucked_ast::SubscriptInterpretation::Associative
+    ) {
+        return true;
+    }
+    if !matches!(
+        subscript.interpretation,
+        shucked_ast::SubscriptInterpretation::Contextual
+    ) {
+        return false;
+    }
+
+    let scope = semantic.scope_at(subscript.span().start.offset());
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
+}
+
+pub(crate) fn var_ref_subscript_has_assoc_semantics_in_scope(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    let Some(subscript) = reference.subscript.as_deref() else {
+        return false;
+    };
+    if matches!(
+        subscript.interpretation,
+        shucked_ast::SubscriptInterpretation::Associative
+    ) {
+        return true;
+    }
+    if !matches!(
+        subscript.interpretation,
+        shucked_ast::SubscriptInterpretation::Contextual
+    ) {
+        return false;
+    }
+
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, scope)
+}
+
+pub(crate) fn var_ref_name_has_visible_assoc_binding_at(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope: ScopeId,
+) -> bool {
+    semantic.assoc_binding_visible_for_lookup(&reference.name, scope, reference.name_span)
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_word(
+    word: &Word,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_pattern(
+    pattern: &Pattern,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_arithmetic_update_operator_spans_in_pattern(
+                        pattern, semantic, source, spans,
+                    );
+                }
+            }
+            PatternPart::Word(word) => {
+                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.left, semantic, source, spans,
+            );
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.right,
+                semantic,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr, semantic, source, spans,
+            );
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr, semantic, source, spans,
+            );
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_arithmetic_update_operator_spans_in_pattern(pattern, semantic, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_arithmetic_update_operator_spans_in_var_ref(reference, semantic, source, spans);
+        }
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_heredoc_body(
+    parts: &[shucked_ast::HeredocBodyPartNode],
+    semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            shucked_ast::HeredocBodyPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans(Some(expression_ast), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        expression_word_ast,
+                        semantic,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            shucked_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                collect_arithmetic_update_operator_spans_in_nested_command_body(
+                    body,
+                    semantic_artifacts,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+            shucked_ast::HeredocBodyPart::Parameter(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
+                    parameter,
+                    semantic,
+                    semantic_artifacts,
+                    source,
+                    spans,
+                );
+            }
+            shucked_ast::HeredocBodyPart::Literal(_)
+            | shucked_ast::HeredocBodyPart::Variable(_) => {}
+        }
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_nested_command_body(
+    body: &StmtSeq,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    semantic_artifacts
+        .command_topology()
+        .body(body)
+        .for_each_command_visit(true, |_, visit| {
+            let scope = semantic.scope_at(visit.stmt.span.start.offset());
+            collect_arithmetic_update_operator_spans_in_command(
+                visit.command,
+                semantic,
+                semantic_artifacts,
+                scope,
+                source,
+                spans,
+            );
+            for redirect in visit.redirects {
+                if let Some(word) = redirect.word_target() {
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+                } else if let Some(heredoc) = redirect.heredoc()
+                    && heredoc.delimiter.expands_body
+                {
+                    collect_arithmetic_update_operator_spans_in_heredoc_body(
+                        &heredoc.body.parts,
+                        semantic,
+                        semantic_artifacts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CommandTopologyTraversal::Descend
+        });
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_subscript(
+    subscript: Option<&Subscript>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if matches!(
+        subscript.interpretation,
+        shucked_ast::SubscriptInterpretation::Associative
+    ) {
+        return;
+    }
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+        collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+    }
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans_in_subscript_words(
+    subscript: &Subscript,
+    semantic: &SemanticModel,
+    semantic_artifacts: &LinterSemanticArtifacts<'_>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    visit_subscript_words(Some(subscript), source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts_with_nested_commands(
+            &word.parts,
+            semantic,
+            semantic_artifacts,
+            source,
+            spans,
+        );
+    });
+}
+
+pub(crate) fn collect_arithmetic_update_operator_spans(
+    expression: Option<&ArithmeticExprNode>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(expression) = expression else {
+        return;
+    };
+
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) | ArithmeticExpr::ShellWord(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => {
+            collect_arithmetic_update_operator_spans(Some(index), source, spans);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+        }
+        ArithmeticExpr::Unary { op, expr } => {
+            if matches!(
+                op,
+                ArithmeticUnaryOp::PreIncrement | ArithmeticUnaryOp::PreDecrement
+            ) {
+                spans.push(find_operator_span(
+                    expression.span,
+                    source,
+                    match op {
+                        ArithmeticUnaryOp::PreIncrement => "++",
+                        ArithmeticUnaryOp::PreDecrement => "--",
+                        ArithmeticUnaryOp::Plus
+                        | ArithmeticUnaryOp::Minus
+                        | ArithmeticUnaryOp::LogicalNot
+                        | ArithmeticUnaryOp::BitwiseNot => unreachable!(),
+                    },
+                    true,
+                ));
+            }
+            collect_arithmetic_update_operator_spans(Some(expr), source, spans);
+        }
+        ArithmeticExpr::Postfix { expr, op } => {
+            spans.push(find_operator_span(
+                expression.span,
+                source,
+                match op {
+                    ArithmeticPostfixOp::Increment => "++",
+                    ArithmeticPostfixOp::Decrement => "--",
+                },
+                false,
+            ));
+            collect_arithmetic_update_operator_spans(Some(expr), source, spans);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_update_operator_spans(Some(left), source, spans);
+            collect_arithmetic_update_operator_spans(Some(right), source, spans);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_update_operator_spans(Some(condition), source, spans);
+            collect_arithmetic_update_operator_spans(Some(then_expr), source, spans);
+            collect_arithmetic_update_operator_spans(Some(else_expr), source, spans);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_update_operator_spans(target, source, spans);
+            collect_arithmetic_update_operator_spans(Some(value), source, spans);
+        }
+    }
+}
+
+pub(crate) fn collect_arithmetic_lvalue_update_operator_spans(
+    target: &ArithmeticLvalue,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => {
+            collect_arithmetic_update_operator_spans(Some(index), source, spans);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ArithmeticUpdateOperatorKind {
+    Increment,
+    Decrement,
+}
+
+impl ArithmeticUpdateOperatorKind {
+    fn replacement_operator(self) -> &'static str {
+        match self {
+            Self::Increment => "+",
+            Self::Decrement => "-",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ArithmeticUpdateOperatorFixFact {
+    diagnostic_span: Span,
+    replacement_span: Span,
+    operand_span: Span,
+    operator: ArithmeticUpdateOperatorKind,
+}
+
+impl ArithmeticUpdateOperatorFixFact {
+    fn new(
+        diagnostic_span: Span,
+        replacement_span: Span,
+        operand_span: Span,
+        operator: ArithmeticUpdateOperatorKind,
+    ) -> Self {
+        Self {
+            diagnostic_span,
+            replacement_span,
+            operand_span,
+            operator,
+        }
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self, source: &str) -> String {
+        let operand = self.operand_span.slice(source);
+        let operator = self.operator.replacement_operator();
+        format!("({operand} = {operand} {operator} 1)")
+    }
+}
+
+pub(in crate::facts) fn build_arithmetic_update_operator_fix_facts(
+    spans: &[Span],
+    source: &str,
+) -> Vec<ArithmeticUpdateOperatorFixFact> {
+    spans
+        .iter()
+        .copied()
+        .filter_map(|span| arithmetic_update_operator_fix_fact(span, source))
+        .collect()
+}
+
+fn arithmetic_update_operator_fix_fact(
+    diagnostic_span: Span,
+    source: &str,
+) -> Option<ArithmeticUpdateOperatorFixFact> {
+    let operator = diagnostic_span.slice(source);
+    let operator = match operator {
+        "++" => ArithmeticUpdateOperatorKind::Increment,
+        "--" => ArithmeticUpdateOperatorKind::Decrement,
+        _ => return None,
+    };
+
+    if let Some(operand_span) = arithmetic_prefix_update_operand_span(diagnostic_span, source) {
+        return Some(ArithmeticUpdateOperatorFixFact::new(
+            diagnostic_span,
+            Span::from_positions(diagnostic_span.start, operand_span.end),
+            operand_span,
+            operator,
+        ));
+    }
+
+    let operand_span = arithmetic_postfix_update_operand_span(diagnostic_span, source)?;
+    Some(ArithmeticUpdateOperatorFixFact::new(
+        diagnostic_span,
+        Span::from_positions(operand_span.start, diagnostic_span.end),
+        operand_span,
+        operator,
+    ))
+}
+
+fn arithmetic_prefix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
+    let start = operator_span.end.offset();
+    let end = scan_arithmetic_lvalue_end(source, start)?;
+    (end > start).then(|| {
+        Span::from_positions(
+            operator_span.end,
+            operator_span.end.advanced_by(&source[start..end]),
+        )
+    })
+}
+
+fn arithmetic_postfix_update_operand_span(operator_span: Span, source: &str) -> Option<Span> {
+    let end = operator_span.start.offset();
+    let start = scan_arithmetic_lvalue_start(source, end)?;
+    (start < end).then(|| {
+        let start_position = position_at_offset_on_same_line(operator_span.start, start);
+        Span::from_positions(start_position, operator_span.start)
+    })
+}
+
+fn scan_arithmetic_lvalue_end(source: &str, start: usize) -> Option<usize> {
+    let mut end = scan_identifier_end(source, start)?;
+    let subscript_start = skip_horizontal_space_forward(source, end);
+    if source[subscript_start..].starts_with('[') {
+        end = scan_balanced_bracket_end(source, subscript_start)?;
+    }
+    Some(end)
+}
+
+fn scan_arithmetic_lvalue_start(source: &str, end: usize) -> Option<usize> {
+    if end == 0 {
+        return None;
+    }
+    let mut start = if source[..end].ends_with(']') {
+        let open = scan_balanced_bracket_start(source, end - 1)?;
+        let identifier_end = skip_horizontal_space_backward(source, open);
+        scan_identifier_start(source, identifier_end)?
+    } else {
+        scan_identifier_start(source, end)?
+    };
+    if start == end {
+        start = scan_identifier_start(source, end)?;
+    }
+    Some(start)
+}
+
+fn skip_horizontal_space_forward(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while bytes
+        .get(offset)
+        .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+    {
+        offset += 1;
+    }
+    offset
+}
+
+fn skip_horizontal_space_backward(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while offset > 0 && matches!(bytes[offset - 1], b' ' | b'\t') {
+        offset -= 1;
+    }
+    offset
+}
+
+fn scan_identifier_end(source: &str, start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let first = *bytes.get(start)?;
+    if !is_arithmetic_identifier_start(first) {
+        return None;
+    }
+    let mut end = start + 1;
+    while bytes
+        .get(end)
+        .is_some_and(|byte| is_arithmetic_identifier_continue(*byte))
+    {
+        end += 1;
+    }
+    Some(end)
+}
+
+fn scan_identifier_start(source: &str, end: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut start = end;
+    while start > 0 && is_arithmetic_identifier_continue(bytes[start - 1]) {
+        start -= 1;
+    }
+    (start < end && is_arithmetic_identifier_start(bytes[start])).then_some(start)
+}
+
+fn scan_balanced_bracket_end(source: &str, open: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = open;
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b'[' => depth += 1,
+            b']' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            b'\'' | b'"' | b'`' | b'$' => return None,
+            b'\n' => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn scan_balanced_bracket_start(source: &str, close: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
+    let mut index = close + 1;
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            b']' => depth += 1,
+            b'[' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            b'\'' | b'"' | b'`' | b'$' => return None,
+            b'\n' => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn is_arithmetic_identifier_start(byte: u8) -> bool {
+    byte == b'_' || byte.is_ascii_alphabetic()
+}
+
+fn is_arithmetic_identifier_continue(byte: u8) -> bool {
+    is_arithmetic_identifier_start(byte) || byte.is_ascii_digit()
+}
+
+fn position_at_offset_on_same_line(anchor: Position, offset: usize) -> Position {
+    Position::at(
+        anchor.line(),
+        anchor.column().saturating_sub(anchor.offset() - offset),
+        offset,
+    )
+}
+
+pub(crate) fn find_operator_span(
+    expression_span: Span,
+    source: &str,
+    operator: &str,
+    first: bool,
+) -> Span {
+    let expression = expression_span.slice(source);
+    let offset = if first {
+        let Some(offset) = expression.find(operator) else {
+            unreachable!("expected prefix update operator in arithmetic expression");
+        };
+        offset
+    } else {
+        let Some(offset) = expression.rfind(operator) else {
+            unreachable!("expected postfix update operator in arithmetic expression");
+        };
+        offset
+    };
+    let start = expression_span.start.advanced_by(&expression[..offset]);
+    Span::from_positions(start, start.advanced_by(operator))
+}
+
+pub(crate) fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    let anchor_start = if let Some(stripped) = text.strip_prefix("((") {
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        span.start
+    } else if text.starts_with('(')
+        && span.start.offset() > 0
+        && source.as_bytes().get(span.start.offset() - 1) == Some(&b'(')
+    {
+        let stripped = text.strip_prefix('(')?;
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        Position::at(
+            span.start.line(),
+            span.start.column() - 1,
+            span.start.offset() - 1,
+        )
+    } else {
+        return None;
+    };
+
+    Some(Span::at(anchor_start))
+}

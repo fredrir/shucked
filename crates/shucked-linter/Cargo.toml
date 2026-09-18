@@ -1,0 +1,40 @@
+[package]
+name = "shucked-linter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Lint rule engine and checker for shell scripts"
+keywords = ["shell", "bash", "linter", "static-analysis"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[features]
+benchmarking = []
+
+[dependencies]
+anyhow = { workspace = true }
+compact_str = { workspace = true }
+globset = { workspace = true }
+rustc-hash = "2"
+smallvec.workspace = true
+thiserror = { workspace = true }
+shucked-ast = { workspace = true }
+shucked-indexer = { workspace = true }
+shucked-semantic = { workspace = true }
+shucked-parser = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+similar = { workspace = true }
+test-case = { workspace = true }
+tempfile = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+
+[build-dependencies]
+globset = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }

@@ -1,0 +1,30 @@
+[package]
+name = "shucked-formatter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shell script formatter with configurable style options"
+keywords = ["shell", "bash", "formatter", "code-style"]
+categories = ["text-processing", "development-tools"]
+readme = "README.md"
+
+[features]
+benchmarking = []
+
+[dependencies]
+memchr = { workspace = true }
+rustc-hash = { workspace = true }
+shucked-ast = { workspace = true }
+shucked-indexer = { workspace = true }
+shucked-parser = { workspace = true }
+
+[dev-dependencies]
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+shucked-linter = { workspace = true }
+similar = { workspace = true }

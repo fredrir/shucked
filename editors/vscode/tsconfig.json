@@ -28,6 +28,7 @@
     "dist",
     "out",
     ".vscode-test",
+    ".vscode-extension-samples",
     "vscode-extension-samples"
   ]
 }

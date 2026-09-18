@@ -37,7 +37,7 @@ fn run_protocol_sequence(source: &str, data: &[u8]) -> Result<(), String> {
         .map_err(|()| "failed to build document URI".to_owned())?;
 
     let (server_connection, client_connection) = Connection::memory();
-    let server_thread = thread::spawn(move || shuck_server::run_connection(server_connection));
+    let server_thread = thread::spawn(move || shucked_lsp::run_connection(server_connection));
 
     send_request(
         &client_connection,
@@ -95,7 +95,7 @@ fn run_protocol_sequence(source: &str, data: &[u8]) -> Result<(), String> {
                 version += 1;
                 let range = lsp_common::range_from_bytes(&current_source, chunk, encoding);
                 let text = lsp_common::replacement_from_bytes(source, chunk);
-                let state = shuck_server::fuzzing::apply_text_document_changes(
+                let state = shucked_lsp::fuzzing::apply_text_document_changes(
                     &current_source,
                     version - 1,
                     vec![TextDocumentContentChangeEvent {

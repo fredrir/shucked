@@ -2,7 +2,7 @@
 
 use lsp_types as types;
 use serde_json::Value;
-use shuck_server::{ClientOptions, PositionEncoding};
+use shucked_lsp::{ClientOptions, PositionEncoding};
 
 pub(crate) const LSP_ENCODINGS: [PositionEncoding; 3] = [
     PositionEncoding::UTF8,

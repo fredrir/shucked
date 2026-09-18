@@ -1,0 +1,24 @@
+[package]
+name = "shucked-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Native stdio transport runner for the Shucked language server"
+keywords = ["shell", "bash", "linter", "lsp", "language-server"]
+categories = ["development-tools"]
+
+[lib]
+name = "shucked_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shucked-server"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+lsp-server = { workspace = true }
+shucked-lsp = { workspace = true }

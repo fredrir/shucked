@@ -1,0 +1,308 @@
+#![warn(missing_docs)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
+//! Shell formatting entrypoints built on top of `shuck-parser`.
+//!
+//! Most callers will use [`format_source`] for source text or [`format_file_ast`] when they
+//! already have a parsed shell AST.
+#![recursion_limit = "256"]
+
+//! Shell script formatter with configurable style options.
+
+#[allow(missing_docs)]
+mod command;
+#[allow(missing_docs)]
+mod comments;
+mod context;
+mod facts;
+#[allow(missing_docs)]
+mod options;
+#[allow(missing_docs)]
+mod raw_syntax;
+mod render_plan;
+#[allow(missing_docs)]
+mod simplify;
+#[allow(missing_docs)]
+mod source;
+#[allow(missing_docs)]
+mod streaming;
+#[allow(missing_docs)]
+mod visit;
+#[allow(missing_docs)]
+mod word;
+
+use std::path::Path;
+
+use shucked_ast::File;
+use shucked_parser::{Error as ParseError, parser::Parser};
+
+use crate::context::RenderContext;
+use crate::facts::FormatterFacts;
+
+/// Formatter option types exposed by the shell formatter.
+pub use crate::options::{
+    IndentStyle, LineEnding, ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions,
+};
+
+/// Result of formatting shell source.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormattedSource {
+    Unchanged,
+    Formatted(String),
+}
+
+/// Errors that can occur while parsing or formatting shell source.
+#[allow(missing_docs)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormatError {
+    Parse {
+        message: String,
+        line: usize,
+        column: usize,
+    },
+    Internal(String),
+}
+
+impl std::fmt::Display for FormatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse {
+                message,
+                line,
+                column,
+            } => {
+                if *line > 0 {
+                    write!(f, "parse error at line {line}, column {column}: {message}")
+                } else {
+                    write!(f, "parse error: {message}")
+                }
+            }
+            Self::Internal(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for FormatError {}
+
+/// Convenient result alias for shell formatting operations.
+pub type Result<T> = std::result::Result<T, FormatError>;
+
+/// Formats a shell source string using the provided options.
+pub fn format_source(
+    source: &str,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<FormattedSource> {
+    let parsed = parse_and_resolve(source, path, options)?;
+    format_file_ast_resolved(source, parsed.file, &parsed.resolved)
+}
+
+#[doc(hidden)]
+pub fn source_is_formatted(
+    source: &str,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<bool> {
+    let parsed = parse_and_resolve(source, path, options)?;
+    check_file(source, parsed.file, &parsed.resolved)
+}
+
+/// Formats a parsed shell file using the provided options.
+pub fn format_file_ast(
+    source: &str,
+    file: File,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<FormattedSource> {
+    let resolved = options.resolve_for_format(source, path);
+    format_file_ast_resolved(source, file, &resolved)
+}
+
+struct ParsedFormatInput {
+    file: File,
+    resolved: ResolvedShellFormatOptions,
+}
+
+fn parse_and_resolve(
+    source: &str,
+    path: Option<&Path>,
+    options: &ShellFormatOptions,
+) -> Result<ParsedFormatInput> {
+    let resolved = options.resolve_for_format(source, path);
+    let parsed = Parser::with_dialect(source, resolved.dialect()).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
+
+    Ok(ParsedFormatInput {
+        file: parsed.file,
+        resolved,
+    })
+}
+
+fn format_file_ast_resolved(
+    source: &str,
+    file: File,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<FormattedSource> {
+    let output = format_output(source, file, resolved)?;
+
+    Ok(formatted_source_from_output(source, output))
+}
+
+fn check_file(source: &str, file: File, resolved: &ResolvedShellFormatOptions) -> Result<bool> {
+    if resolved.minify() {
+        let output = render_file::<BufferedRender>(source, file, resolved)?;
+        return Ok(output == source);
+    }
+
+    render_file::<CompareRender>(source, file, resolved)
+}
+
+fn format_output(
+    source: &str,
+    file: File,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<String> {
+    render_file::<BufferedRender>(source, file, resolved)
+}
+
+trait RenderMode {
+    type Output;
+
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output>;
+}
+
+struct BufferedRender;
+
+impl RenderMode for BufferedRender {
+    type Output = String;
+
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output> {
+        let mut output = streaming::format_file_streaming(file, context)?;
+        if context.options.minify() {
+            preserve_initial_shebang(context.source, &mut output, context.options.line_ending());
+        }
+        ensure_single_trailing_newline(&mut output, context.options.line_ending());
+
+        Ok(output)
+    }
+}
+
+struct CompareRender;
+
+impl RenderMode for CompareRender {
+    type Output = bool;
+
+    fn render(file: &File, context: RenderContext<'_, '_>) -> Result<Self::Output> {
+        streaming::format_file_streaming_matches_source(file, context)
+    }
+}
+
+fn render_file<M: RenderMode>(
+    source: &str,
+    mut file: File,
+    resolved: &ResolvedShellFormatOptions,
+) -> Result<M::Output> {
+    if resolved.simplify() || resolved.minify() {
+        simplify::simplify_file(&mut file, source);
+    }
+
+    let facts = FormatterFacts::build(source, &file, resolved);
+    let resolved = resolved.clone().with_line_ending(facts.line_ending());
+    let context = RenderContext::new(source, &resolved, &facts);
+    M::render(&file, context)
+}
+
+fn formatted_source_from_output(source: &str, output: String) -> FormattedSource {
+    if output == source {
+        FormattedSource::Unchanged
+    } else {
+        FormattedSource::Formatted(output)
+    }
+}
+
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+#[must_use]
+pub fn build_formatter_facts(source: &str, file: &File) -> usize {
+    let resolved = ShellFormatOptions::default().resolve_for_format(source, None);
+    FormatterFacts::build(source, file, &resolved).len()
+}
+
+fn ensure_single_trailing_newline(output: &mut String, line_ending: LineEnding) {
+    while let Some(start) = trailing_line_ending_start(output)
+        .filter(|start| trailing_line_ending_start(&output[..*start]).is_some())
+    {
+        output.truncate(start);
+    }
+    if trailing_line_ending_start(output).is_none() {
+        if trailing_backslash_count(output) % 2 == 1 && !trailing_backslash_is_in_comment(output) {
+            output.push('\\');
+        }
+        output.push_str(line_ending_str(line_ending));
+    }
+}
+
+fn trailing_line_ending_start(text: &str) -> Option<usize> {
+    if text.ends_with("\r\n") {
+        Some(text.len() - 2)
+    } else if text.ends_with('\n') {
+        Some(text.len() - 1)
+    } else {
+        None
+    }
+}
+
+fn line_ending_str(line_ending: LineEnding) -> &'static str {
+    match line_ending {
+        LineEnding::Lf => "\n",
+        LineEnding::CrLf => "\r\n",
+    }
+}
+
+fn preserve_initial_shebang(source: &str, output: &mut String, line_ending: LineEnding) {
+    if !source.starts_with("#!") || output.starts_with("#!") {
+        return;
+    }
+
+    let shebang_end = source.find(['\r', '\n']).unwrap_or(source.len());
+    let shebang = &source[..shebang_end];
+    let line_ending = line_ending_str(line_ending);
+    let body = output.trim_start_matches(['\r', '\n']);
+
+    let mut prefixed = String::with_capacity(shebang.len() + line_ending.len() + body.len());
+    prefixed.push_str(shebang);
+    prefixed.push_str(line_ending);
+    prefixed.push_str(body);
+    *output = prefixed;
+}
+
+fn trailing_backslash_count(text: &str) -> usize {
+    text.as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
+}
+
+fn trailing_backslash_is_in_comment(text: &str) -> bool {
+    let line = text.rsplit_once('\n').map_or(text, |(_, line)| line);
+    raw_syntax::RawShellScanner::new(line)
+        .find_comment(0, line.len())
+        .is_some()
+}
+
+fn map_parse_error(error: ParseError) -> FormatError {
+    match error {
+        ParseError::Parse {
+            message,
+            line,
+            column,
+        } => FormatError::Parse {
+            message,
+            line,
+            column,
+        },
+    }
+}

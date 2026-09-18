@@ -33,10 +33,10 @@ fuzz_target!(|data: &[u8]| {
             "case \"test.txt\" in {}) echo match;; *) echo no;; esac\n",
             input
         );
-        let _ = shuck_parser::parser::Parser::new(&case_script).parse();
+        let _ = shucked_parser::parser::Parser::new(&case_script).parse();
 
         let conditional_script =
             format!("if [[ \"hello.world\" == {} ]]; then echo y; fi\n", input);
-        let _ = shuck_parser::parser::Parser::new(&conditional_script).parse();
+        let _ = shucked_parser::parser::Parser::new(&conditional_script).parse();
     }
 });

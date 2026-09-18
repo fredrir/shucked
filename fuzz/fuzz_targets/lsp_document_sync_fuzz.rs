@@ -26,7 +26,7 @@ fuzz_target!(|data: &[u8]| -> Corpus {
                 .copied()
                 .map(u32::from)
                 .filter(|_| chunk.first().copied().unwrap_or_default() & 1 == 0);
-            let state = shuck_server::fuzzing::apply_text_document_changes(
+            let state = shucked_lsp::fuzzing::apply_text_document_changes(
                 &source,
                 version,
                 vec![TextDocumentContentChangeEvent {

@@ -14,7 +14,7 @@ fuzz_target!(|data: &[u8]| -> Corpus {
         Err(reject) => return reject,
     };
 
-    let mut lexer = shuck_parser::parser::Lexer::new(input);
+    let mut lexer = shucked_parser::parser::Lexer::new(input);
     while lexer.next_lexed_token().is_some() {}
 
     Corpus::Keep

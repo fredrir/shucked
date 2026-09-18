@@ -1759,14 +1759,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "shuck-ast"
+name = "shucked-ast"
 version = "0.2.2"
 dependencies = [
  "compact_str",
 ]
 
 [[package]]
-name = "shuck-benchmark"
+name = "shucked-benchmark"
 version = "0.2.2"
 dependencies = [
  "criterion",
@@ -1775,13 +1775,14 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
- "shuck-cli",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-semantic",
- "shuck-server",
+ "shucked-cli",
+ "shucked-formatter",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-lsp",
+ "shucked-parser",
+ "shucked-semantic",
+ "shucked-server",
  "similar",
  "tempfile",
  "tikv-jemallocator",
@@ -1789,7 +1790,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shuck-cache"
+name = "shucked-cache"
 version = "0.2.2"
 dependencies = [
  "bincode",
@@ -1799,7 +1800,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shuck-cli"
+name = "shucked-cli"
 version = "0.2.2"
 dependencies = [
  "annotate-snippets",
@@ -1820,18 +1821,19 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.11.0",
- "shuck-ast",
- "shuck-cache",
- "shuck-config",
- "shuck-discover",
- "shuck-extract",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-run",
- "shuck-semantic",
- "shuck-server",
+ "shucked-ast",
+ "shucked-cache",
+ "shucked-config",
+ "shucked-discover",
+ "shucked-extract",
+ "shucked-formatter",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-lsp",
+ "shucked-parser",
+ "shucked-run",
+ "shucked-semantic",
+ "shucked-server",
  "similar",
  "tempfile",
  "toml",
@@ -1841,7 +1843,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shuck-config"
+name = "shucked-config"
 version = "0.2.2"
 dependencies = [
  "anyhow",
@@ -1849,39 +1851,39 @@ dependencies = [
  "etcetera",
  "globset",
  "serde",
- "shuck-formatter",
- "shuck-run",
+ "shucked-formatter",
+ "shucked-run",
  "tempfile",
  "toml",
 ]
 
 [[package]]
-name = "shuck-discover"
+name = "shucked-discover"
 version = "0.2.2"
 dependencies = [
  "anyhow",
  "globset",
  "ignore",
- "shuck-config",
- "shuck-extract",
- "shuck-linter",
- "shuck-parser",
+ "shucked-config",
+ "shucked-extract",
+ "shucked-linter",
+ "shucked-parser",
  "tempfile",
 ]
 
 [[package]]
-name = "shuck-extract"
+name = "shucked-extract"
 version = "0.2.2"
 dependencies = [
  "anyhow",
  "github-actions-expressions",
  "saphyr",
  "saphyr-parser",
- "shuck-ast",
+ "shucked-ast",
 ]
 
 [[package]]
-name = "shuck-formatter"
+name = "shucked-formatter"
 version = "0.2.2"
 dependencies = [
  "memchr",
@@ -1890,23 +1892,23 @@ dependencies = [
  "serde",
  "serde_yaml",
  "sha2 0.11.0",
- "shuck-ast",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-parser",
  "similar",
 ]
 
 [[package]]
-name = "shuck-indexer"
+name = "shucked-indexer"
 version = "0.2.2"
 dependencies = [
- "shuck-ast",
- "shuck-parser",
+ "shucked-ast",
+ "shucked-parser",
 ]
 
 [[package]]
-name = "shuck-linter"
+name = "shucked-linter"
 version = "0.2.2"
 dependencies = [
  "anyhow",
@@ -1916,10 +1918,10 @@ dependencies = [
  "rustc-hash 2.1.2",
  "serde",
  "serde_yaml",
- "shuck-ast",
- "shuck-indexer",
- "shuck-parser",
- "shuck-semantic",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-parser",
+ "shucked-semantic",
  "similar",
  "smallvec",
  "tempfile",
@@ -1928,47 +1930,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "shuck-parser"
-version = "0.2.2"
-dependencies = [
- "memchr",
- "serde",
- "serde_json",
- "shuck-ast",
- "smallvec",
-]
-
-[[package]]
-name = "shuck-run"
-version = "0.2.2"
-dependencies = [
- "anyhow",
- "etcetera",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "shuck-parser",
- "tempfile",
- "toml",
- "url",
-]
-
-[[package]]
-name = "shuck-semantic"
-version = "0.2.2"
-dependencies = [
- "bitflags 2.11.0",
- "compact_str",
- "rustc-hash 2.1.2",
- "shuck-ast",
- "shuck-indexer",
- "shuck-parser",
- "smallvec",
- "tempfile",
-]
-
-[[package]]
-name = "shuck-server"
+name = "shucked-lsp"
 version = "0.2.2"
 dependencies = [
  "anyhow",
@@ -1979,31 +1941,80 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "shuck-ast",
- "shuck-config",
- "shuck-discover",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-semantic",
+ "shucked-ast",
+ "shucked-config",
+ "shucked-discover",
+ "shucked-formatter",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-parser",
+ "shucked-semantic",
  "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
-name = "shuck-wasm"
+name = "shucked-parser"
+version = "0.2.2"
+dependencies = [
+ "memchr",
+ "serde",
+ "serde_json",
+ "shucked-ast",
+ "smallvec",
+]
+
+[[package]]
+name = "shucked-run"
+version = "0.2.2"
+dependencies = [
+ "anyhow",
+ "etcetera",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shucked-parser",
+ "tempfile",
+ "toml",
+ "url",
+]
+
+[[package]]
+name = "shucked-semantic"
+version = "0.2.2"
+dependencies = [
+ "bitflags 2.11.0",
+ "compact_str",
+ "rustc-hash 2.1.2",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-parser",
+ "smallvec",
+ "tempfile",
+]
+
+[[package]]
+name = "shucked-server"
+version = "0.2.2"
+dependencies = [
+ "anyhow",
+ "lsp-server",
+ "shucked-lsp",
+]
+
+[[package]]
+name = "shucked-wasm"
 version = "0.2.2"
 dependencies = [
  "js-sys",
  "serde",
  "serde_json",
- "shuck-ast",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
+ "shucked-ast",
+ "shucked-formatter",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-parser",
  "wasm-bindgen",
 ]
 

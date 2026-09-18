@@ -30,6 +30,6 @@ fuzz_target!(|data: &[u8]| {
         }
 
         let script = format!("echo $(({}))\n", input);
-        let _ = shuck_parser::parser::Parser::new(&script).parse();
+        let _ = shucked_parser::parser::Parser::new(&script).parse();
     }
 });

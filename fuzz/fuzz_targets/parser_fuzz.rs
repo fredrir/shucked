@@ -14,7 +14,7 @@ fuzz_target!(|data: &[u8]| -> Corpus {
         Err(reject) => return reject,
     };
 
-    let parser = shuck_parser::parser::Parser::new(input);
+    let parser = shucked_parser::parser::Parser::new(input);
     let _ = parser.parse();
 
     Corpus::Keep

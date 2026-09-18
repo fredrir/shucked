@@ -1,0 +1,24 @@
+[package]
+name = "shucked-semantic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Semantic analysis model for shell scripts with scopes, bindings, and dataflow"
+keywords = ["shell", "bash", "semantic-analysis", "static-analysis"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[dependencies]
+bitflags = "2"
+compact_str = { workspace = true }
+rustc-hash = "2"
+smallvec = { workspace = true }
+shucked-ast = { workspace = true }
+shucked-indexer = { workspace = true }
+shucked-parser = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

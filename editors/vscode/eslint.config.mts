@@ -6,7 +6,7 @@ import { defineConfig } from "eslint/config";
 
 export default defineConfig([
   {
-    ignores: ["**/.vscode-test", "**/dist", "**/out", "**/vscode-extension-samples"],
+    ignores: ["**/.vscode-test", "**/dist", "**/out", "**/.vscode-extension-samples", "**/vscode-extension-samples"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

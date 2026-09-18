@@ -1,0 +1,18 @@
+[package]
+name = "shucked-cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "File-level caching with SHA-256 content keys for shucked"
+keywords = ["cache", "shell", "linter"]
+categories = ["caching", "development-tools"]
+readme = "README.md"
+
+[dependencies]
+bincode = { version = "2", features = ["serde"] }
+serde = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }

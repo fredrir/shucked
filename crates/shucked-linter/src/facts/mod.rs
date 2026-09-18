@@ -1,0 +1,177 @@
+//! Linter-owned structural facts built once per file.
+//!
+//! `SemanticModel` remains the source of truth for bindings, references, scopes,
+//! source references, the call graph, and flow-sensitive facts.
+//! `LinterFacts` owns reusable linter-side summaries that are cheaper to build
+//! once than to recompute in every rule: normalized commands, wrapper chains,
+//! declaration summaries, option-shape summaries, and later word/expansion
+//! facts.
+
+mod arithmetic;
+mod arrays;
+mod assignments;
+mod body_shape;
+mod braces;
+mod builder;
+mod case_patterns;
+pub(crate) mod command_options;
+pub(crate) mod commands;
+mod comments;
+mod conditional_portability;
+pub(crate) mod conditionals;
+pub(crate) mod core;
+mod escape_scan;
+pub(crate) mod functions;
+mod heredocs;
+pub(crate) mod lists;
+pub(crate) mod loop_headers;
+mod misspelling;
+mod model;
+mod normalized_commands;
+pub(crate) mod pipelines;
+mod presence;
+pub(crate) mod redirects;
+pub(crate) mod simple_tests;
+pub(crate) mod source_paths;
+pub(crate) mod statements;
+pub(crate) mod substitutions;
+pub(crate) mod surface;
+#[cfg(test)]
+mod tests;
+mod traversal;
+pub(crate) mod word_spans;
+pub(crate) mod words;
+
+#[cfg(test)]
+use self::surface::build_subscript_later_suppression_reference_spans;
+use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_bracket_spans};
+use self::{
+    conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
+    escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
+    misspelling::{
+        PossibleVariableMisspellingIndex, build_possible_variable_misspelling_index,
+        scan_possible_variable_misspelling_candidate,
+        should_scan_possible_variable_misspelling_candidates,
+    },
+    normalized_commands as command,
+    presence::{PresenceTestNameFact, PresenceTestReferenceFact, build_presence_tested_names},
+    surface::{
+        CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
+        IndirectExpansionFragmentFact, NestedParameterExpansionFragmentFact,
+        OpenDoubleQuoteFragmentFact, ParameterPatternSpecialTargetFragmentFact,
+        PositionalParameterTrimFragmentFact, ReplacementExpansionFragmentFact,
+        SubstringExpansionFragmentFact, SurfaceFragmentFacts, SurfaceFragmentSink,
+        SurfaceScanContext, SuspectClosingQuoteFragmentFact, ZshParameterIndexFlagFragmentFact,
+        build_suppressed_subscript_reference_spans, rewrite_pattern_as_single_double_quoted_string,
+        rewrite_word_as_single_double_quoted_string,
+    },
+};
+use crate::{
+    AmbientShellOptions, CommandTopology, CommandTopologyTraversal, LinterSemanticArtifacts,
+    Locator, ShellDialect, WordQuote,
+};
+use rustc_hash::{FxHashMap, FxHashSet};
+use shucked_ast::{
+    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment,
+    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion,
+    BraceQuoteContext, BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
+    Command, CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalCommand,
+    ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
+    IdRange, ListArena, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand,
+    SourceText, Span, StaticCommandWrapperTarget, Stmt, StmtSeq, StmtTerminator, Subscript,
+    SubscriptSelector, TextRange, TextSize, TimeCommand, VarRef, WhileCommand, Word, WordPart,
+    WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment, ZshParameterExpansion,
+    ZshQualifiedGlob, is_shell_variable_name, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text, word_is_standalone_status_capture,
+};
+use shucked_indexer::{CommentIndex, Indexer, LineIndex, RegionIndex};
+#[cfg(test)]
+use shucked_parser::parser::Parser;
+use shucked_semantic::{
+    ArithmeticLiteralBehavior, ArrayReferencePolicy, Binding, BindingAttributes, BindingId,
+    BindingKind, CaseCliDispatch, CommandKind, CompoundCommandKind, Declaration,
+    DeclarationBuiltin, DeclarationOperand as SemanticDeclarationOperand, FieldSplittingBehavior,
+    FileExpansionOrderBehavior, FunctionScopeKind, GlobDotBehavior, GlobFailureBehavior,
+    GlobPatternBehavior, NonpersistentAssignmentAnalysisContext,
+    NonpersistentAssignmentAnalysisOptions, NonpersistentAssignmentCommandContext,
+    NonpersistentAssignmentExtraRead, OptionValue, PathnameExpansionBehavior, Reference,
+    ReferenceId, ReferenceKind, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel,
+    SemanticPipelineOperatorKind, SemanticValueFlow, ShellBehaviorAt, SubscriptIndexBehavior,
+    ZshOptionState,
+};
+use smallvec::SmallVec;
+use std::{borrow::Cow, ops::ControlFlow, sync::OnceLock};
+
+#[allow(unused_imports)]
+pub(crate) use self::command_options::{
+    CommandOptionFacts, CommandOptionFactsRef, ExitCommandFacts, ExprCommandFacts,
+    ExprStringHelperKind, FunctionPositionalParameterFacts, GrepPatternSourceKind,
+    MapfileCommandFacts, PathWordFact, WaitCommandFacts,
+};
+#[allow(unused_imports)]
+pub(crate) use self::command_options::{
+    SedScriptQuoteMode, UnsetArraySubscriptFact, UnsetOperandFact, XargsShortOptionArgumentStyle,
+    find_sed_substitution_section, sed_has_single_substitution_script, sed_script_text,
+    shell_flag_contains_command_string, short_option_cluster_contains_flag,
+    ssh_option_consumes_next_argument, word_starts_with_literal_dash,
+    xargs_long_option_requires_separate_argument, xargs_short_option_argument_style,
+};
+pub use self::conditional_portability::ConditionalPortabilityFacts;
+pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
+pub use self::normalized_commands::{
+    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
+};
+pub use self::surface::{
+    AmbiguousArrayReference, ArithmeticLiteralFact, ArithmeticLiteralKind, BacktickFragmentFact,
+    IndexedArrayReferenceFragment, IndexedArrayReferenceFragmentFact, LegacyArithmeticFragmentFact,
+    NativeZshScalarArrayReference, PlainUnindexedArrayReferenceFact,
+    PositionalParameterFragmentFact, SelectorRequiredArrayReference, SingleQuotedFragmentFact,
+};
+
+#[allow(unused_imports)]
+pub(crate) use self::{
+    arithmetic::*, arrays::*, assignments::*, body_shape::*, braces::*, builder::*,
+    case_patterns::*, commands::*, comments::*, conditionals::*, core::*, functions::*,
+    heredocs::*, lists::*, loop_headers::*, model::*, pipelines::*, redirects::*, simple_tests::*,
+    statements::*, substitutions::*, traversal::*, words::*,
+};
+
+pub use self::{
+    arithmetic::ArithmeticUpdateOperatorFixFact,
+    assignments::{EnvPrefixExpansionFixFact, SpaceyAssignmentFact},
+    case_patterns::CaseItemFact,
+    commands::{CommandFact, RedundantEchoSpaceFact},
+    conditionals::{
+        ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+        ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
+        ConditionalOperatorFamily, ConditionalUnaryFact,
+    },
+    core::{CommandFactRef, CommandFacts, CommandId, FactSpan, SudoFamilyInvoker},
+    functions::{FunctionCallArityFacts, FunctionHeaderFact},
+    lists::{ListFact, ListOperatorFact, ListSegmentKind, MixedShortCircuitKind},
+    loop_headers::{ForHeaderFact, LoopHeaderWordFact, SelectHeaderFact},
+    model::{
+        AssignmentFacts, CommandFactQueries, CompatFacts, FileDescriptionCommentFact, LinterFacts,
+        ScriptLineCountFact, SourceFacts, WordFacts,
+    },
+    pipelines::{PipelineFact, PipelineOperatorFact, PipelineSegmentFact},
+    redirects::{
+        DuplicateRedirectFact, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
+        RedirectTargetKind,
+    },
+    simple_tests::{SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax},
+    statements::StatementFact,
+    substitutions::{
+        CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind, SubstitutionOutputIntent,
+    },
+    surface::{PositionalParameterTrimFix, PositionalParameterTrimReplacement},
+};
+
+pub(crate) use self::conditionals::ConditionalExpressionVisit;
+pub(crate) use self::core::CommandVisit;
+pub(crate) use self::redirects::{
+    ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,
+};
+pub(crate) use self::words::{AliasDefinitionExpansionFact, FunctionInAliasFact};
