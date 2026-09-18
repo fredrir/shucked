@@ -7,12 +7,11 @@ By participating in this project you agree to abide by its [Code of Conduct](COD
 ## Prerequisites
 
 - **Rust** stable toolchain (pinned in `rust-toolchain.toml`; includes `rustfmt` and `clippy`)
-- **Nix** (optional) — required for large corpus tests, macrobenchmarks, and profiling. The `flake.nix` provides a dev shell with `shellcheck`, `shfmt`, `hyperfine`, `samply`, and `cargo-udeps`.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/ewhauser/shucked.git
+git clone https://github.com/fredrir/shucked.git
 cd shucked
 
 # Set up pre-commit hooks (runs cargo fmt and clippy before each commit)
@@ -25,7 +24,7 @@ just build
 just test
 
 # Run the CLI
-just run ARGS="check ."
+just run check .             # cargo run -p shucked-cli -- check .
 ```
 
 ## Development Workflow
@@ -61,17 +60,17 @@ PRs are squash-merged, so **the PR title is what ends up on `main`** — please 
 
 Common types:
 
-| Type | Use for | Appears in changelog |
-|------|---------|----------------------|
-| `feat` | New user-visible behavior | yes |
-| `fix` | Bug fix | yes |
-| `perf` | Performance improvement | yes |
-| `docs` | Documentation-only change | yes |
-| `refactor` | Internal restructuring, no behavior change | yes |
-| `test` | Tests only | no |
-| `chore` | Tooling, deps, misc | no |
-| `ci` | Workflows under `.github/` | no |
-| `build` | Build system, packaging | no |
+| Type       | Use for                                    | Appears in changelog |
+| ---------- | ------------------------------------------ | -------------------- |
+| `feat`     | New user-visible behavior                  | yes                  |
+| `fix`      | Bug fix                                    | yes                  |
+| `perf`     | Performance improvement                    | yes                  |
+| `docs`     | Documentation-only change                  | yes                  |
+| `refactor` | Internal restructuring, no behavior change | yes                  |
+| `test`     | Tests only                                 | no                   |
+| `chore`    | Tooling, deps, misc                        | no                   |
+| `ci`       | Workflows under `.github/`                 | no                   |
+| `build`    | Build system, packaging                    | no                   |
 
 For a breaking change, append `!` to the type or add a `BREAKING CHANGE:` footer (e.g., `feat!: drop C005`).
 
@@ -109,7 +108,6 @@ cargo test -p shucked-linter -- test_name
 cargo insta accept --workspace
 ```
 
-**Large corpus conformance** (requires Nix):
 
 ```bash
 just corpus download          # download corpus (first time only)
@@ -126,7 +124,7 @@ just corpus test SHUCK_LARGE_CORPUS_TIMING=1
 
 ## Fuzzing
 
-Shucked keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `tooling/scripts/`.
+Shucked keeps fuzzing under the repo-root `fuzz/` workspace, managed via `just fuzz` and `tooling/`.
 
 Initialize the fuzz toolchain, generated corpora, and artifact directories with:
 
@@ -140,7 +138,7 @@ For CI or non-interactive setup:
 just fuzz init --ci
 ```
 
-The setup script seeds repository-owned fixtures into two generated corpora:
+The setup command seeds repository-owned fixtures into two generated corpora:
 
 - `fuzz/corpus/common` for parser, recovered-parser, arithmetic, glob, and linter targets
 - `fuzz/corpus/formatter` for formatter targets, seeded from formatter-owned stable fixtures
@@ -150,7 +148,7 @@ Seed sources:
 - `crates/shucked-linter/resources/test/fixtures`
 - `crates/shucked-formatter/tests/oracle-fixtures`
 - `crates/shucked-benchmark/resources/files`
-- `tooling/scripts`
+- `tooling/fixtures`
 
 If `rustup` is not installed yet, the setup script bootstraps it so fuzzing can use nightly
 without changing the repo's default stable toolchain.
@@ -224,35 +222,35 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 
 ## Project Structure
 
-| Crate | Purpose |
-|-------|---------|
-| `shucked-cli` | CLI binary `shucked` — command orchestration, discovery, config, caching, fixes, and reporting |
-| `shucked-linter` | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics |
-| `shucked-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
-| `shucked-indexer` | Positional and structural indexes over parsed scripts |
-| `shucked-parser` | Recursive-descent Bash parser |
-| `shucked-ast` | AST node types, tokens, spans |
-| `shucked-extract` | Embedded shell extraction for supported host files such as GitHub Actions workflows |
-| `shucked-cache` | SHA-256 keyed file-level result caching |
-| `shucked-formatter` | Shell script formatter |
-| `shucked-benchmark` | Shared benchmark fixtures and benchmark harness helpers |
-| `shucked-tooling` | High-performance developer tooling CLI (`tooling/`) |
+| Crate               | Purpose                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `shucked-cli`       | CLI binary `shucked` — command orchestration, discovery, config, caching, fixes, and reporting |
+| `shucked-linter`    | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics              |
+| `shucked-semantic`  | Semantic model — bindings, scopes, CFG, dataflow                                               |
+| `shucked-indexer`   | Positional and structural indexes over parsed scripts                                          |
+| `shucked-parser`    | Recursive-descent Bash parser                                                                  |
+| `shucked-ast`       | AST node types, tokens, spans                                                                  |
+| `shucked-extract`   | Embedded shell extraction for supported host files such as GitHub Actions workflows            |
+| `shucked-cache`     | SHA-256 keyed file-level result caching                                                        |
+| `shucked-formatter` | Shell script formatter                                                                         |
+| `shucked-benchmark` | Shared benchmark fixtures and benchmark harness helpers                                        |
+| `shucked-tooling`   | High-performance developer tooling CLI (`tooling/`)                                            |
 
 ## Adding a Lint Rule
 
 Rules are organized into five categories:
 
-| Prefix | Category | Example |
-|--------|----------|---------|
-| `C` | Correctness | `C001` — unused assignment |
-| `S` | Style | `S001` — unquoted expansion |
-| `P` | Performance | `P001` — useless cat |
-| `X` | Portability | `X001` — bashism in sh script |
-| `K` | Security | `K001` — unquoted glob in rm |
+| Prefix | Category    | Example                       |
+| ------ | ----------- | ----------------------------- |
+| `C`    | Correctness | `C001` — unused assignment    |
+| `S`    | Style       | `S001` — unquoted expansion   |
+| `P`    | Performance | `P001` — useless cat          |
+| `X`    | Portability | `X001` — bashism in sh script |
+| `K`    | Security    | `K001` — unquoted glob in rm  |
 
 ### Step 1: Write the rule spec
 
-Create `docs/rules/{CODE}.yaml` with the rule definition:
+Create `tooling/fixtures/{CODE}.yaml` with the rule definition:
 
 ```yaml
 new_category: Correctness
@@ -291,15 +289,10 @@ declare_rules! {
 
 ### Step 3: Populate generated metadata
 
-If the rule maps to a ShellCheck code, set `shellcheck_code` in `docs/rules/{CODE}.yaml` and populate the matching ShellCheck log level:
-
-```bash
-nix --extra-experimental-features 'nix-command flakes' develop --command \
-  python3 tooling/scripts/update_shellcheck_levels.py --rules C042
-```
+If the rule maps to a ShellCheck code, set `shellcheck_code` in `tooling/fixtures/{CODE}.yaml` and populate the matching ShellCheck log level.
 
 `crates/shucked-linter/build.rs` generates the runtime rule metadata and ordinary
-ShellCheck-code mappings from `docs/rules/*.yaml`. Do not hand-edit
+ShellCheck-code mappings from `tooling/fixtures/*.yaml`. Do not hand-edit
 `crates/shucked-linter/src/suppression/shellcheck_map.rs` for normal rule
 mappings; only update `SUPPRESSION_ALIAS_CODES` there when an old ShellCheck
 code should suppress a rule without being the rule's canonical compatibility
@@ -368,15 +361,15 @@ Then add a `#[test_case]` entry in the test function at the bottom of the same f
 
 In `crates/shucked-linter/src/checker.rs`, add the rule to the appropriate checker phase:
 
-| Phase | Use for |
-|-------|---------|
-| `check_bindings` | Variable assignments, unused variables |
-| `check_references` | Variable uses, undefined variables |
-| `check_declarations` | `declare`/`local`/`export` commands |
-| `check_call_sites` | Function calls |
-| `check_source_refs` | `source`/`.` commands |
-| `check_commands` | Command structure, most rules go here |
-| `check_flow` | Control flow, dead code |
+| Phase                | Use for                                |
+| -------------------- | -------------------------------------- |
+| `check_bindings`     | Variable assignments, unused variables |
+| `check_references`   | Variable uses, undefined variables     |
+| `check_declarations` | `declare`/`local`/`export` commands    |
+| `check_call_sites`   | Function calls                         |
+| `check_source_refs`  | `source`/`.` commands                  |
+| `check_commands`     | Command structure, most rules go here  |
+| `check_flow`         | Control flow, dead code                |
 
 ```rust
 if self.is_rule_enabled(Rule::YourRuleName) {
@@ -431,7 +424,7 @@ See `CLAUDE.md` for the full policy.
 just bench                    # Criterion microbenchmarks
 just bench-parser             # parser benchmarks only
 just bench-linter             # linter benchmarks only
-just bench-macro              # Hyperfine comparison vs ShellCheck (requires Nix)
+just bench-macro              # Hyperfine comparison vs ShellCheck
 ```
 
 ## License

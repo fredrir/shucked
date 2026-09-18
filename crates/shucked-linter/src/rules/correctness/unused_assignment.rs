@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use compact_str::CompactString;
+use shucked_ast::{Command, DeclOperand};
 use shucked_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin, ReferenceKind,
+    AssignmentValueOrigin, Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin,
+    ReferenceKind,
 };
 
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
@@ -180,10 +182,218 @@ pub fn unused_assignment(checker: &mut Checker) {
         let report_span = report_span_for_binding(checker, binding);
         let fix_span = binding.span;
 
-        checker.report_diagnostic(
-            Diagnostic::new(UnusedAssignment { name }, report_span)
-                .with_fix(Fix::unsafe_edit(Edit::replacement("_", fix_span))),
-        );
+        let mut diagnostic = Diagnostic::new(UnusedAssignment { name }, report_span)
+            .with_fix(Fix::unsafe_edit(Edit::replacement("_", fix_span)));
+
+        if let Some((alt_title, alt_fix)) = deletion_fix_for_binding(checker, binding) {
+            diagnostic = diagnostic.with_alternative_fix(alt_title, alt_fix);
+        }
+
+        checker.report_diagnostic(diagnostic);
+    }
+}
+
+fn deletion_fix_for_binding(checker: &Checker<'_>, binding: &Binding) -> Option<(String, Fix)> {
+    let source = checker.source();
+    let locator = checker.locator();
+
+    match &binding.origin {
+        BindingOrigin::Assignment {
+            definition_span: _,
+            value,
+        } => {
+            let is_pure = matches!(
+                value,
+                AssignmentValueOrigin::StaticLiteral
+                    | AssignmentValueOrigin::PlainScalarAccess
+                    | AssignmentValueOrigin::ParameterOperator
+                    | AssignmentValueOrigin::Transformation
+                    | AssignmentValueOrigin::IndirectExpansion
+            );
+
+            if is_pure {
+                for command_fact in checker.facts().commands() {
+                    let assignments = command_fact.assignments();
+                    if let Some(assignment) = assignments
+                        .iter()
+                        .find(|a| a.target.name_span == binding.span)
+                    {
+                        let asgn_span = assignment.span;
+                        let line_num = asgn_span.start.line();
+                        if let Some(line_range) = locator.line_range(line_num) {
+                            let line_start = usize::from(line_range.start());
+                            let line_end = usize::from(line_range.end());
+                            let next_line_start = locator
+                                .line_index()
+                                .line_start(line_num + 1)
+                                .map(usize::from)
+                                .unwrap_or(source.len());
+
+                            let asgn_start = asgn_span.start.offset();
+                            let asgn_end = asgn_span.end.offset();
+
+                            if asgn_start >= line_start && asgn_end <= line_end {
+                                if command_fact.literal_name() == Some("")
+                                    && assignments.len() == 1
+                                    && command_fact.redirects().is_empty()
+                                {
+                                    let prefix = &source[line_start..asgn_start];
+                                    let suffix = &source[asgn_end..line_end];
+
+                                    if prefix.trim().is_empty()
+                                        && (suffix.trim().is_empty() || suffix.trim() == ";")
+                                    {
+                                        return Some((
+                                            "delete the unused assignment".to_string(),
+                                            Fix::unsafe_edit(Edit::deletion_at(
+                                                line_start,
+                                                next_line_start,
+                                            )),
+                                        ));
+                                    }
+                                }
+
+                                let mut delete_start = asgn_start;
+                                let mut delete_end = asgn_end;
+                                let bytes = source.as_bytes();
+                                while delete_end < line_end
+                                    && matches!(bytes.get(delete_end), Some(b' ' | b'\t'))
+                                {
+                                    delete_end += 1;
+                                }
+                                if delete_end < line_end && bytes.get(delete_end) == Some(&b';') {
+                                    delete_end += 1;
+                                    while delete_end < line_end
+                                        && matches!(bytes.get(delete_end), Some(b' ' | b'\t'))
+                                    {
+                                        delete_end += 1;
+                                    }
+                                } else if delete_end == asgn_end {
+                                    while delete_start > line_start
+                                        && matches!(bytes.get(delete_start - 1), Some(b' ' | b'\t'))
+                                    {
+                                        delete_start -= 1;
+                                    }
+                                }
+
+                                return Some((
+                                    "delete the unused assignment".to_string(),
+                                    Fix::unsafe_edit(Edit::deletion_at(delete_start, delete_end)),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            Some((
+                "delete the assignment target".to_string(),
+                Fix::unsafe_edit(Edit::deletion(binding.span)),
+            ))
+        }
+        BindingOrigin::Declaration { definition_span: _ } => {
+            for command_fact in checker.facts().commands() {
+                if let Command::Decl(decl) = command_fact.command() {
+                    let has_target = decl.operands.iter().any(|op| match op {
+                        DeclOperand::Name(var_ref) => var_ref.name_span == binding.span,
+                        DeclOperand::Assignment(asgn) => asgn.target.name_span == binding.span,
+                        DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => false,
+                    });
+                    if has_target {
+                        let line_num = decl.span.start.line();
+                        if let Some(line_range) = locator.line_range(line_num) {
+                            let line_start = usize::from(line_range.start());
+                            let line_end = usize::from(line_range.end());
+                            let next_line_start = locator
+                                .line_index()
+                                .line_start(line_num + 1)
+                                .map(usize::from)
+                                .unwrap_or(source.len());
+
+                            let decl_start = decl.span.start.offset();
+                            let decl_end = decl.span.end.offset();
+
+                            if decl.operands.len() == 1
+                                && decl_start >= line_start
+                                && decl_end <= next_line_start
+                            {
+                                let prefix = &source[line_start..decl_start];
+                                let suffix = &source[decl_end.min(line_end)..line_end];
+
+                                if prefix.trim().is_empty()
+                                    && (suffix.trim().is_empty() || suffix.trim() == ";")
+                                {
+                                    return Some((
+                                        "delete the unused declaration".to_string(),
+                                        Fix::unsafe_edit(Edit::deletion_at(
+                                            line_start,
+                                            next_line_start,
+                                        )),
+                                    ));
+                                }
+                            }
+
+                            for operand in &decl.operands {
+                                let (op_span, is_match) = match operand {
+                                    DeclOperand::Name(var_ref) => {
+                                        (var_ref.span, var_ref.name_span == binding.span)
+                                    }
+                                    DeclOperand::Assignment(asgn) => {
+                                        (asgn.span, asgn.target.name_span == binding.span)
+                                    }
+                                    DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => continue,
+                                };
+                                if is_match {
+                                    let op_start = op_span.start.offset();
+                                    let op_end = op_span.end.offset();
+                                    if op_start >= line_start && op_end <= next_line_start {
+                                        let mut delete_start = op_start;
+                                        let mut delete_end = op_end.min(line_end);
+                                        let bytes = source.as_bytes();
+                                        while delete_end < line_end
+                                            && matches!(bytes.get(delete_end), Some(b' ' | b'\t'))
+                                        {
+                                            delete_end += 1;
+                                        }
+                                        if delete_end == op_end.min(line_end) {
+                                            while delete_start > line_start
+                                                && matches!(
+                                                    bytes.get(delete_start - 1),
+                                                    Some(b' ' | b'\t')
+                                                )
+                                            {
+                                                delete_start -= 1;
+                                            }
+                                        }
+                                        return Some((
+                                            "delete the unused declaration".to_string(),
+                                            Fix::unsafe_edit(Edit::deletion_at(
+                                                delete_start,
+                                                delete_end,
+                                            )),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Some((
+                "delete the assignment target".to_string(),
+                Fix::unsafe_edit(Edit::deletion(binding.span)),
+            ))
+        }
+        BindingOrigin::LoopVariable { .. }
+        | BindingOrigin::ParameterDefaultAssignment { .. }
+        | BindingOrigin::Imported { .. }
+        | BindingOrigin::FunctionDefinition { .. }
+        | BindingOrigin::BuiltinTarget { .. }
+        | BindingOrigin::ArithmeticAssignment { .. }
+        | BindingOrigin::Nameref { .. } => Some((
+            "delete the assignment target".to_string(),
+            Fix::unsafe_edit(Edit::deletion(binding.span)),
+        )),
     }
 }
 
@@ -409,6 +619,69 @@ mod tests {
         assert_eq!(
             diagnostics[0].fix_title.as_deref(),
             Some("rename the unused assignment target to `_`")
+        );
+    }
+
+    #[test]
+    fn provides_alternative_deletion_fixes() {
+        // Pure standalone assignment deletes the statement
+        let source1 = "#!/bin/sh\nunused=1\n";
+        let diags1 = test_snippet(source1, &LinterSettings::for_rule(Rule::UnusedAssignment));
+        assert_eq!(diags1.len(), 1);
+        assert_eq!(diags1[0].alternative_fixes.len(), 1);
+        assert_eq!(
+            diags1[0].alternative_fixes[0].title,
+            "delete the unused assignment"
+        );
+        let edit1 = &diags1[0].alternative_fixes[0].fix.edits()[0];
+        assert_eq!(
+            &source1[usize::from(edit1.range().start())..usize::from(edit1.range().end())],
+            "unused=1\n"
+        );
+
+        // Multiple assignments on a line deletes just the unused assignment
+        let source2 = "#!/bin/sh\nunused=1 kept=2\necho \"$kept\"\n";
+        let diags2 = test_snippet(source2, &LinterSettings::for_rule(Rule::UnusedAssignment));
+        assert_eq!(diags2.len(), 1);
+        assert_eq!(diags2[0].alternative_fixes.len(), 1);
+        assert_eq!(
+            diags2[0].alternative_fixes[0].title,
+            "delete the unused assignment"
+        );
+        let edit2 = &diags2[0].alternative_fixes[0].fix.edits()[0];
+        assert_eq!(
+            &source2[usize::from(edit2.range().start())..usize::from(edit2.range().end())],
+            "unused=1 "
+        );
+
+        // Unused declaration deletes the declaration statement
+        let source3 = "#!/bin/bash\nlocal unused\n";
+        let diags3 = test_snippet(source3, &LinterSettings::for_rule(Rule::UnusedAssignment));
+        assert_eq!(diags3.len(), 1);
+        assert_eq!(diags3[0].alternative_fixes.len(), 1);
+        assert_eq!(
+            diags3[0].alternative_fixes[0].title,
+            "delete the unused declaration"
+        );
+        let edit3 = &diags3[0].alternative_fixes[0].fix.edits()[0];
+        assert_eq!(
+            &source3[usize::from(edit3.range().start())..usize::from(edit3.range().end())],
+            "local unused\n"
+        );
+
+        // Impure assignment deletes the assignment target
+        let source4 = "#!/bin/sh\nunused=$(echo hi)\n";
+        let diags4 = test_snippet(source4, &LinterSettings::for_rule(Rule::UnusedAssignment));
+        assert_eq!(diags4.len(), 1);
+        assert_eq!(diags4[0].alternative_fixes.len(), 1);
+        assert_eq!(
+            diags4[0].alternative_fixes[0].title,
+            "delete the assignment target"
+        );
+        let edit4 = &diags4[0].alternative_fixes[0].fix.edits()[0];
+        assert_eq!(
+            &source4[usize::from(edit4.range().start())..usize::from(edit4.range().end())],
+            "unused"
         );
     }
 

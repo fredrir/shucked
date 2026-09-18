@@ -101,7 +101,7 @@ pub enum TerminalColor {
     Never,
 }
 
-/// Managed shell names accepted by `shucked run`, `shuck install`, and `shuck shell`.
+/// Managed shell names accepted by `shucked run`, `shucked install`, and `shucked shell`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ManagedShellArg {
     /// GNU bash.

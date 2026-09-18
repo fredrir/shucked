@@ -1,10 +1,10 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! Linting and fix application for shell scripts parsed by the Shuck toolchain.
+//! Linting and fix application for shell scripts parsed by the Shucked toolchain.
 //!
 //! This crate combines parser output, semantic analysis, suppressions, and rule metadata into a
-//! diagnostics pipeline used by `shuck check`.
+//! diagnostics pipeline used by `shucked check`.
 //!
 //! Construct settings through [`LinterSettings::default`], [`LinterSettings::for_rule`],
 //! [`LinterSettings::for_rules`], or [`LinterSettings::from_selectors`]. Public fields remain
@@ -12,7 +12,7 @@
 //! are implemented, so downstream matches need a fallback arm.
 //!
 //! Public entrypoints intentionally expose parser, AST, indexer, and semantic model types. Add
-//! direct dependencies on `shuck-parser`, `shuck-ast`, `shuck-indexer`, or `shuck-semantic` when
+//! direct dependencies on `shucked-parser`, `shucked-ast`, `shucked-indexer`, or `shucked-semantic` when
 //! naming or traversing types owned by those crates. Resolver traits used to configure
 //! [`AnalysisRequest`] are re-exported here for convenience.
 //!
@@ -81,7 +81,7 @@ pub use ambient_contracts::{
 /// Primary checker API for walking facts and emitting diagnostics.
 pub use checker::Checker;
 /// Rule diagnostics and severity levels.
-pub use diagnostic::{Diagnostic, Severity};
+pub use diagnostic::{AlternativeFix, Diagnostic, Severity};
 /// Command-substitution classification exposed by fact APIs.
 pub use facts::CommandSubstitutionKind;
 pub use facts::words::{
@@ -147,7 +147,7 @@ pub use shucked_semantic::{
 };
 /// Semantic resolver extension points and their request/response types.
 ///
-/// These types are defined by `shuck-semantic` and re-exported here because they appear directly
+/// These types are defined by `shucked-semantic` and re-exported here because they appear directly
 /// in [`AnalysisRequest`] resolver methods.
 pub use shucked_semantic::{
     FileContract, PluginFramework, PluginRequest, PluginRequestKind, PluginResolution,
@@ -182,7 +182,7 @@ use crate::suppression::{
 /// Combined semantic model and diagnostic output for a file analysis pass.
 ///
 /// This is a producer-owned result. Its fields remain public for ergonomic inspection. The
-/// semantic model is defined by the `shuck-semantic` crate; consumers that call its query methods
+/// semantic model is defined by the `shucked-semantic` crate; consumers that call its query methods
 /// should depend on that crate directly.
 ///
 /// ```compile_fail
@@ -211,8 +211,8 @@ pub struct AnalysisResult {
 /// owns parse diagnostics and wants rule diagnostics for that AST.
 ///
 /// The constructors cross crate boundaries intentionally: parser results come from
-/// `shuck-parser`, AST nodes from `shuck-ast`, positional indexes from `shuck-indexer`, and
-/// semantic resolvers from `shuck-semantic`. Add direct dependencies on the first three crates
+/// `shucked-parser`, AST nodes from `shucked-ast`, positional indexes from `shucked-indexer`, and
+/// semantic resolvers from `shucked-semantic`. Add direct dependencies on the first three crates
 /// when traversing or naming their returned types. Resolver traits are re-exported from this crate.
 pub struct AnalysisRequest<'a> {
     input: AnalysisInput<'a>,
@@ -241,7 +241,7 @@ impl<'a> AnalysisRequest<'a> {
     /// Creates a request from a parsed shell file.
     ///
     /// `file` is a [`shucked_ast::File`]. Consumers that inspect its statements, commands, or words
-    /// should depend on `shuck-ast` directly.
+    /// should depend on `shucked-ast` directly.
     ///
     /// This form runs rule analysis over the provided AST without parse diagnostics or
     /// directive-derived suppressions. Use [`AnalysisRequest::from_parse_result`] for the normal
@@ -262,7 +262,7 @@ impl<'a> AnalysisRequest<'a> {
     /// Creates a request from a parser result.
     ///
     /// `parse_result` is produced by [`shucked_parser::parser::Parser::parse`]. Consumers should
-    /// depend on `shuck-parser` directly to construct it.
+    /// depend on `shucked-parser` directly to construct it.
     ///
     /// This form lets [`analyze`] and [`lint`] include parse-aware diagnostics from the supplied
     /// parser result.
@@ -362,7 +362,7 @@ impl<'a> AnalysisRequest<'a> {
     /// Returns the positional index built for this request's source and AST.
     ///
     /// The concrete type is [`shucked_indexer::Indexer`]. Consumers that query its component indexes
-    /// should depend on `shuck-indexer` directly.
+    /// should depend on `shucked-indexer` directly.
     pub fn indexer(&self) -> &Indexer {
         &self.indexer
     }
@@ -404,7 +404,7 @@ struct LinterAnalysisResult<'a> {
 
 /// Semantic model plus linter-private traversal artifacts needed to build facts.
 ///
-/// This lower-level API crosses into `shuck-ast`, `shuck-indexer`, and `shuck-semantic` directly.
+/// This lower-level API crosses into `shucked-ast`, `shucked-indexer`, and `shucked-semantic` directly.
 /// Consumers using it should declare direct dependencies on those crates.
 pub struct LinterSemanticArtifacts<'a> {
     semantic: SemanticModel,
@@ -2929,6 +2929,7 @@ echo $bar
                 span: echo_foo,
                 fix: None,
                 fix_title: None,
+                alternative_fixes: Vec::new(),
             },
             Diagnostic {
                 rule: Rule::UnquotedExpansion,
@@ -2937,6 +2938,7 @@ echo $bar
                 span: echo_bar,
                 fix: None,
                 fix_title: None,
+                alternative_fixes: Vec::new(),
             },
         ];
 

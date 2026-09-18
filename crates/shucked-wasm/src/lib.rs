@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! WebAssembly bindings for source-only Shuck linting and formatting.
+//! WebAssembly bindings for source-only Shucked linting and formatting.
 
 use std::path::Path;
 use std::str::FromStr;
@@ -62,7 +62,7 @@ export interface LintOptions {
   filename?: string;
   /** Explicit shell dialect. Omit to infer it from the source and filename. */
   shell?: Shell;
-  /** Rule selectors to enable. Omit for Shuck's defaults; [] enables no rules. */
+  /** Rule selectors to enable. Omit for Shucked's defaults; [] enables no rules. */
   select?: string[];
   /** Rule selectors to remove from the selected or default rules. */
   ignore?: string[];
@@ -89,7 +89,7 @@ export function lint(source: string, options?: LintOptions): Diagnostic[];
 export function format(source: string, options?: FormatOptions): string;
 "#;
 
-/// Return the Shuck version embedded in this package.
+/// Return the Shucked version embedded in this package.
 #[wasm_bindgen]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()

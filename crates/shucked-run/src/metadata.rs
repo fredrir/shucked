@@ -44,12 +44,12 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
             continue;
         }
 
-        if trimmed == "# /// shuck" {
+        if trimmed == "# /// shucked" {
             if saw_body {
-                bail!("shuck metadata blocks must appear before the script body");
+                bail!("shucked metadata blocks must appear before the script body");
             }
             if start_line.is_some() {
-                bail!("multiple `# /// shuck` blocks are not allowed");
+                bail!("multiple `# /// shucked` blocks are not allowed");
             }
             start_line = Some(line_index);
             break;
@@ -71,7 +71,7 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
     for (_, line) in lines.by_ref() {
         let trimmed = line.trim();
         if trimmed == "# ///" {
-            let block: MetadataBlock = toml::from_str(&body).context("parse shuck metadata")?;
+            let block: MetadataBlock = toml::from_str(&body).context("parse shucked metadata")?;
             let shell = parse_shell_name(&block.shell)?;
             let version = block
                 .version
@@ -79,26 +79,26 @@ pub(crate) fn parse_script_metadata(source: &str) -> Result<Option<ScriptMetadat
                 .map(VersionConstraint::parse)
                 .transpose()?;
             if contains_metadata_block(lines.map(|(_, line)| line)) {
-                bail!("multiple `# /// shuck` blocks are not allowed");
+                bail!("multiple `# /// shucked` blocks are not allowed");
             }
             return Ok(Some(ScriptMetadata { shell, version }));
         }
 
         let Some(comment_body) = line.trim_start().strip_prefix('#') else {
-            bail!("shuck metadata block must stay in the leading comment header");
+            bail!("shucked metadata block must stay in the leading comment header");
         };
         body.push_str(comment_body.strip_prefix(' ').unwrap_or(comment_body));
         body.push('\n');
     }
 
-    bail!("unterminated `# /// shuck` metadata block")
+    bail!("unterminated `# /// shucked` metadata block")
 }
 
 fn contains_metadata_block<'a>(lines: impl Iterator<Item = &'a str>) -> bool {
     let lines = lines.collect::<Vec<_>>();
     let mut index = 0usize;
     while index < lines.len() {
-        if lines[index].trim() != "# /// shuck" {
+        if lines[index].trim() != "# /// shucked" {
             index += 1;
             continue;
         }

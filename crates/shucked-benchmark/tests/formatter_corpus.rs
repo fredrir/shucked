@@ -38,14 +38,14 @@ fn formatter_source_and_ast_paths_match_benchmark_corpus() {
 }
 
 #[test]
-#[ignore = "requires SHUCK_RUN_SHFMT_ORACLE=1 and shfmt on PATH (for example via `nix develop`)"]
+#[ignore = "requires SHUCK_RUN_SHFMT_ORACLE=1 and shfmt on PATH"]
 fn formatter_benchmark_corpus_matches_shfmt_baseline() {
     if std::env::var_os("SHUCK_RUN_SHFMT_ORACLE").is_none() {
         eprintln!("set SHUCK_RUN_SHFMT_ORACLE=1 to run the shfmt oracle");
         return;
     }
 
-    probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
+    probe_shfmt().expect("shfmt not found on PATH");
     assert_eq!(
         TEST_FILES.len(),
         BENCHMARK_ORACLE_FILE_COUNT,

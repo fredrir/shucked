@@ -202,6 +202,14 @@ impl<'a> CommandFact<'a> {
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
     }
+
+    pub fn assignments(&self) -> &'a [Assignment] {
+        command_assignments(self.command())
+    }
+
+    pub fn is_assignment_only(&self, source: &str) -> bool {
+        super::assignments::command_is_assignment_only(self, source)
+    }
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
@@ -239,6 +247,14 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
     pub fn redirects(self) -> &'a [Redirect] {
         self.fact.redirects()
+    }
+
+    pub fn assignments(self) -> &'a [Assignment] {
+        self.fact.assignments()
+    }
+
+    pub fn is_assignment_only(self, source: &str) -> bool {
+        self.fact.is_assignment_only(source)
     }
 
     pub(crate) fn shell_behavior(self) -> &'facts ShellBehaviorAt<'a> {

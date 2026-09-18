@@ -178,7 +178,7 @@ impl ShellDialect {
     /// compinit requires this tag on the *first* line of a completion/autoload
     /// function file, so such files lead with the tag instead of a shebang and
     /// are typically extensionless. Shared by dialect inference and by file
-    /// discovery (`shuck-discover`) so these files are recognized as zsh shell
+    /// discovery (`shucked-cli` discovery) so these files are recognized as zsh shell
     /// scripts. The tag must directly follow `#` (no space), matching compinit.
     #[must_use]
     pub fn is_zsh_autoload_tag_line(line: &str) -> bool {

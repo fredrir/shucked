@@ -1,13 +1,13 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! Library entrypoints for the `shuck` CLI.
+//! Library entrypoints for the `shucked` CLI.
 //!
 //! This crate primarily exists so the command-line binary, tests, and benchmarks can share the
-//! same argument parsing and command execution code. Most users should invoke the `shuck` binary
+//! same argument parsing and command execution code. Most users should invoke the `shucked` binary
 //! directly rather than depend on this library API.
 
-/// Command-line argument types and parsing helpers for the `shuck` executable.
+/// Command-line argument types and parsing helpers for the `shucked` executable.
 pub mod args;
 
 mod cache;
@@ -54,7 +54,7 @@ impl From<ExitStatus> for ExitCode {
     }
 }
 
-/// Run a parsed `shuck` command and return the resulting process status.
+/// Run a parsed `shucked` command and return the resulting process status.
 pub fn run(args: Args) -> Result<ExitStatus> {
     let Args {
         cache_dir,

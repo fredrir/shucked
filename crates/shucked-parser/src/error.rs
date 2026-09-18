@@ -1,9 +1,9 @@
-//! Error types for shuck
+//! Error types for shucked
 
-/// Result type alias using shuck's Error.
+/// Result type alias using shucked's Error.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Shuck error types.
+/// Shucked error types.
 #[derive(Debug, Clone)]
 pub enum Error {
     /// Parse error occurred while parsing the script.

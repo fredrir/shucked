@@ -9,7 +9,7 @@ Current summary from `target/large-corpus-report/latest.log`:
 - `implementation_diffs=0`
 - `mapping_issues=0`
 - `reviewed_divergences=13`
-- Individual reviewed records classified below: 14 total (`shellcheck-only=8`, `shuck-only=6`).
+- Individual reviewed records classified below: 14 total (`shellcheck-only=8`, `shucked-only=6`).
 
 The harness summary counts reviewed divergence groups. This document lists the individual
 diagnostic records that need to be cleared.
@@ -18,7 +18,7 @@ When a record is fixed, remove the matching entry from
 `crates/shucked-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
 Resolved records should not remain as reviewed divergences.
 
-## [ ] ShellCheck-only: semantically safe in Shuck (8)
+## [ ] ShellCheck-only: semantically safe in Shucked (8)
 
 - `233boy__v2ray__src__core.sh:1254:39-43` `$net`
   The final token is assembled from fixed protocol and transport fragments before it is passed onward.
@@ -37,17 +37,17 @@ Resolved records should not remain as reviewed divergences.
 - `tteck__Proxmox__vm__nextcloud-vm.sh:210:96-99` `$HN`
   `HN` is the current hostname seed used as a whiptail default value before any user edits.
 
-## [ ] Shuck-only: broader modeling gaps or command-aware ShellCheck suppressions (6)
+## [ ] Shucked-only: broader modeling gaps or command-aware ShellCheck suppressions (6)
 
 - `bats-core__bats-core__libexec__bats-core__bats-format-pretty:78:13-32` `$line_backoff_count`
-  `move_up` consumes its first parameter numerically, but Shuck does not yet propagate numeric function-argument contracts back to callers.
+  `move_up` consumes its first parameter numerically, but Shucked does not yet propagate numeric function-argument contracts back to callers.
 - `bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh:3374:6-27` `${inet_offer_down:-0}`
-  ShellCheck stays quiet on this numeric-default conditional proof; Shuck still flags the expansion.
+  ShellCheck stays quiet on this numeric-default conditional proof; Shucked still flags the expansion.
 - `ko1nksm__shellspec__lib__general.sh:442:15-39` `$shellspec_readfile_data`
-  The data is intentionally expanded through `set --` after eval-built escaping, which ShellCheck suppresses but Shuck still flags.
+  The data is intentionally expanded through `set --` after eval-built escaping, which ShellCheck suppresses but Shucked still flags.
 - `masonr__yet-another-bench-script__yabs.sh:991:12-19` `$GB_URL`
   `GB_URL` is chosen from literal Geekbench download URLs before it is passed to the downloader command position.
 - `pi-hole__pi-hole__automated install__basic-install.sh:1833:21-39` `${webInterfaceDir}`
-  `webInterfaceDir` is a webroot-derived path passed into the repository helper, but Shuck still treats it as a generic argument.
+  `webInterfaceDir` is a webroot-derived path passed into the repository helper, but Shucked still treats it as a generic argument.
 - `swoodford__aws__vpc-sg-import-rules-cloudflare.sh:281:101-106` `$PORT`
   `PORT` is regex-validated as a numeric or range token before the AWS `--port` argument is built.

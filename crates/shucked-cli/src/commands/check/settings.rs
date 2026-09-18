@@ -329,7 +329,7 @@ pub(super) struct ResolvedCheckSettings {
     pub(super) per_file_shell: Arc<CompiledPerFileShellList>,
     pub(super) zsh_plugins: Arc<ResolvedZshPluginSettings>,
     pub(super) fixable_rules: RuleSet,
-    /// Extra directories searched when resolving `# shuck: source=` directive
+    /// Extra directories searched when resolving `# shucked: source=` directive
     /// targets, after the annotating file's own directory.
     pub(super) source_paths: Vec<String>,
     /// Whether `lint=true` source directives lint the resolved target.

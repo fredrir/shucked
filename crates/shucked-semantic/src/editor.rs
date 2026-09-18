@@ -160,7 +160,7 @@ pub enum EditorCompletionKind {
     Variable,
     /// A shell function.
     Function,
-    /// A shell builtin command modeled by Shuck.
+    /// A shell builtin command modeled by Shucked.
     Builtin,
     /// A runtime-provided shell name.
     RuntimeName,
@@ -251,7 +251,7 @@ pub enum RenameUnavailable {
     ImportedBinding,
     /// The target cannot be resolved to one proven symbol set.
     AmbiguousResolution,
-    /// The original target name is not a shell identifier/function token Shuck can rename.
+    /// The original target name is not a shell identifier/function token Shucked can rename.
     InvalidIdentifier,
     /// The rename would need edits outside the current indexed document.
     CrossFileUnindexed,

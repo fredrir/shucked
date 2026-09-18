@@ -238,14 +238,14 @@ struct LargeCorpusProgress {
 }
 
 #[test]
-#[ignore = "requires SHUCK_RUN_SHFMT_ORACLE=1 and shfmt on PATH (for example via `nix develop`)"]
+#[ignore = "requires SHUCK_RUN_SHFMT_ORACLE=1 and shfmt on PATH"]
 fn selected_fixtures_match_shfmt() {
     if std::env::var_os("SHUCK_RUN_SHFMT_ORACLE").is_none() {
         eprintln!("set SHUCK_RUN_SHFMT_ORACLE=1 to run the shfmt oracle");
         return;
     }
 
-    let shfmt = probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
+    let shfmt = probe_shfmt().expect("shfmt not found on PATH");
 
     let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle-fixtures");
     let mut ran_case = false;
@@ -298,7 +298,7 @@ fn large_corpus_matches_shfmt() {
     let update_allowlist = env_truthy(SHFMT_ALLOWLIST_UPDATE_ENV, false);
     let allowlist = (!update_allowlist).then(load_shfmt_large_corpus_allowlist);
     let large_corpus_started = Instant::now();
-    probe_shfmt().expect("shfmt not found on PATH; run under `nix develop`");
+    probe_shfmt().expect("shfmt not found on PATH");
 
     let all_fixtures = collect_large_corpus_fixtures(&cfg.corpus_dir);
     assert!(

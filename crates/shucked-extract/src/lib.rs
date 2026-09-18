@@ -108,7 +108,7 @@ pub enum ExtractedDialect {
     Bash,
     /// POSIX `sh` syntax.
     Sh,
-    /// A shell that shuck does not currently lint.
+    /// A shell that shucked does not currently lint.
     Unsupported,
 }
 

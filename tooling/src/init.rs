@@ -136,15 +136,20 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
 
     // 2. Cargo Binary Tools
     print_step("Checking Cargo developer binary tools...");
-    let cargo_tools: [(&str, &[&str], &str); 3] = [
-        ("cargo-fuzz", &["--version"], "cargo-fuzz"),
-        ("cargo-flamegraph", &["--version"], "flamegraph"),
-        ("cargo-shear", &["--version"], "cargo-shear"),
+    let cargo_tools: [(&str, &str, &[&str], &str); 3] = [
+        ("cargo-fuzz", "cargo-fuzz", &["--version"], "cargo-fuzz"),
+        (
+            "cargo-flamegraph",
+            "flamegraph",
+            &["--version"],
+            "flamegraph",
+        ),
+        ("cargo-shear", "cargo-shear", &["--version"], "cargo-shear"),
     ];
 
-    for (tool_name, test_args, crate_name) in cargo_tools {
+    for (tool_name, binary_name, test_args, crate_name) in cargo_tools {
         let tool_start = Instant::now();
-        if let Some(version_info) = is_cargo_tool_installed(tool_name, test_args) {
+        if let Some(version_info) = is_cargo_tool_installed(binary_name, test_args) {
             println!(
                 "  {} {tool_name} already installed: {} ({:.2?})",
                 "✔".green().bold(),
@@ -159,14 +164,14 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
             print_step(&format!("Installing {tool_name} via cargo install..."));
             let install_res = run_command("cargo", &["install", crate_name], &opts);
             if install_res.is_err() && crate_name == "cargo-shear" {
-                print_step("Retrying cargo-shear with --version 1.13.2 for rustc compatibility...");
+                print_step("Retrying cargo-shear with +nightly for rustc compatibility...");
                 let _ = run_command(
                     "cargo",
-                    &["install", "cargo-shear", "--version", "1.13.2"],
+                    &["+nightly", "install", "cargo-shear", "--locked"],
                     &opts,
                 );
             }
-            if let Some(version_info) = is_cargo_tool_installed(tool_name, test_args) {
+            if let Some(version_info) = is_cargo_tool_installed(binary_name, test_args) {
                 println!(
                     "  {} Installed {} ({}) in {:.2?}",
                     "✔".green().bold(),

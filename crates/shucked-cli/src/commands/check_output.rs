@@ -251,16 +251,16 @@ fn write_junit_diagnostics(
     writer: &mut dyn Write,
     diagnostics: &[DisplayedDiagnostic],
 ) -> io::Result<()> {
-    let package = "org.shuck";
-    let mut report = Report::new("shuck");
+    let package = "org.shucked";
+    let mut report = Report::new("shucked");
 
     if diagnostics.is_empty() {
-        let mut suite = TestSuite::new("shuck");
+        let mut suite = TestSuite::new("shucked");
         suite
             .extra
             .insert(XmlString::new("package"), XmlString::new(package));
         let mut case = TestCase::new("No errors found", TestCaseStatus::success());
-        case.set_classname("shuck");
+        case.set_classname("shucked");
         suite.add_test_case(case);
         report.add_test_suite(suite);
     } else {
@@ -290,7 +290,7 @@ fn write_junit_diagnostics(
                     diagnostic.span.start.line, diagnostic.span.start.column, diagnostic.message
                 ));
 
-                let mut case = TestCase::new(format!("org.shuck.{}", diagnostic.code()), status);
+                let mut case = TestCase::new(format!("org.shucked.{}", diagnostic.code()), status);
                 case.set_classname(&classname);
                 case.extra.insert(
                     XmlString::new("line"),
@@ -375,7 +375,7 @@ fn write_rdjson_diagnostics(
 ) -> io::Result<()> {
     let payload = RdjsonDiagnostics {
         source: RdjsonSource {
-            name: "shuck",
+            name: "shucked",
             url: env!("CARGO_PKG_REPOSITORY"),
         },
         severity: rdjson_payload_severity(diagnostics),
@@ -407,7 +407,7 @@ fn write_sarif_diagnostics(
         runs: vec![SarifRun {
             tool: SarifTool {
                 driver: SarifDriver {
-                    name: "shuck",
+                    name: "shucked",
                     information_uri: env!("CARGO_PKG_REPOSITORY"),
                     version: env!("CARGO_PKG_VERSION").to_owned(),
                     rules: rules.into_values().collect(),
@@ -1736,8 +1736,8 @@ beta.sh:
               ],
               "tool": {
                 "driver": {
-                  "informationUri": "https://github.com/ewhauser/shuck",
-                  "name": "shuck",
+                  "informationUri": "https://github.com/fredrir/shucked",
+                  "name": "shucked",
                   "rules": [
                     {
                       "fullDescription": {

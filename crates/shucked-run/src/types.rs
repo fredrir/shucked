@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 
-/// Supported shell families for `shuck run`.
+/// Supported shell families for `shucked run`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Shell {
     /// GNU Bash.
@@ -92,7 +92,7 @@ pub struct Version {
 }
 
 impl Version {
-    /// Parse a version string accepted by Shuck's shell registry.
+    /// Parse a version string accepted by Shucked's shell registry.
     pub fn parse(raw: &str) -> Result<Self> {
         let raw = raw.trim();
         if raw.is_empty() {
@@ -334,7 +334,7 @@ pub struct AvailableShell {
     pub versions: Vec<Version>,
 }
 
-/// Runtime shell settings loaded from Shuck config.
+/// Runtime shell settings loaded from Shucked config.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct RunConfig {
@@ -362,7 +362,7 @@ pub struct ResolvedInterpreter {
 /// Source used to resolve an interpreter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolutionSource {
-    /// Interpreter came from Shuck's managed shell cache.
+    /// Interpreter came from Shucked's managed shell cache.
     Managed,
     /// Interpreter came from the host system.
     System,

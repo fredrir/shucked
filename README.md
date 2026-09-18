@@ -22,7 +22,7 @@ Shucked parses, analyzes, formats, and powers editor feedback for shell scripts.
 ### Homebrew
 
 ```sh
-brew install ewhauser/tap/shucked-cli
+brew install fredrir/tap/shucked-cli
 ```
 
 ### PyPI
@@ -54,16 +54,16 @@ cargo install shucked-cli
 
 ### Pre-built binaries
 
-Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/ewhauser/shucked/releases).
+Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/fredrir/shucked/releases).
 
 ### GitHub Actions
 
-Use [`ewhauser/shucked-action`](https://github.com/ewhauser/shucked-action) to install Shucked and report lint findings as native GitHub annotations:
+Use [`fredrir/shucked-action`](https://github.com/fredrir/shucked-action) to install Shucked and report lint findings as native GitHub annotations:
 
 ```yaml
 steps:
   - uses: actions/checkout@v4
-  - uses: ewhauser/shucked-action@v1
+  - uses: fredrir/shucked-action@v1
     with:
       mode: check
       paths: |
@@ -77,12 +77,12 @@ See the action's documentation for setup-only and formatting modes, version pinn
 
 Shucked's main workflows are split across subcommands:
 
-| Workflow | Command |
-|----------|---------|
-| Lint files, directories, and supported embedded shell | `shucked check` |
-| Format shell files | `shucked format` |
-| Run the editor language server over stdio | `shucked server` |
-| Remove project cache entries | `shucked clean` |
+| Workflow                                              | Command          |
+| ----------------------------------------------------- | ---------------- |
+| Lint files, directories, and supported embedded shell | `shucked check`  |
+| Format shell files                                    | `shucked format` |
+| Run the editor language server over stdio             | `shucked server` |
+| Remove project cache entries                          | `shucked clean`  |
 
 ### Lint
 
@@ -150,7 +150,7 @@ without requiring a local Rust toolchain:
 
 ```yaml
 repos:
-  - repo: https://github.com/ewhauser/shucked
+  - repo: https://github.com/fredrir/shucked
     rev: v0.0.38
     hooks:
       - id: shucked
@@ -163,7 +163,7 @@ platform that does not have a published wheel yet, use the source hook instead:
 
 ```yaml
 repos:
-  - repo: https://github.com/ewhauser/shucked
+  - repo: https://github.com/fredrir/shucked
     rev: v0.0.38
     hooks:
       - id: shucked-src
@@ -189,7 +189,7 @@ shucked server
 
 The server analyzes the editor's in-memory buffer, publishes diagnostics as you edit, and reuses the same parser, lint rules, formatter settings, configuration, and fix machinery as the CLI. It currently supports incremental document sync, real-time diagnostics, quick fixes, `source.fixAll.shucked`, disable-this-line actions, whole-document and range formatting, hover help for rule codes in `# shucked:` and `# shellcheck` directives, completion, go-to-definition, references, document highlights, call hierarchy (incoming and outgoing calls for functions, across files connected by `source` statements and `# shucked: source=` directives), document symbols, and workspace symbols.
 
-Any editor that can launch a stdio LSP server can use Shucked by pointing shell buffers at `shucked server`. See the [editor integration guide](https://ewhauser.github.io/shucked/docs/editors/) for setup examples.
+Any editor that can launch a stdio LSP server can use Shucked by pointing shell buffers at `shucked server`. See the [editor integration guide](https://fredrir.github.io/shucked/docs/editors/) for setup examples.
 
 ## Output
 
@@ -219,23 +219,23 @@ deploy.sh:45:3: warning[S005] prefer `$(...)` over backtick command substitution
 
 ### Exit codes
 
-| Code | Meaning |
-|------|---------|
-| `0`  | No issues found |
-| `1`  | Lint violations or parse errors detected |
+| Code | Meaning                                    |
+| ---- | ------------------------------------------ |
+| `0`  | No issues found                            |
+| `1`  | Lint violations or parse errors detected   |
 | `2`  | Runtime error (bad arguments, I/O failure) |
 
 ## Rules
 
 Shucked ships with rules organized into five categories:
 
-| Category | Prefix | Description |
-|----------|--------|-------------|
-| Correctness | C | Bugs, errors, and likely mistakes. Enabled by default. |
-| Style | S | Code quality and best-practice suggestions. |
-| Performance | P | Inefficient patterns that have simpler or faster alternatives. |
-| Portability | X | Bash-isms and shell-specific constructs that break under POSIX or other shells. |
-| Security | K | Potentially dangerous shell patterns such as risky deletion, unsafe evaluation, or local expansion. |
+| Category    | Prefix | Description                                                                                         |
+| ----------- | ------ | --------------------------------------------------------------------------------------------------- |
+| Correctness | C      | Bugs, errors, and likely mistakes. Enabled by default.                                              |
+| Style       | S      | Code quality and best-practice suggestions.                                                         |
+| Performance | P      | Inefficient patterns that have simpler or faster alternatives.                                      |
+| Portability | X      | Bash-isms and shell-specific constructs that break under POSIX or other shells.                     |
+| Security    | K      | Potentially dangerous shell patterns such as risky deletion, unsafe evaluation, or local expansion. |
 
 Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics and can be used in suppression directives. Diagnostics are classified as error, warning, or hint depending on severity.
 
@@ -248,7 +248,7 @@ That said, shucked is not a port of ShellCheck. It is a clean-room reimplementat
 - Shucked's parser and analysis logic were written from scratch. Edge cases may be handled differently, and some diagnostics may fire in slightly different locations or contexts.
 - In cases where ShellCheck's behavior appears incorrect or inconsistent with shell semantics, shucked intentionally chooses correctness over compatibility.
 
-Compatibility is continuously validated against a large corpus of shell scripts from popular open-source projects including [acme.sh](https://github.com/acmesh-official/acme.sh), [oh-my-zsh](https://github.com/ohmyzsh/ohmyzsh), [nvm](https://github.com/nvm-sh/nvm), [pyenv](https://github.com/pyenv/pyenv), [pi-hole](https://github.com/pi-hole/pi-hole), [bats-core](https://github.com/bats-core/bats-core), [powerlevel10k](https://github.com/romkatv/powerlevel10k), [dokku](https://github.com/dokku/dokku), [gentoo](https://github.com/gentoo/gentoo), and [many others](tooling/scripts/corpus-download.sh). The latest conformance report is published at [ewhauser.github.io/shucked/reports/corpus](https://ewhauser.github.io/shucked/reports/corpus/).
+Compatibility is continuously validated against a large corpus of shell scripts from popular open-source projects including [acme.sh](https://github.com/acmesh-official/acme.sh), [oh-my-zsh](https://github.com/ohmyzsh/ohmyzsh), [nvm](https://github.com/nvm-sh/nvm), [pyenv](https://github.com/pyenv/pyenv), [pi-hole](https://github.com/pi-hole/pi-hole), [bats-core](https://github.com/bats-core/bats-core), [powerlevel10k](https://github.com/romkatv/powerlevel10k), [dokku](https://github.com/dokku/dokku), [gentoo](https://github.com/gentoo/gentoo), and others. The latest conformance report is published at [fredrir.github.io/shucked/reports/corpus](https://fredrir.github.io/shucked/reports/corpus/).
 
 ## Suppression
 
@@ -457,7 +457,7 @@ just test
 just check
 
 # Run the CLI
-just run ARGS="check ."
+just run check .
 
 # Download large corpus fixtures
 just corpus download
@@ -487,7 +487,7 @@ Shucked builds on ideas and inspiration from several excellent open-source proje
 - **[bashkit](https://github.com/everruns/bashkit)** — shucked-parser was originally forked from bashkit's bash lexer and parser; it has since evolved substantially to meet the needs of a linter (comment and trivia preservation, error recovery, multi-dialect parse views, extended AST coverage).
 - **[Ruff](https://github.com/astral-sh/ruff)** — Linter architecture inspiration, particularly around caching, rule organization, and diagnostic output.
 - **[ShellCheck](https://github.com/koalaman/shellcheck)** — An amazing project and the original source of inspiration for shucked. ShellCheck set the standard for shell script analysis.
-- **[gbash](https://github.com/ewhauser/gbash)** — A lot of lessons learned from this earlier project carried forward into shucked.
+- **[gbash](https://github.com/fredrir/gbash)** — A lot of lessons learned from this earlier project carried forward into shucked.
 
 ## License
 

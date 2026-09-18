@@ -9,8 +9,8 @@ default:
 # ==============================================================================
 
 # Initialize project tooling, toolchains, components, and hooks
-init:
-    @cargo run -q -p shucked-tooling -- init
+init *args="":
+    @cargo run -q -p shucked-tooling -- init {{ args }}
 
 # Install repository pre-commit hooks
 setup-hooks:
@@ -120,7 +120,7 @@ corpus *args="":
 setup-large-corpus:
     cargo run -q -p shucked-tooling -- corpus download
 
-# Run large corpus comparison test suite against ShellCheck (nix environment)
+# Run large corpus comparison test suite against ShellCheck
 test-large-corpus *args="":
     cargo run -q -p shucked-tooling -- corpus test {{ args }}
 

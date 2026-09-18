@@ -1,10 +1,10 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! AST, token, and span types shared across the Shuck workspace.
+//! AST, token, and span types shared across the Shucked workspace.
 //!
-//! `shuck-parser` produces these data structures, while crates such as `shuck-indexer`,
-//! `shuck-linter`, `shuck-semantic`, and `shuck-formatter` consume them.
+//! `shucked-parser` produces these data structures, while crates such as `shucked-indexer`,
+//! `shucked-linter`, `shucked-semantic`, and `shucked-formatter` consume them.
 //!
 //! Parser consumers normally start at [`File`], traverse [`File::body`], and then inspect
 //! [`Stmt`] and [`Command`]. Syntax node types are re-exported at this crate root even though

@@ -930,7 +930,7 @@ impl ShellCheckCache {
 }
 
 // ---------------------------------------------------------------------------
-// Shuck runner result
+// Shucked runner result
 // ---------------------------------------------------------------------------
 
 struct ShuckRun {
@@ -2826,7 +2826,7 @@ fn corpus_dir_looks_valid(dir: &Path) -> bool {
 
 fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // crates/shuck-cli -> workspace root
+    // crates/shucked-cli -> workspace root
     manifest_dir
         .parent()
         .and_then(|p| p.parent())
@@ -3070,7 +3070,7 @@ fn unsupported_large_corpus_shebang_shell(first_line: &str) -> Option<&str> {
 }
 
 // ---------------------------------------------------------------------------
-// Shuck runner
+// Shucked runner
 // ---------------------------------------------------------------------------
 
 fn run_shuck_with_parse_dialect(

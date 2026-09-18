@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! Shared benchmark fixtures and helpers for the shuck workspace.
+//! Shared benchmark fixtures and helpers for the shucked workspace.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;

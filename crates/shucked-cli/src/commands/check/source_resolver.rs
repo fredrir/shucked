@@ -1,4 +1,4 @@
-//! Native resolver for `# shuck: source=` directive target paths.
+//! Native resolver for `# shucked: source=` directive target paths.
 //!
 //! The source closure already resolves a directive path relative to the
 //! annotating file's own directory. This resolver adds the configured

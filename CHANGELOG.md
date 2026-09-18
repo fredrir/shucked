@@ -169,10 +169,10 @@
 
 ### Features
 
-* **semantic,cli:** add # shuck: source= directive with opt-in target linting ([#1163](https://github.com/fredrir/shucked/issues/1163)) ([776889f](https://github.com/fredrir/shucked/commit/776889f5b1cfd341392c8788008385e2743311f6))
+* **semantic,cli:** add # shucked: source= directive with opt-in target linting ([#1163](https://github.com/fredrir/shucked/issues/1163)) ([776889f](https://github.com/fredrir/shucked/commit/776889f5b1cfd341392c8788008385e2743311f6))
 * **server:** add LSP call hierarchy for functions ([#1162](https://github.com/fredrir/shucked/issues/1162)) ([921359b](https://github.com/fredrir/shucked/commit/921359b37a181c14b2a4e2a882c726234d5c3dc7))
 * **server:** cross-file call hierarchy over a workspace call-graph index ([#1147](https://github.com/fredrir/shucked/issues/1147)) ([6c3cd84](https://github.com/fredrir/shucked/commit/6c3cd8429920f438277a941fff6748c791c8da08))
-* **wasm:** distribute Shuck through npm ([#1170](https://github.com/fredrir/shucked/issues/1170)) ([748ce53](https://github.com/fredrir/shucked/commit/748ce5326248e7e96d43b6e0af47e79304a8dfd4))
+* **wasm:** distribute Shucked through npm ([#1170](https://github.com/fredrir/shucked/issues/1170)) ([748ce53](https://github.com/fredrir/shucked/commit/748ce5326248e7e96d43b6e0af47e79304a8dfd4))
 
 
 ### Bug Fixes
@@ -211,7 +211,7 @@
 
 ### Features
 
-* **config:** fall back to global ~/.config/shuck config ([#1143](https://github.com/fredrir/shucked/issues/1143)) ([a7d659d](https://github.com/fredrir/shucked/commit/a7d659d5e7e988f0e85f0317bfe9a31fff73aa1c))
+* **config:** fall back to global ~/.config/shucked config ([#1143](https://github.com/fredrir/shucked/issues/1143)) ([a7d659d](https://github.com/fredrir/shucked/commit/a7d659d5e7e988f0e85f0317bfe9a31fff73aa1c))
 
 
 ### Bug Fixes
@@ -329,7 +329,7 @@
 
 ### Documentation
 
-* present shuck as lint, format, and server tool ([#1058](https://github.com/fredrir/shucked/issues/1058)) ([cded150](https://github.com/fredrir/shucked/commit/cded150d9a11760a43bfe9af5a190aa010b03465))
+* present shucked as lint, format, and server tool ([#1058](https://github.com/fredrir/shucked/issues/1058)) ([cded150](https://github.com/fredrir/shucked/commit/cded150d9a11760a43bfe9af5a190aa010b03465))
 * specify LSP editor features ([#1044](https://github.com/fredrir/shucked/issues/1044)) ([edad630](https://github.com/fredrir/shucked/commit/edad6305605190067d47a438b55baafc87038680))
 * tighten public API docs boundaries ([#1037](https://github.com/fredrir/shucked/issues/1037)) ([9fe5fa2](https://github.com/fredrir/shucked/commit/9fe5fa23a5ab131f06683ce144263ce803aeee8d))
 
@@ -349,7 +349,7 @@
 * **formatter:** split stream formatter renderers ([#1072](https://github.com/fredrir/shucked/issues/1072)) ([afb327f](https://github.com/fredrir/shucked/commit/afb327f0776763129738ab4c899d8dc8170ac4a7))
 * **formatter:** unify comment attachment model ([#1074](https://github.com/fredrir/shucked/issues/1074)) ([99dbf42](https://github.com/fredrir/shucked/commit/99dbf42f765b3656f6043f928cf9b856b41bb355))
 * **linter:** move array use classification into semantic ([#991](https://github.com/fredrir/shucked/issues/991)) ([cf9537c](https://github.com/fredrir/shucked/commit/cf9537c39e837233c062fdeef244959283070b64))
-* **linter:** remove legacy fact accessors ([#1039](https://github.com/fredrir/shucked/issues/1039)) ([212f1df](https://github.com/fredrir/shucked/commit/212f1df7354d0c0dcd21c09459117505f1372114))
+* **linter:** remove obsolete fact accessors ([#1039](https://github.com/fredrir/shucked/issues/1039)) ([212f1df](https://github.com/fredrir/shucked/commit/212f1df7354d0c0dcd21c09459117505f1372114))
 * **linter:** replace public lint matrix ([#1008](https://github.com/fredrir/shucked/issues/1008)) ([1126750](https://github.com/fredrir/shucked/commit/112675050c1c10337f219bbc5e94279fca12ee72))
 * **linter:** split linter fact stores ([#1034](https://github.com/fredrir/shucked/issues/1034)) ([5f389a4](https://github.com/fredrir/shucked/commit/5f389a4f4df99fe6e6f3be154433d4c625225d46))
 * **parser:** split parser modules and tests ([#1043](https://github.com/fredrir/shucked/issues/1043)) ([6479535](https://github.com/fredrir/shucked/commit/64795353ba4f547b7ac49fec7a875e4f6b5d9c8d))
@@ -569,7 +569,7 @@
 
 ### Refactor
 
-* **config:** extract shared shuck-config crate ([#814](https://github.com/fredrir/shucked/issues/814)) ([cfa1e98](https://github.com/fredrir/shucked/commit/cfa1e98ab98e8f279bf0d7905df6cf5d9c411b13))
+* **config:** extract shared shucked-config crate ([#814](https://github.com/fredrir/shucked/issues/814)) ([cfa1e98](https://github.com/fredrir/shucked/commit/cfa1e98ab98e8f279bf0d7905df6cf5d9c411b13))
 * **linter:** add remaining option-sensitive facts ([#825](https://github.com/fredrir/shucked/issues/825)) ([5a8f3b4](https://github.com/fredrir/shucked/commit/5a8f3b4348c3d9c091ead773aa90c0bd3d62945c))
 * **linter:** deny wildcard enum matches in rules ([#820](https://github.com/fredrir/shucked/issues/820)) ([9dae7e2](https://github.com/fredrir/shucked/commit/9dae7e20a6b39b46c43d9ba49546facb2253a18c))
 * **linter:** finish option-sensitive glob behavior migration ([#822](https://github.com/fredrir/shucked/issues/822)) ([6900e1a](https://github.com/fredrir/shucked/commit/6900e1ade4f90d31e916684b2630b2ca545518e6))
@@ -614,7 +614,7 @@
 ### Documentation
 
 * **rules:** spec Google Shell Style rules and stub metadata ([#784](https://github.com/fredrir/shucked/issues/784)) ([84556b4](https://github.com/fredrir/shucked/commit/84556b498747876de6d5f1cb11dfa5aa7634bbcd))
-* **website:** add shuck run guide ([#793](https://github.com/fredrir/shucked/issues/793)) ([ede00a9](https://github.com/fredrir/shucked/commit/ede00a958e848b6bb836cdc8213292e55abda350))
+* **website:** add shucked run guide ([#793](https://github.com/fredrir/shucked/issues/793)) ([ede00a9](https://github.com/fredrir/shucked/commit/ede00a958e848b6bb836cdc8213292e55abda350))
 
 ## [0.0.30](https://github.com/fredrir/shucked/compare/v0.0.29...v0.0.30) (2026-05-02)
 
@@ -676,7 +676,7 @@
 
 ### Documentation
 
-* **semantic:** document shuck-semantic public API ([#744](https://github.com/fredrir/shucked/issues/744)) ([a4cf093](https://github.com/fredrir/shucked/commit/a4cf09351b9c24150b8dbe9c6f881e459c5d4d15))
+* **semantic:** document shucked-semantic public API ([#744](https://github.com/fredrir/shucked/issues/744)) ([a4cf093](https://github.com/fredrir/shucked/commit/a4cf09351b9c24150b8dbe9c6f881e459c5d4d15))
 
 
 ### Refactor
@@ -1132,7 +1132,7 @@
 
 ### Features
 
-* **release:** publish shuck to homebrew tap ([#399](https://github.com/fredrir/shucked/issues/399)) ([b0d66dd](https://github.com/fredrir/shucked/commit/b0d66dd4877e80de94a0a3ed14ef4fee4b383ab5))
+* **release:** publish shucked to homebrew tap ([#399](https://github.com/fredrir/shucked/issues/399)) ([b0d66dd](https://github.com/fredrir/shucked/commit/b0d66dd4877e80de94a0a3ed14ef4fee4b383ab5))
 
 
 ### Refactor

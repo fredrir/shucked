@@ -228,7 +228,7 @@ pub(crate) fn collect_source_ref_metadata(
         {
             explicit = true;
         }
-        // See the closure path: a resolved shuck-native directive is an
+        // See the closure path: a resolved shucked-native directive is an
         // explicit assertion.
         if resolved && source_ref.has_shuck_directive() {
             explicit = true;
@@ -297,7 +297,7 @@ fn collect_source_closure_contracts_with_cache(
         {
             explicit = true;
         }
-        // A shuck-native `# shuck: source=` directive that resolves is an
+        // A shucked-native `# shucked: source=` directive that resolves is an
         // explicit user assertion of the target, so treat it as explicitly
         // provided (silencing the untracked-source diagnostic) even when the
         // target is not part of the analyzed set. `# shellcheck source=` keeps

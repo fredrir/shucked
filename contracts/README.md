@@ -1,13 +1,13 @@
 # Declarative Built-In Contracts
 
-This directory contains Shuck's repository-authored built-in ambient contracts.
+This directory contains Shucked's repository-authored built-in ambient contracts.
 They are source files for the build, not runtime configuration files.
 
 ## Source First
 
 Before adding a contract, ask:
 
-> Could Shuck load real source and derive this fact instead?
+> Could Shucked load real source and derive this fact instead?
 
 If yes, prefer improving source resolution, source closure, helper
 summarization, or deferred runtime modeling.
@@ -119,7 +119,7 @@ trying to encode.
 
 ## Validation
 
-The `shuck-linter` build script validates:
+The `shucked-linter` build script validates:
 
 - schema version;
 - duplicate ids;
@@ -133,7 +133,7 @@ The `shuck-linter` build script validates:
 ## Commands
 
 ```bash
-cargo test -p shuck-linter build_script
-cargo test -p shuck-linter ambient_contracts
-cargo test -p shuck-cli contract
+cargo test -p shucked-linter build_script
+cargo test -p shucked-linter ambient_contracts
+cargo test -p shucked-cli contract
 ```

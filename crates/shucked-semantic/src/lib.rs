@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! Semantic analysis for shell scripts parsed by Shuck.
+//! Semantic analysis for shell scripts parsed by Shucked.
 //!
 //! The semantic model tracks scopes, bindings, references, control flow, and selected dataflow
 //! facts so higher-level crates can reason about shell behavior without re-traversing the AST.

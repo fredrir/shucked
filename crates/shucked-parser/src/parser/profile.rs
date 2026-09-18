@@ -39,7 +39,7 @@ impl ShellDialect {
     /// Infer a parser dialect from a command name, shebang interpreter name,
     /// or user-facing shell selector.
     ///
-    /// Unknown names fall back to [`ShellDialect::Bash`], matching Shuck's
+    /// Unknown names fall back to [`ShellDialect::Bash`], matching Shucked's
     /// default parsing mode.
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {

@@ -18,7 +18,7 @@ const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     (2365, Rule::UnreachableAfterExit),
 ];
 
-/// Maps ShellCheck SC codes to Shuck rules.
+/// Maps ShellCheck SC codes to Shucked rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCheckCodeMap {
     sc_to_rule: FxHashMap<u32, Rule>,

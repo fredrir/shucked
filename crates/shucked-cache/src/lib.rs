@@ -1,9 +1,9 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-//! File-oriented cache keys and persistent package caches for Shuck.
+//! File-oriented cache keys and persistent package caches for Shucked.
 //!
-//! The types in this crate power the `shuck` CLI cache, but are generic enough to reuse in other
+//! The types in this crate power the `shucked` CLI cache, but are generic enough to reuse in other
 //! Rust tooling that wants SHA-256-based cache partitioning and serialized per-file entries.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
@@ -16,17 +16,17 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-/// Legacy per-project cache directory name used by older shuck releases.
+/// Per-project cache directory name used by shucked.
 pub const CACHE_DIR_NAME: &str = ".shucked_cache";
 
 const MAX_LAST_SEEN_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-/// Returns the legacy cache directory that lives under a project root.
+/// Returns the cache directory that lives under a project root.
 pub fn legacy_cache_dir(project_root: &Path) -> PathBuf {
     project_root.join(CACHE_DIR_NAME)
 }
 
-/// Reads the cached project root marker stored in a legacy cache file.
+/// Reads the cached project root marker stored in a cache file.
 pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathBuf>> {
     let file = match File::open(path) {
         Ok(file) => file,

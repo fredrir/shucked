@@ -1,6 +1,6 @@
 //! Parser entrypoints, lexical types, and shell-profile configuration.
 //!
-//! The parser is recursive descent and produces `shuck-ast` syntax trees while also collecting
+//! The parser is recursive descent and produces `shucked-ast` syntax trees while also collecting
 //! recovery diagnostics and lightweight syntax facts needed by downstream tooling.
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 

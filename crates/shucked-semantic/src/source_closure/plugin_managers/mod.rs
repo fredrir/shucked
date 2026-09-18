@@ -79,7 +79,7 @@ pub fn zsh_plugin_frameworks() -> &'static [&'static dyn ZshPluginFramework] {
     &ZSH_PLUGIN_FRAMEWORKS
 }
 
-/// Returns the built-in implementation for a framework, when Shuck knows one.
+/// Returns the built-in implementation for a framework, when Shucked knows one.
 pub fn layout_for_plugin_framework(
     framework: &PluginFramework,
 ) -> Option<&'static dyn ZshPluginFramework> {

@@ -1,8 +1,8 @@
 #![warn(missing_docs)]
 
-//! Configuration loading and override handling for Shuck commands.
+//! Configuration loading and override handling for Shucked commands.
 //!
-//! This crate owns the TOML shapes used by `.shuck.toml`, command-line
+//! This crate owns the TOML shapes used by `.shucked.toml`, command-line
 //! `--config` overrides, project-root discovery, an optional user-level global
 //! config file, and the small metadata model used to render configuration
 //! reference docs.
@@ -108,7 +108,7 @@ const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
 const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
     &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
 
-/// Top-level Shuck configuration loaded from project config files.
+/// Top-level Shucked configuration loaded from project config files.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ShuckConfig {
@@ -121,7 +121,7 @@ pub struct ShuckConfig {
     /// Shared per-file shell dialect overrides keyed by glob pattern.
     #[serde(rename = "per-file-shell")]
     pub per_file_shell: Option<BTreeMap<String, String>>,
-    /// Runtime shell resolution options for `shuck run`.
+    /// Runtime shell resolution options for `shucked run`.
     pub run: RunConfig,
 }
 
@@ -275,7 +275,7 @@ pub struct LintConfig {
     pub extend_fixable: Option<Vec<String>>,
     /// Rule-specific option values.
     pub rule_options: Option<LintRuleOptionsConfig>,
-    /// Additional directories searched when resolving `# shuck: source=`
+    /// Additional directories searched when resolving `# shucked: source=`
     /// directive targets, after the annotating file's own directory.
     pub source_paths: Option<Vec<String>>,
     /// Whether `lint=true` source directives lint the resolved target. When
@@ -1679,7 +1679,7 @@ impl TypedValueParser for ConfigArgumentParser {
 /// Resolve the project root for an input path.
 ///
 /// When `use_config_roots` is true, parent directories are searched for
-/// `.shuck.toml` or `shuck.toml` and the closest match becomes the root.
+/// `.shucked.toml` or `shucked.toml` and the closest match becomes the root.
 pub fn resolve_project_root_for_input(input: &Path, use_config_roots: bool) -> io::Result<PathBuf> {
     let base_dir = base_dir_for_input(input)?;
     if use_config_roots {
@@ -2535,10 +2535,10 @@ pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf
 
 /// Directories searched, in precedence order, for a user-level global config.
 ///
-/// The `SHUCK_CONFIG_HOME` environment variable, when set, takes precedence and
+/// The `SHUCKED_CONFIG_HOME` environment variable, when set, takes precedence and
 /// is the only directory consulted (useful for pinning behavior). Otherwise the
-/// XDG-style config directory is used on every platform: `$XDG_CONFIG_HOME/shuck`
-/// when that variable is set, and `~/.config/shuck` otherwise. This keeps the
+/// XDG-style config directory is used on every platform: `$XDG_CONFIG_HOME/shucked`
+/// when that variable is set, and `~/.config/shucked` otherwise. This keeps the
 /// location consistent for a CLI config file rather than following per-OS
 /// GUI-app conventions.
 fn global_config_search_dirs() -> Vec<PathBuf> {
@@ -2574,7 +2574,7 @@ fn find_global_config(dirs: &[PathBuf]) -> io::Result<Option<PathBuf>> {
 /// Locate the user-level global config file, if one exists.
 ///
 /// Global configuration is used only as a fallback when no project-level
-/// `.shuck.toml`/`shuck.toml` is discovered and no explicit `--config` file or
+/// `.shucked.toml`/`shucked.toml` is discovered and no explicit `--config` file or
 /// `--isolated` was requested. The first existing file across the search
 /// directories wins.
 pub fn global_config_path() -> io::Result<Option<PathBuf>> {
@@ -3806,7 +3806,7 @@ mod tests {
         Err(io::Error::other("global config lookup should not run"))
     }
 
-    /// Writes a `shuck.toml` into `dir` and returns its path.
+    /// Writes a `shucked.toml` into `dir` and returns its path.
     fn write_global_config(dir: &Path, body: &str) -> PathBuf {
         let path = dir.join("shuck.toml");
         fs::write(&path, body).unwrap();

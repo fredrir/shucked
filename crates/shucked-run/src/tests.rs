@@ -317,7 +317,7 @@ fn metadata_overrides_project_defaults() {
     let script_path = tempdir.path().join("deploy.sh");
     fs::write(
         &script_path,
-        "# /// shuck\n# shell = \"zsh\"\n# version = \"5.9\"\n# ///\nprint hello\n",
+        "# /// shucked\n# shell = \"zsh\"\n# version = \"5.9\"\n# ///\nprint hello\n",
     )
     .unwrap();
     let config = RunConfig {
@@ -403,7 +403,7 @@ fn cli_shell_override_ignores_mismatched_metadata_version() {
     let script_path = tempdir.path().join("deploy.sh");
     fs::write(
         &script_path,
-        "# /// shuck\n# shell = \"zsh\"\n# version = \"5.9\"\n# ///\necho hi\n",
+        "# /// shucked\n# shell = \"zsh\"\n# version = \"5.9\"\n# ///\necho hi\n",
     )
     .unwrap();
 
@@ -890,7 +890,7 @@ fn non_utf8_script_still_resolves_with_explicit_shell_and_version() {
 #[test]
 fn parses_script_metadata_before_non_comment_lines() {
     let metadata = parse_script_metadata(
-            "# /// shuck\n# shell = \"bash\"\n# version = \">=5.1\"\n# [metadata]\n# description = \"demo\"\n# ///\necho hi\n",
+            "# /// shucked\n# shell = \"bash\"\n# version = \">=5.1\"\n# [metadata]\n# description = \"demo\"\n# ///\necho hi\n",
         )
         .unwrap()
         .unwrap();
@@ -901,31 +901,31 @@ fn parses_script_metadata_before_non_comment_lines() {
     ));
 
     let err =
-        parse_script_metadata("echo hi\n# /// shuck\n# shell = \"bash\"\n# ///\n").unwrap_err();
+        parse_script_metadata("echo hi\n# /// shucked\n# shell = \"bash\"\n# ///\n").unwrap_err();
     assert!(err.to_string().contains("before the script body"));
 
     let err = parse_script_metadata(
-        "# /// shuck\n# shell = \"bash\"\n# ///\necho hi\n# /// shuck\n# shell = \"zsh\"\n# ///\n",
+        "# /// shucked\n# shell = \"bash\"\n# ///\necho hi\n# /// shucked\n# shell = \"zsh\"\n# ///\n",
     )
     .unwrap_err();
-    assert!(err.to_string().contains("multiple `# /// shuck` blocks"));
+    assert!(err.to_string().contains("multiple `# /// shucked` blocks"));
 
     let metadata = parse_script_metadata(
-        "# /// shuck\n# shell = \"bash\"\n# ///\ncat <<'EOF'\n# /// shuck\nshell = \"zsh\"\n# ///\nEOF\n",
+        "# /// shucked\n# shell = \"bash\"\n# ///\ncat <<'EOF'\n# /// shucked\nshell = \"zsh\"\n# ///\nEOF\n",
     )
     .unwrap()
     .unwrap();
     assert_eq!(metadata.shell, Shell::Bash);
 
     let metadata =
-        parse_script_metadata("# /// shuck notes\n# shell = \"bash\"\necho hi\n").unwrap();
+        parse_script_metadata("# /// shucked notes\n# shell = \"bash\"\necho hi\n").unwrap();
     assert!(metadata.is_none());
 }
 
 #[test]
 fn rejects_unknown_metadata_keys() {
     assert!(
-        parse_script_metadata("# /// shuck\n# shell = \"bash\"\n# foo = \"bar\"\n# ///\n").is_err()
+        parse_script_metadata("# /// shucked\n# shell = \"bash\"\n# foo = \"bar\"\n# ///\n").is_err()
     );
 }
 

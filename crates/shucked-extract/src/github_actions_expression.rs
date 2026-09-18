@@ -1,4 +1,4 @@
-//! Adapter from `github-actions-expressions` into Shuck's owned AST.
+//! Adapter from `github-actions-expressions` into Shucked's owned AST.
 
 use github_actions_expressions::{
     Error, Expr, SpannedExpr,

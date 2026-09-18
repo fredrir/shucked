@@ -46,7 +46,7 @@ pub struct SyntaxFacts {
 
 /// A parser diagnostic emitted while recovering from invalid input.
 ///
-/// Diagnostics use Shuck-authored wording and source spans in the parsed input.
+/// Diagnostics use Shucked-authored wording and source spans in the parsed input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
     /// Human-readable diagnostic message.
@@ -81,7 +81,7 @@ pub struct ParseResult {
     /// Parsed syntax tree for the file.
     ///
     /// The concrete type is [`shucked_ast::File`]. Traverse its statement and command nodes through
-    /// a direct dependency on `shuck-ast`.
+    /// a direct dependency on `shucked-ast`.
     pub file: File,
     /// Recovery diagnostics emitted while producing the AST.
     pub diagnostics: Vec<ParseDiagnostic>,

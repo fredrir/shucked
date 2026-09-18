@@ -44,7 +44,7 @@ just test                     # cargo test -p shucked-cli -p shucked-cache
 just check
 
 # Run the shucked CLI
-just run ARGS="check ."       # cargo run -p shucked-cli -- check .
+just run check .             # cargo run -p shucked-cli -- check .
 
 # Build/test everything (including shucked-parser)
 cargo build
@@ -61,8 +61,6 @@ cargo clippy --all-targets -- -D warnings
 ```
 
 ## Large corpus tests
-
-Always run the large corpus comparisons with the nix-provided `shellcheck`, not a globally installed one. The supported path is `just corpus test`, which enters the repo's nix dev environment before running the ignored large-corpus test.
 
 ```bash
 # Download/populate the corpus if needed
@@ -98,11 +96,7 @@ Relevant environment variables for the large-corpus harness:
 - `SHUCK_LARGE_CORPUS_KEEP_GOING=1` — collects all fixture failures instead of stopping at the first one.
 - `SHUCK_LARGE_CORPUS_TIMING=1` — runs a Shucked-only timing pass, prints the 25 slowest fixtures, and always exits successfully. This mode does not produce a compatibility log, so `just corpus report` rejects it.
 
-If you need to call `shellcheck` directly while debugging a large-corpus issue, do it through nix so the version matches the test harness. For example:
 
-```bash
-nix --extra-experimental-features 'nix-command flakes' develop --command shellcheck --version
-```
 
 ## Architecture
 

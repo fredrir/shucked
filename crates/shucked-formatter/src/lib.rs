@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
-//! Shell formatting entrypoints built on top of `shuck-parser`.
+//! Shell formatting entrypoints built on top of `shucked-parser`.
 //!
 //! Most callers will use [`format_source`] for source text or [`format_file_ast`] when they
 //! already have a parsed shell AST.

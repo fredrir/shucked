@@ -297,6 +297,7 @@ mod tests {
             span: span(0, 0),
             fix: Some(fix),
             fix_title: Some("apply test fix".to_owned()),
+            alternative_fixes: Vec::new(),
         }
     }
 

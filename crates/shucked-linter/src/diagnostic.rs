@@ -13,7 +13,7 @@ pub enum Severity {
 }
 
 impl Severity {
-    /// Returns the lowercase name used by Shuck report formats.
+    /// Returns the lowercase name used by Shucked report formats.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Hint => "hint",
@@ -23,7 +23,7 @@ impl Severity {
     }
 }
 
-/// A diagnostic produced by Shuck analysis.
+/// A diagnostic produced by Shucked analysis.
 ///
 /// Fields remain public for downstream inspection, but consumers should not construct
 /// diagnostics with struct literals.
@@ -38,6 +38,7 @@ impl Severity {
 ///     span: todo!(),
 ///     fix: None,
 ///     fix_title: None,
+///     alternative_fixes: Vec::new(),
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,12 +52,32 @@ pub struct Diagnostic {
     pub severity: Severity,
     /// Source span attributed to the diagnostic.
     ///
-    /// Spans are defined by the `shuck-ast` crate and use byte offsets into the analyzed source.
+    /// Spans are defined by the `shucked-ast` crate and use byte offsets into the analyzed source.
     pub span: Span,
     /// Optional edit set that can correct the violation.
     pub fix: Option<Fix>,
     /// Optional human-readable label for the fix.
     pub fix_title: Option<String>,
+    /// Optional alternative fixes that can correct the violation.
+    pub alternative_fixes: Vec<AlternativeFix>,
+}
+
+/// An alternative autofix that can resolve a diagnostic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlternativeFix {
+    /// Human-readable label for the alternative fix.
+    pub title: String,
+    /// The edit set to apply.
+    pub fix: Fix,
+}
+
+impl AlternativeFix {
+    pub fn new(title: impl Into<String>, fix: Fix) -> Self {
+        Self {
+            title: title.into(),
+            fix,
+        }
+    }
 }
 
 impl Diagnostic {
@@ -69,6 +90,7 @@ impl Diagnostic {
             span,
             fix: None,
             fix_title: violation.fix_title(),
+            alternative_fixes: Vec::new(),
         }
     }
 
@@ -80,6 +102,18 @@ impl Diagnostic {
     /// Attaches an autofix to this diagnostic.
     pub fn with_fix(mut self, fix: Fix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    /// Attaches an alternative autofix to this diagnostic.
+    pub fn with_alternative_fix(mut self, title: impl Into<String>, fix: Fix) -> Self {
+        self.alternative_fixes.push(AlternativeFix::new(title, fix));
+        self
+    }
+
+    /// Sets or overrides the fix title.
+    pub fn with_fix_title(mut self, title: impl Into<String>) -> Self {
+        self.fix_title = Some(title.into());
         self
     }
 }

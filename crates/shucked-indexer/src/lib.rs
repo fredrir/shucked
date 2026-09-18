@@ -3,7 +3,7 @@
 
 //! Positional and structural indexes over parsed shell scripts.
 //!
-//! The indexer complements `shuck-parser` by building compact lookup tables for
+//! The indexer complements `shucked-parser` by building compact lookup tables for
 //! source lines, comments, syntactic regions, heredoc bodies, and physical line
 //! continuations. It is intended to be built once from parser output and then
 //! shared by semantic analysis, lint rules, suppressions, formatters, and report

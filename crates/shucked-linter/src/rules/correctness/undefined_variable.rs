@@ -1,8 +1,8 @@
 use compact_str::CompactString;
 use rustc_hash::FxHashSet;
-use shucked_semantic::{Reference, UninitializedCertainty};
+use shucked_semantic::{BindingKind, Reference, UninitializedCertainty};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 use super::variable_reference_common::{
     VariableReferenceFilter, has_same_name_defining_bindings, is_reportable_variable_reference,
@@ -11,9 +11,12 @@ use super::variable_reference_common::{
 pub struct UndefinedVariable {
     pub name: CompactString,
     pub certainty: UninitializedCertainty,
+    pub fix_title: Option<String>,
 }
 
 impl Violation for UndefinedVariable {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::UndefinedVariable
     }
@@ -30,6 +33,10 @@ impl Violation for UndefinedVariable {
                 )
             }
         }
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        self.fix_title.clone()
     }
 }
 
@@ -85,14 +92,183 @@ pub fn undefined_variable(checker: &mut Checker) {
             continue;
         }
 
-        checker.report(
+        let source = checker.source();
+        let similar_name = find_similar_binding(checker, reference);
+
+        let (fix, fix_title, fallback_fix) = match similar_name {
+            Some(similar) => {
+                let title = if reference.span.slice(source).starts_with('$') {
+                    format!("change to '${similar}'")
+                } else {
+                    format!("change to '{similar}'")
+                };
+                let fix =
+                    Fix::unsafe_edit(Edit::replacement(similar.to_string(), reference.name_span));
+                let fallback = if reference.span.slice(source).starts_with('$') {
+                    Some((
+                        format!("use default value fallback '${{{}:-}}'", reference.name),
+                        Fix::unsafe_edit(Edit::replacement(
+                            format!("${{{}:-}}", reference.name),
+                            reference.span,
+                        )),
+                    ))
+                } else {
+                    None
+                };
+                (Some(fix), Some(title), fallback)
+            }
+            None => {
+                if reference.span.slice(source).starts_with('$') {
+                    let title = format!("use default value fallback '${{{}:-}}'", reference.name);
+                    let fix = Fix::unsafe_edit(Edit::replacement(
+                        format!("${{{}:-}}", reference.name),
+                        reference.span,
+                    ));
+                    (Some(fix), Some(title), None)
+                } else {
+                    (None, None, None)
+                }
+            }
+        };
+
+        let mut diagnostic = Diagnostic::new(
             UndefinedVariable {
                 name: reference.name.as_str().into(),
                 certainty: uninitialized.certainty,
+                fix_title: fix_title.clone(),
             },
             reference.span,
         );
+        if let Some(fix) = fix {
+            diagnostic = diagnostic.with_fix(fix);
+        }
+        if let Some((alt_title, alt_fix)) = fallback_fix {
+            diagnostic = diagnostic.with_alternative_fix(alt_title, alt_fix);
+        }
+
+        checker.report_diagnostic(diagnostic);
     }
+}
+
+fn damerau_levenshtein(s1: &[u8], s2: &[u8]) -> usize {
+    let len1 = s1.len();
+    let len2 = s2.len();
+
+    if len1.abs_diff(len2) > 2 {
+        return 3;
+    }
+
+    let width = len2 + 1;
+    let total = (len1 + 1) * width;
+    let mut d = vec![0usize; total];
+
+    for i in 0..=len1 {
+        d[i * width] = i;
+    }
+    for (j, slot) in d.iter_mut().take(len2 + 1).enumerate() {
+        *slot = j;
+    }
+
+    for i in 1..=len1 {
+        for j in 1..=len2 {
+            let cost = if s1[i - 1] == s2[j - 1] { 0 } else { 1 };
+            let mut val = (d[(i - 1) * width + j] + 1)
+                .min(d[i * width + (j - 1)] + 1)
+                .min(d[(i - 1) * width + (j - 1)] + cost);
+
+            if i > 1 && j > 1 && s1[i - 1] == s2[j - 2] && s1[i - 2] == s2[j - 1] {
+                val = val.min(d[(i - 2) * width + (j - 2)] + 1);
+            }
+            d[i * width + j] = val;
+        }
+    }
+
+    d[len1 * width + len2]
+}
+
+fn typo_similarity_rank(target: &str, candidate: &str) -> Option<(usize, usize)> {
+    if target.is_empty() || candidate.is_empty() {
+        return None;
+    }
+
+    if target.eq_ignore_ascii_case(candidate) {
+        return Some((0, 0));
+    }
+
+    let dist = damerau_levenshtein(target.as_bytes(), candidate.as_bytes());
+    if dist <= 2 {
+        return Some((dist, dist));
+    }
+
+    let target_lower = target.to_ascii_lowercase();
+    let candidate_lower = candidate.to_ascii_lowercase();
+    let dist_lower = damerau_levenshtein(target_lower.as_bytes(), candidate_lower.as_bytes());
+    if dist_lower <= 2 {
+        return Some((dist_lower + 2, dist_lower));
+    }
+
+    None
+}
+
+fn find_similar_binding<'a>(checker: &'a Checker<'_>, reference: &Reference) -> Option<&'a str> {
+    let target_name = reference.name.as_str();
+    if target_name.len() < 3 {
+        return None;
+    }
+
+    let mut best_candidate: Option<(&'a str, (usize, usize), usize)> = None;
+
+    for binding in checker.semantic().bindings() {
+        let candidate_name = binding.name.as_str();
+        if candidate_name.len() < 3 || candidate_name == target_name {
+            continue;
+        }
+        if candidate_name.starts_with('_') {
+            continue;
+        }
+        if matches!(binding.kind, BindingKind::FunctionDefinition) {
+            continue;
+        }
+        if !checker
+            .semantic()
+            .binding_visible_at(binding.id, reference.span)
+        {
+            continue;
+        }
+
+        if let Some(rank) = typo_similarity_rank(target_name, candidate_name) {
+            let lexical_dist = reference
+                .span
+                .start
+                .offset()
+                .saturating_sub(binding.span.start.offset());
+
+            let is_better = match &best_candidate {
+                None => true,
+                Some((prev_name, prev_rank, prev_lexical_dist)) => {
+                    if rank < *prev_rank {
+                        true
+                    } else if rank == *prev_rank {
+                        if lexical_dist < *prev_lexical_dist {
+                            true
+                        } else if lexical_dist == *prev_lexical_dist {
+                            candidate_name < *prev_name
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+            };
+
+            if is_better {
+                best_candidate = Some((candidate_name, rank, lexical_dist));
+            }
+        }
+    }
+
+    best_candidate.map(|(name, _, _)| name)
 }
 
 fn is_zsh_completion_context_reference(checker: &Checker<'_>, reference: &Reference) -> bool {
@@ -1777,5 +1953,89 @@ declare -A declared=([$declared_key]=value)
                 .collect::<Vec<_>>(),
             vec!["$target_key", "$id", "$compound_key", "$declared_key"]
         );
+    }
+
+    #[test]
+    fn undefined_variable_provides_typo_correction_and_fallback_fixes() {
+        let source = "\
+#!/bin/bash
+counter=10
+echo \"$countr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+        assert_eq!(diagnostics.len(), 1);
+        let diag = &diagnostics[0];
+        assert_eq!(diag.span.slice(source), "$countr");
+        assert_eq!(diag.fix_title.as_deref(), Some("change to '$counter'"));
+
+        let primary_fix = diag.fix.as_ref().expect("primary fix");
+        assert_eq!(primary_fix.edits().len(), 1);
+        let edit = &primary_fix.edits()[0];
+        assert_eq!(edit.content(), "counter");
+        assert_eq!(
+            &source[usize::from(edit.range().start())..usize::from(edit.range().end())],
+            "countr"
+        );
+
+        assert_eq!(diag.alternative_fixes.len(), 1);
+        let alt = &diag.alternative_fixes[0];
+        assert_eq!(alt.title, "use default value fallback '${countr:-}'");
+        assert_eq!(alt.fix.edits().len(), 1);
+        let alt_edit = &alt.fix.edits()[0];
+        assert_eq!(alt_edit.content(), "${countr:-}");
+        assert_eq!(
+            &source[usize::from(alt_edit.range().start())..usize::from(alt_edit.range().end())],
+            "$countr"
+        );
+    }
+
+    #[test]
+    fn undefined_variable_provides_fallback_when_no_typo_candidate() {
+        let source = "\
+#!/bin/bash
+echo \"$unknown_var\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+        assert_eq!(diagnostics.len(), 1);
+        let diag = &diagnostics[0];
+        assert_eq!(diag.span.slice(source), "$unknown_var");
+        assert_eq!(
+            diag.fix_title.as_deref(),
+            Some("use default value fallback '${unknown_var:-}'")
+        );
+
+        let primary_fix = diag.fix.as_ref().expect("primary fix");
+        assert_eq!(primary_fix.edits().len(), 1);
+        let edit = &primary_fix.edits()[0];
+        assert_eq!(edit.content(), "${unknown_var:-}");
+        assert_eq!(
+            &source[usize::from(edit.range().start())..usize::from(edit.range().end())],
+            "$unknown_var"
+        );
+        assert!(diag.alternative_fixes.is_empty());
+    }
+
+    #[test]
+    fn undefined_variable_provides_typo_fix_for_arithmetic_reference() {
+        let source = "\
+#!/bin/bash
+counter=5
+(( countr + 1 ))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+        assert_eq!(diagnostics.len(), 1);
+        let diag = &diagnostics[0];
+        assert_eq!(diag.span.slice(source), "countr");
+        assert_eq!(diag.fix_title.as_deref(), Some("change to 'counter'"));
+
+        let primary_fix = diag.fix.as_ref().expect("primary fix");
+        assert_eq!(primary_fix.edits().len(), 1);
+        let edit = &primary_fix.edits()[0];
+        assert_eq!(edit.content(), "counter");
+        assert_eq!(
+            &source[usize::from(edit.range().start())..usize::from(edit.range().end())],
+            "countr"
+        );
+        assert!(diag.alternative_fixes.is_empty());
     }
 }

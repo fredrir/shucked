@@ -1,8 +1,8 @@
 //! Shared on-disk resolution for `source` references and source hints.
 //!
-//! Turning a `source`/`.` operand (a literal path, or a `# shuck: source=` /
+//! Turning a `source`/`.` operand (a literal path, or a `# shucked: source=` /
 //! `# shellcheck source=` directive path) into concrete files
-//! is needed both by `shuck check` (to decide which `lint=true` targets to
+//! is needed both by `shucked check` (to decide which `lint=true` targets to
 //! lint) and by the language server (to build the cross-file call index). This
 //! module is the one implementation both use, so their resolution agrees.
 
@@ -13,7 +13,7 @@ use crate::{SourceRef, SourceRefKind};
 /// Resolves the on-disk target of a single source reference.
 ///
 /// Only *determinable* references resolve: a literal path or a directive path
-/// (`# shuck: source=` / `# shellcheck source=`). `/dev/null`
+/// (`# shucked: source=` / `# shellcheck source=`). `/dev/null`
 /// directives and unresolvable dynamic paths contribute nothing. The operand
 /// names one intended file, so resolution is first-match-wins in precedence
 /// order: the annotating file's own directory, then each of `roots` in

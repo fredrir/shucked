@@ -255,7 +255,7 @@ impl DeferredFunctionReadVisitor<'_> {
 
     // Summarize the callback body plus any local static calls reachable from it.
     // This is deliberately symbolic and bounded: we follow function names and
-    // literal arguments that Shuck already extracted, but we do not run shell
+    // literal arguments that Shucked already extracted, but we do not run shell
     // control flow or expand arbitrary strings.
     fn visit_scope(&mut self, scope: ScopeId, args: &[Option<compact_str::CompactString>]) {
         let key = (scope, args.to_vec());

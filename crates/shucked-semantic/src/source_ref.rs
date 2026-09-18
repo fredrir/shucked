@@ -4,7 +4,7 @@ use shucked_ast::{Name, Span};
 /// Which spelling produced an explicit source directive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceDirectiveOrigin {
-    /// `# shuck: source=<path>` — the shuck-native spelling. A resolved
+    /// `# shucked: source=<path>` — the shucked-native spelling. A resolved
     /// target is an explicit user assertion and silences the untracked-source
     /// diagnostics at the site.
     Shuck,
@@ -64,7 +64,7 @@ pub struct SourceRef {
 }
 
 impl SourceRef {
-    /// Whether a shuck-native `# shuck: source=` directive annotated this
+    /// Whether a shucked-native `# shucked: source=` directive annotated this
     /// reference (as opposed to the ShellCheck-compatible spelling or no
     /// directive at all).
     pub fn has_shuck_directive(&self) -> bool {

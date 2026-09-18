@@ -137,4 +137,4 @@ github-action-commits = { "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f54
 allow-dirty = ["ci"]
 [[workspace.metadata.dist.extra-artifacts]]
 artifacts = ["shucked.cdx.xml"]
-build     = ["./tooling/scripts/generate-release-sbom.sh"]
+build     = ["cargo", "run", "-p", "shucked-tooling", "--", "release", "generate-sbom"]
