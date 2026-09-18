@@ -219,6 +219,56 @@ fn compute_sha256(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+fn extract_archive(archive_path: &Path, target_dir: &Path, url: &str) -> Result<()> {
+    let file = File::open(archive_path)
+        .with_context(|| format!("Failed to open archive: {}", archive_path.display()))?;
+    let reader = BufReader::new(file);
+
+    if url.ends_with(".zst") || url.ends_with(".tar.zst") {
+        let decoder = zstd::Decoder::new(reader)
+            .context("Failed to initialize zstd decoder")?;
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .unpack(target_dir)
+            .with_context(|| format!("Failed to unpack zstd tar into {}", target_dir.display()))?;
+    } else if url.ends_with(".gz") || url.ends_with(".tgz") || url.ends_with(".tar.gz") {
+        let decoder = flate2::read::GzDecoder::new(reader);
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .unpack(target_dir)
+            .with_context(|| format!("Failed to unpack gzip tar into {}", target_dir.display()))?;
+    } else {
+        let mut archive = tar::Archive::new(reader);
+        archive
+            .unpack(target_dir)
+            .with_context(|| format!("Failed to unpack tar into {}", target_dir.display()))?;
+    }
+    Ok(())
+}
+
+fn download_file(url: &str, dest: &Path) -> Result<()> {
+    match ureq::get(url).call() {
+        Ok(response) => {
+            let mut file = File::create(dest)
+                .with_context(|| format!("Failed to create destination file: {}", dest.display()))?;
+            let mut reader = response.into_reader();
+            std::io::copy(&mut reader, &mut file)
+                .with_context(|| format!("Failed to stream download from {url} to {}", dest.display()))?;
+            Ok(())
+        }
+        Err(err) => {
+            if is_tool_available("curl") {
+                let curl_args = ["-L", "--fail", "--retry", "3", "-o", dest.to_str().unwrap(), url];
+                let opts = RunOptions::default();
+                run_command("curl", &curl_args, &opts)?;
+                Ok(())
+            } else {
+                bail!("Failed to download {url} via ureq: {err}");
+            }
+        }
+    }
+}
+
 fn download_and_extract(
     url: &str,
     expected_sha256: &str,
@@ -248,18 +298,7 @@ fn download_and_extract(
         std::process::id()
     ));
 
-    let run_opts = RunOptions::default();
-    let curl_args = [
-        "-L",
-        "--fail",
-        "--retry",
-        "3",
-        "-o",
-        temp_archive.to_str().unwrap(),
-        url,
-    ];
-    run_command("curl", &curl_args, &run_opts)
-        .context(format!("Failed to download {label} archive"))?;
+    download_file(url, &temp_archive)?;
 
     print_step(&format!("Verifying SHA-256 for {label}..."));
     let actual_sha256 = compute_sha256(&temp_archive)?;
@@ -275,14 +314,7 @@ fn download_and_extract(
         "Extracting {label} into {}...",
         repo_root.display()
     ));
-    let tar_args = [
-        "--zstd",
-        "-xf",
-        temp_archive.to_str().unwrap(),
-        "-C",
-        repo_root.to_str().unwrap(),
-    ];
-    run_command("tar", &tar_args, &run_opts)?;
+    extract_archive(&temp_archive, repo_root, url)?;
     let _ = std::fs::remove_file(&temp_archive);
 
     let count = walkdir::WalkDir::new(dest_dir)
@@ -294,23 +326,114 @@ fn download_and_extract(
     Ok(())
 }
 
+const CLONE_REPOS: &[&str] = &[
+    "acmesh-official/acme.sh",
+    "ohmyzsh/ohmyzsh",
+    "nvm-sh/nvm",
+    "asdf-vm/asdf",
+    "pi-hole/pi-hole",
+    "dylanaraps/neofetch",
+    "rbenv/rbenv",
+    "pyenv/pyenv",
+    "rvm/rvm",
+    "bats-core/bats-core",
+    "zsh-users/zsh-autosuggestions",
+    "zsh-users/zsh-syntax-highlighting",
+    "romkatv/powerlevel10k",
+    "tj/n",
+    "jorgebucaran/fisher",
+    "dehydrated-io/dehydrated",
+    "oh-my-fish/oh-my-fish",
+    "megastep/makeself",
+    "sstephenson/bats",
+    "termux/termux-packages",
+    "void-linux/void-packages",
+    "google/oss-fuzz",
+    "bitnami/containers",
+    "community-scripts/ProxmoxVE",
+    "tteck/Proxmox",
+    "HariSekhon/DevOps-Bash-tools",
+    "docker-library/official-images",
+    "Bash-it/bash-it",
+    "sorin-ionescu/prezto",
+    "zsh-users/zsh-completions",
+    "zdharma-continuum/zinit",
+    "scop/bash-completion",
+    "dokku/dokku",
+    "docker-mailserver/docker-mailserver",
+    "docker/docker-bench-security",
+    "super-linter/super-linter",
+    "hwdsl2/setup-ipsec-vpn",
+    "Nyr/openvpn-install",
+];
+
 /// Download the large corpus archives.
 pub fn run_download(clone: bool, dry_run: bool, custom_corpus_dir: Option<PathBuf>) -> Result<()> {
     let repo_root = find_repo_root()?;
     print_section("Corpus Download");
 
     if clone {
-        print_step("Running repository clone mode via scripts/corpus-download.sh...");
-        let script = repo_root.join("scripts/corpus-download.sh");
-        let mut args = vec!["-c"];
         if dry_run {
-            args.push("-l");
+            println!("Corpus repositories to clone (dry run):");
+            for repo in CLONE_REPOS {
+                println!("  • https://github.com/{repo}");
+            }
+            return Ok(());
         }
+
+        let corpus_dir = custom_corpus_dir.unwrap_or_else(|| repo_root.join(".cache/large-corpus"));
+        let scripts_dir = corpus_dir.join("scripts");
+        let clones_dir = corpus_dir.join("clones");
+        std::fs::create_dir_all(&scripts_dir)?;
+        std::fs::create_dir_all(&clones_dir)?;
+
+        print_step(&format!(
+            "Cloning {} repositories and extracting shell scripts...",
+            CLONE_REPOS.len()
+        ));
+
         let opts = RunOptions {
-            cwd: Some(&repo_root),
+            cwd: Some(&clones_dir),
             ..Default::default()
         };
-        run_command(script.to_str().unwrap(), &args, &opts)?;
+
+        for repo in CLONE_REPOS {
+            let repo_name = repo.replace('/', "__");
+            let target_clone = clones_dir.join(&repo_name);
+            let url = format!("https://github.com/{repo}.git");
+
+            if !target_clone.exists() {
+                print_step(&format!("Cloning {repo}..."));
+                let clone_args = ["clone", "--depth", "1", "--single-branch", &url, target_clone.to_str().unwrap()];
+                if let Err(e) = run_command("git", &clone_args, &opts) {
+                    print_warning(&format!("Failed to clone {repo}: {e}"));
+                    continue;
+                }
+            }
+
+            for entry in walkdir::WalkDir::new(&target_clone).into_iter().filter_map(|e| e.ok()) {
+                if entry.file_type().is_file() {
+                    let ext = entry.path().extension().and_then(|s| s.to_str()).unwrap_or("");
+                    let is_shell = matches!(ext, "sh" | "bash" | "zsh" | "ksh");
+                    if is_shell {
+                        let rel = entry.path().strip_prefix(&target_clone).unwrap_or(entry.path());
+                        let dest_name = format!("{repo_name}__{}", rel.to_string_lossy().replace('/', "__"));
+                        let dest_file = scripts_dir.join(dest_name);
+                        let _ = std::fs::copy(entry.path(), dest_file);
+                    }
+                }
+            }
+        }
+
+        let script_count = walkdir::WalkDir::new(&scripts_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file())
+            .count();
+        print_success(&format!(
+            "Cloning complete: {script_count} scripts extracted into {}",
+            scripts_dir.display()
+        ));
         return Ok(());
     }
 
@@ -455,11 +578,151 @@ pub fn run_test(
     Ok(())
 }
 
+fn render_large_corpus_html_report(log_content: &str) -> String {
+    let mut blocking = 0;
+    let mut warnings = 0;
+    let mut fixtures = 0;
+    let mut unsupported_shells = 0;
+    let mut implementation = 0;
+    let mut mapping = 0;
+    let mut reviewed = 0;
+    let mut harness_failures = 0;
+
+    let summary_re = Regex::new(
+        r"large corpus compatibility summary: blocking=(\d+) warnings=(\d+) fixtures=(\d+) unsupported_shells=(\d+) implementation_diffs=(\d+) mapping_issues=(\d+) reviewed_divergences=(\d+)(?: harness_warnings=\d+)?(?: harness_failures=(\d+))?"
+    ).unwrap();
+
+    if let Some(caps) = summary_re.captures(log_content) {
+        blocking = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        warnings = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        fixtures = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        unsupported_shells = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        implementation = caps.get(5).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        mapping = caps.get(6).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        reviewed = caps.get(7).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        harness_failures = caps.get(8).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+    }
+
+    let escaped_log = log_content
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+
+    format!(r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shuck Large Corpus Compatibility Report</title>
+    <style>
+        :root {{
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --border: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-red: #f87171;
+            --accent-green: #4ade80;
+            --accent-yellow: #facc15;
+            --accent-blue: #38bdf8;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            line-height: 1.5;
+        }}
+        .container {{ max-width: 1200px; margin: 0 auto; }}
+        header {{ margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; }}
+        h1 {{ margin: 0 0 0.5rem 0; font-size: 1.75rem; }}
+        .timestamp {{ color: var(--text-muted); font-size: 0.9rem; }}
+        .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }}
+        .card {{
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }}
+        .stat-value {{ font-size: 2rem; font-weight: 700; margin-bottom: 0.25rem; }}
+        .stat-label {{ font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }}
+        .text-red {{ color: var(--accent-red); }}
+        .text-green {{ color: var(--accent-green); }}
+        .text-yellow {{ color: var(--accent-yellow); }}
+        .text-blue {{ color: var(--accent-blue); }}
+        pre {{
+            background: #020617;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            color: #e2e8f0;
+            max-height: 600px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Shuck Large Corpus Compatibility Report</h1>
+            <div class="timestamp">Generated by pure Rust tooling</div>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <div class="stat-value text-red">{blocking}</div>
+                <div class="stat-label">Blocking Issues</div>
+            </div>
+            <div class="card">
+                <div class="stat-value text-yellow">{warnings}</div>
+                <div class="stat-label">Warnings</div>
+            </div>
+            <div class="card">
+                <div class="stat-value text-blue">{fixtures}</div>
+                <div class="stat-label">Fixtures Tested</div>
+            </div>
+            <div class="card">
+                <div class="stat-value">{unsupported_shells}</div>
+                <div class="stat-label">Unsupported Shells</div>
+            </div>
+            <div class="card">
+                <div class="stat-value">{implementation}</div>
+                <div class="stat-label">Implementation Diffs</div>
+            </div>
+            <div class="card">
+                <div class="stat-value">{mapping}</div>
+                <div class="stat-label">Mapping Issues</div>
+            </div>
+            <div class="card">
+                <div class="stat-value">{reviewed}</div>
+                <div class="stat-label">Reviewed Divergences</div>
+            </div>
+            <div class="card">
+                <div class="stat-value">{harness_failures}</div>
+                <div class="stat-label">Harness Failures</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Raw Test Log Output</h2>
+            <pre><code>{escaped_log}</code></pre>
+        </div>
+    </div>
+</body>
+</html>"#)
+}
+
 /// Generate HTML compatibility report from large corpus test log.
 pub fn run_report(log: Option<&Path>, output: Option<&Path>, open: bool) -> Result<()> {
     let repo_root = find_repo_root()?;
     print_section("Large Corpus Report");
-    let script = repo_root.join("tooling/scripts/large_corpus_report.py");
     let log_path = log
         .map(Path::to_path_buf)
         .unwrap_or_else(|| repo_root.join("target/large-corpus.log"));
@@ -467,23 +730,25 @@ pub fn run_report(log: Option<&Path>, output: Option<&Path>, open: bool) -> Resu
         .map(Path::to_path_buf)
         .unwrap_or_else(|| repo_root.join("target/large-corpus-report.html"));
 
-    let opts = RunOptions {
-        cwd: Some(&repo_root),
-        ..Default::default()
-    };
+    if !log_path.exists() {
+        bail!("Large corpus log not found at: {}", log_path.display());
+    }
 
-    let log_str = log_path.to_str().context("invalid log path")?;
-    let out_str = out_path.to_str().context("invalid output path")?;
+    print_step(&format!(
+        "Generating pure Rust HTML report from {}...",
+        log_path.display()
+    ));
+    let log_content = std::fs::read_to_string(&log_path)?;
+    let html = render_large_corpus_html_report(&log_content);
 
-    let args = [
-        script.to_str().context("invalid script path")?,
-        "--log",
-        log_str,
-        "--output",
-        out_str,
-    ];
-    run_command("python3", &args, &opts)?;
-    print_success(&format!("Large corpus HTML report: {}", out_path.display()));
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&out_path, html)?;
+    print_success(&format!(
+        "Large corpus HTML report saved: {}",
+        out_path.display()
+    ));
 
     if open {
         let open_cmd = if cfg!(target_os = "macos") {
@@ -491,7 +756,11 @@ pub fn run_report(log: Option<&Path>, output: Option<&Path>, open: bool) -> Resu
         } else {
             "xdg-open"
         };
-        let _ = run_command(open_cmd, &[out_str], &opts);
+        let opts = RunOptions {
+            cwd: Some(&repo_root),
+            ..Default::default()
+        };
+        let _ = run_command(open_cmd, &[out_path.to_str().unwrap()], &opts);
     }
     Ok(())
 }
