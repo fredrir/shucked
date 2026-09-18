@@ -166,6 +166,8 @@ pub enum EditorCompletionKind {
     RuntimeName,
     /// A shell keyword or reserved word.
     Keyword,
+    /// A shell option (e.g. for setopt/unsetopt).
+    Option,
 }
 
 /// One semantic completion candidate.
@@ -199,6 +201,8 @@ pub enum EditorCompletionContext {
     Declaration,
     /// Shell command-name completion.
     Command,
+    /// Shell option completion (e.g. setopt/unsetopt).
+    Option,
 }
 
 /// Editor completion feature switches.
@@ -1056,6 +1060,7 @@ enum CompletionContext {
     Parameter { replacement_span: Span },
     Declaration { replacement_span: Span },
     Command { replacement_span: Span },
+    Option { replacement_span: Span },
 }
 
 fn completion_context(source: &str, indexer: &Indexer, offset: usize) -> Option<CompletionContext> {
@@ -1069,6 +1074,11 @@ fn completion_context(source: &str, indexer: &Indexer, offset: usize) -> Option<
         return Some(CompletionContext::Parameter { replacement_span });
     }
     let word_span = current_word_span(source, offset);
+    if option_operand_context(source, indexer, word_span.start.offset()) {
+        return Some(CompletionContext::Option {
+            replacement_span: word_span,
+        });
+    }
     if declaration_operand_context(source, indexer, word_span.start.offset()) {
         return Some(CompletionContext::Declaration {
             replacement_span: word_span,
@@ -1105,8 +1115,25 @@ fn parameter_completion_span(source: &str, offset: usize) -> Option<Span> {
     if before.last() == Some(&b'{') && before.get(before.len().saturating_sub(2)) == Some(&b'$') {
         return Some(span_from_offsets(source, start, offset));
     }
+    if before.last() == Some(&b')')
+        && let Some(open_paren) = before.iter().rposition(|&b| b == b'(')
+    {
+        let flag_prefix = &before[..open_paren];
+        if flag_prefix.ends_with(b"${") {
+            return Some(span_from_offsets(source, start, offset));
+        }
+    }
     if source[..offset].ends_with('$') || source[..offset].ends_with("${") {
         return Some(span_from_offsets(source, offset, offset));
+    }
+    let bytes_before_offset = &source.as_bytes()[..offset];
+    if bytes_before_offset.last() == Some(&b')')
+        && let Some(open_paren) = bytes_before_offset.iter().rposition(|&b| b == b'(')
+    {
+        let flag_prefix = &bytes_before_offset[..open_paren];
+        if flag_prefix.ends_with(b"${") {
+            return Some(span_from_offsets(source, offset, offset));
+        }
     }
     None
 }
@@ -1178,6 +1205,33 @@ fn declaration_operand_context(source: &str, indexer: &Indexer, word_start: usiz
     )
 }
 
+fn option_operand_context(source: &str, indexer: &Indexer, word_start: usize) -> bool {
+    let line = indexer
+        .line_index()
+        .line_number(TextSize::new(word_start as u32));
+    let Some(line_range) = indexer.line_index().line_range(line, source) else {
+        return false;
+    };
+    let line_start = usize::from(line_range.start());
+    let before = &source[line_start..word_start];
+    let command_start = before
+        .char_indices()
+        .rev()
+        .find_map(|(index, ch)| {
+            matches!(ch, ';' | '|' | '&' | '(' | '{').then_some(index + ch.len_utf8())
+        })
+        .unwrap_or(0);
+    let mut words = before[command_start..].split_whitespace();
+    let first = match words.next() {
+        Some("then" | "do" | "else") => words.next(),
+        first => first,
+    };
+    let Some(first) = first else {
+        return false;
+    };
+    matches!(first, "setopt" | "unsetopt")
+}
+
 fn command_position_context(source: &str, word_start: usize) -> bool {
     let raw_before = &source[..word_start];
     if raw_before.ends_with('\n')
@@ -1231,6 +1285,13 @@ fn completions_for_context(
                 items.extend(keyword_completions());
             }
             (replacement_span, EditorCompletionContext::Command, items)
+        }
+        CompletionContext::Option { replacement_span } => {
+            let mut items = Vec::new();
+            if model.shell_profile.dialect == shucked_parser::ShellDialect::Zsh {
+                items.extend(zsh_option_completions());
+            }
+            (replacement_span, EditorCompletionContext::Option, items)
         }
     };
     filter_and_sort_completions(&mut items, replacement_span.slice(source));
@@ -1327,7 +1388,11 @@ fn keyword_completions() -> Vec<EditorCompletion> {
 
 fn filter_and_sort_completions(items: &mut Vec<EditorCompletion>, prefix: &str) {
     if !prefix.is_empty() {
-        items.retain(|item| item.name.as_str().starts_with(prefix));
+        items.retain(|item| {
+            item.name.as_str().starts_with(prefix)
+                || (matches!(item.kind, EditorCompletionKind::Option)
+                    && zsh_option_matches_prefix(item.name.as_str(), prefix))
+        });
     }
     items.sort_by_key(|item| {
         let rank = match item.kind {
@@ -1336,10 +1401,92 @@ fn filter_and_sort_completions(items: &mut Vec<EditorCompletion>, prefix: &str) 
             EditorCompletionKind::Builtin => 2,
             EditorCompletionKind::RuntimeName => 3,
             EditorCompletionKind::Keyword => 4,
+            EditorCompletionKind::Option => 5,
         };
         (rank, item.name.to_string())
     });
     items.dedup_by_key(|item| item.name.to_string());
+}
+
+fn zsh_option_matches_prefix(option_name: &str, prefix: &str) -> bool {
+    let norm_opt = normalize_option_for_matching(option_name);
+    let norm_prefix = normalize_option_for_matching(prefix);
+    norm_opt.starts_with(&norm_prefix)
+}
+
+fn normalize_option_for_matching(s: &str) -> String {
+    s.chars()
+        .filter(|&c| c != '_' && c != '-')
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+const ZSH_STANDARD_OPTIONS: &[&str] = &[
+    "AUTO_CD",
+    "AUTO_PUSHD",
+    "BANG_HIST",
+    "BARE_GLOB_QUAL",
+    "BRACE_CCL",
+    "CASE_GLOB",
+    "C_BASES",
+    "CLOBBER",
+    "CORRECT",
+    "CORRECT_ALL",
+    "CSH_NULL_GLOB",
+    "EQUALS",
+    "ERR_EXIT",
+    "EXTENDED_GLOB",
+    "EXTENDED_HISTORY",
+    "FUNCTION_ARGZERO",
+    "GLOB",
+    "GLOB_ASSIGN",
+    "GLOB_DOTS",
+    "GLOB_SUBST",
+    "HIST_IGNORE_ALL_DUPS",
+    "HIST_IGNORE_DUPS",
+    "HIST_IGNORE_SPACE",
+    "IGNORE_BRACES",
+    "IGNORE_CLOSE_BRACES",
+    "INC_APPEND_HISTORY",
+    "INTERACTIVE_COMMENTS",
+    "KSH_ARRAYS",
+    "KSH_GLOB",
+    "LOCAL_OPTIONS",
+    "LOCAL_TRAPS",
+    "MAGIC_EQUAL_SUBST",
+    "MARK_DIRS",
+    "NOMATCH",
+    "NO_CLOBBER",
+    "NO_MATCH",
+    "NULL_GLOB",
+    "NUMERIC_GLOB_SORT",
+    "OCTAL_ZEROES",
+    "PIPE_FAIL",
+    "PROMPT_SUBST",
+    "PUSHD_IGNORE_DUPS",
+    "PUSH_D_SILENT",
+    "RC_EXPAND_PARAM",
+    "RC_QUOTES",
+    "SHARE_HISTORY",
+    "SHORT_LOOPS",
+    "SHORT_REPEAT",
+    "SH_FILE_EXPANSION",
+    "SH_GLOB",
+    "SH_WORD_SPLIT",
+    "VERBOSE",
+    "WARN_CREATE_GLOBAL",
+    "XTRACE",
+];
+
+fn zsh_option_completions() -> Vec<EditorCompletion> {
+    ZSH_STANDARD_OPTIONS
+        .iter()
+        .map(|&name| EditorCompletion {
+            name: Name::from(name),
+            kind: EditorCompletionKind::Option,
+            definition_span: None,
+        })
+        .collect()
 }
 
 fn span_from_offsets(source: &str, start: usize, end: usize) -> Span {

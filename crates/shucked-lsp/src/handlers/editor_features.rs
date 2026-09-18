@@ -10,6 +10,7 @@ use shucked_semantic::{
     RenameSet, VisibleSourcedFunction,
 };
 
+use super::zsh;
 use crate::analysis::DocumentAnalysis;
 use crate::edit::RangeExt;
 use crate::server::Error;
@@ -52,6 +53,7 @@ enum CompletionData {
     RuntimeName,
     Builtin,
     Keyword,
+    Option,
 }
 
 #[cfg(any(test, feature = "fuzzing"))]
@@ -168,16 +170,79 @@ where
                     EditorCompletionKind::RuntimeName => Some(CompletionData::RuntimeName),
                     EditorCompletionKind::Builtin => Some(CompletionData::Builtin),
                     EditorCompletionKind::Keyword => Some(CompletionData::Keyword),
+                    EditorCompletionKind::Option => Some(CompletionData::Option),
                 }
             };
-            types::CompletionItem {
-                label: completion.name.to_string(),
-                kind: Some(to_lsp_completion_kind(completion.kind)),
-                detail: Some(if sourced.is_some() {
+            let (custom_detail, custom_doc) = match completion.kind {
+                EditorCompletionKind::Builtin => {
+                    if let Some(doc) = zsh::builtin_doc(completion.name.as_str()) {
+                        (
+                            Some(doc.signature.to_owned()),
+                            Some(doc.markdown.to_owned()),
+                        )
+                    } else {
+                        (None, None)
+                    }
+                }
+                EditorCompletionKind::RuntimeName => {
+                    if let Some(doc) = zsh::special_parameter_doc(completion.name.as_str()) {
+                        (
+                            Some(format!("{} (runtime)", doc.param_type)),
+                            Some(format!(
+                                "### `${}` (Zsh Special Parameter)\n\n**Type:** {}\n\n{}",
+                                completion.name, doc.param_type, doc.markdown
+                            )),
+                        )
+                    } else {
+                        (None, None)
+                    }
+                }
+                EditorCompletionKind::Option => {
+                    if let Some((doc, is_inverted)) = zsh::option_doc(completion.name.as_str()) {
+                        (
+                            Some("Zsh option".to_owned()),
+                            Some(format!(
+                                "### `{}` (Zsh Option)\n\n{}\n\n**Default:** {}",
+                                if is_inverted {
+                                    format!("NO_{}", doc.canonical_name)
+                                } else {
+                                    doc.canonical_name.to_string()
+                                },
+                                doc.description,
+                                if doc.default_on {
+                                    "enabled"
+                                } else {
+                                    "disabled"
+                                }
+                            )),
+                        )
+                    } else {
+                        (None, None)
+                    }
+                }
+                _ => (None, None),
+            };
+
+            let detail = custom_detail.or_else(|| {
+                Some(if sourced.is_some() {
                     "Function (sourced)".to_owned()
                 } else {
                     completion_kind_label(completion.kind).to_owned()
-                }),
+                })
+            });
+
+            let documentation = custom_doc.map(|doc| {
+                types::Documentation::MarkupContent(types::MarkupContent {
+                    kind: types::MarkupKind::Markdown,
+                    value: doc,
+                })
+            });
+
+            types::CompletionItem {
+                label: completion.name.to_string(),
+                kind: Some(to_lsp_completion_kind(completion.kind)),
+                detail,
+                documentation,
                 text_edit: Some(types::CompletionTextEdit::Edit(types::TextEdit::new(
                     range,
                     completion.name.to_string(),
@@ -214,9 +279,53 @@ pub(crate) fn resolve_completion_item(
         CompletionData::SourcedFunction { path, line, column } => {
             format!("Function sourced from `{path}` at line {line}, column {column}.")
         }
-        CompletionData::RuntimeName => "Runtime-provided shell name.".to_owned(),
-        CompletionData::Builtin => "Shell builtin modeled by Shuck.".to_owned(),
+        CompletionData::RuntimeName => {
+            if let Some(doc) = zsh::special_parameter_doc(&item.label) {
+                if item.detail.is_none() {
+                    item.detail = Some(format!("{} (runtime)", doc.param_type));
+                }
+                format!(
+                    "### `${}` (Zsh Special Parameter)\n\n**Type:** {}\n\n{}",
+                    item.label, doc.param_type, doc.markdown
+                )
+            } else {
+                "Runtime-provided shell name.".to_owned()
+            }
+        }
+        CompletionData::Builtin => {
+            if let Some(doc) = zsh::builtin_doc(&item.label) {
+                if item.detail.is_none() {
+                    item.detail = Some(doc.signature.to_owned());
+                }
+                doc.markdown.to_owned()
+            } else {
+                "Shell builtin modeled by Shuck.".to_owned()
+            }
+        }
         CompletionData::Keyword => "Shell keyword.".to_owned(),
+        CompletionData::Option => {
+            if let Some((doc, is_inverted)) = zsh::option_doc(&item.label) {
+                if item.detail.is_none() {
+                    item.detail = Some("Zsh option".to_owned());
+                }
+                format!(
+                    "### `{}` (Zsh Option)\n\n{}\n\n**Default:** {}",
+                    if is_inverted {
+                        format!("NO_{}", doc.canonical_name)
+                    } else {
+                        doc.canonical_name.to_string()
+                    },
+                    doc.description,
+                    if doc.default_on {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                )
+            } else {
+                "Zsh shell option.".to_owned()
+            }
+        }
     };
     item.documentation = Some(types::Documentation::MarkupContent(types::MarkupContent {
         kind: types::MarkupKind::Markdown,
@@ -580,6 +689,7 @@ fn to_lsp_completion_kind(kind: EditorCompletionKind) -> types::CompletionItemKi
         EditorCompletionKind::Function => types::CompletionItemKind::FUNCTION,
         EditorCompletionKind::Builtin => types::CompletionItemKind::FUNCTION,
         EditorCompletionKind::Keyword => types::CompletionItemKind::KEYWORD,
+        EditorCompletionKind::Option => types::CompletionItemKind::PROPERTY,
     }
 }
 
@@ -590,6 +700,7 @@ fn completion_kind_rank(kind: EditorCompletionKind) -> u8 {
         EditorCompletionKind::Builtin => 2,
         EditorCompletionKind::RuntimeName => 3,
         EditorCompletionKind::Keyword => 4,
+        EditorCompletionKind::Option => 5,
     }
 }
 
@@ -600,6 +711,7 @@ fn completion_kind_label(kind: EditorCompletionKind) -> &'static str {
         EditorCompletionKind::Builtin => "Builtin",
         EditorCompletionKind::RuntimeName => "Runtime name",
         EditorCompletionKind::Keyword => "Keyword",
+        EditorCompletionKind::Option => "Option",
     }
 }
 
@@ -1062,5 +1174,133 @@ mod tests {
         let path = std::env::temp_dir().join("my script.sh");
         let uri = Url::from_file_path(path).expect("temporary file path should convert to a URI");
         assert_eq!(top_level_label(&uri), "my script.sh");
+    }
+
+    #[test]
+    fn zsh_completions_for_builtins_options_and_parameters() {
+        let source = "#!/bin/zsh\nsetopt \necho ${(q)}\n";
+        let (snapshot, client, uri) = make_snapshot(source);
+
+        // 1. Option completion after `setopt `
+        let opt_response = completion(
+            snapshot.clone(),
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri.clone(), Position::new(1, 7)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(opt_list) = opt_response else {
+            panic!("expected completion list");
+        };
+        assert!(opt_list.items.iter().any(|item| item.label == "NULL_GLOB"));
+        assert!(
+            opt_list
+                .items
+                .iter()
+                .any(|item| item.label == "EXTENDED_GLOB")
+        );
+
+        // 2. Parameter completion inside `${(q)}`
+        let param_response = completion(
+            snapshot.clone(),
+            &client,
+            CompletionParams {
+                text_document_position: text_position(uri.clone(), Position::new(2, 10)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(param_list) = param_response else {
+            panic!("expected completion list");
+        };
+        assert!(
+            param_list
+                .items
+                .iter()
+                .any(|item| item.label == "pipestatus")
+        );
+        assert!(param_list.items.iter().any(|item| item.label == "match"));
+        assert!(param_list.items.iter().any(|item| item.label == "prompt"));
+
+        // 3. Command completion on an empty line in a Zsh script
+        let cmd_source = "#!/bin/zsh\n\n";
+        let (cmd_snapshot, cmd_client, cmd_uri) = make_snapshot(cmd_source);
+        let cmd_response = completion(
+            cmd_snapshot,
+            &cmd_client,
+            CompletionParams {
+                text_document_position: text_position(cmd_uri, Position::new(1, 0)),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+                context: None,
+            },
+        )
+        .expect("completion should succeed")
+        .expect("completion should return items");
+        let types::CompletionResponse::List(cmd_list) = cmd_response else {
+            panic!("expected completion list");
+        };
+        assert!(cmd_list.items.iter().any(|item| item.label == "zstyle"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "autoload"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "compdef"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "bindkey"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "vared"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "setopt"));
+        assert!(cmd_list.items.iter().any(|item| item.label == "unsetopt"));
+    }
+
+    #[test]
+    fn resolve_completion_item_for_zsh_entities() {
+        // Builtin resolve
+        let raw_builtin = types::CompletionItem {
+            label: "zstyle".to_string(),
+            data: Some(serde_json::to_value(CompletionData::Builtin).unwrap()),
+            ..types::CompletionItem::default()
+        };
+        let resolved_builtin = resolve_completion_item(raw_builtin).unwrap();
+        assert!(resolved_builtin.detail.unwrap().contains("zstyle"));
+        let types::Documentation::MarkupContent(markup) = resolved_builtin.documentation.unwrap()
+        else {
+            panic!("expected markup");
+        };
+        assert!(markup.value.contains("Configures and queries user styles"));
+
+        // Runtime parameter resolve
+        let raw_param = types::CompletionItem {
+            label: "pipestatus".to_string(),
+            data: Some(serde_json::to_value(CompletionData::RuntimeName).unwrap()),
+            ..types::CompletionItem::default()
+        };
+        let resolved_param = resolve_completion_item(raw_param).unwrap();
+        assert!(resolved_param.detail.unwrap().contains("Array of integers"));
+        let types::Documentation::MarkupContent(param_markup) =
+            resolved_param.documentation.unwrap()
+        else {
+            panic!("expected markup");
+        };
+        assert!(param_markup.value.contains("exit status values"));
+
+        // Option resolve
+        let raw_option = types::CompletionItem {
+            label: "NULL_GLOB".to_string(),
+            data: Some(serde_json::to_value(CompletionData::Option).unwrap()),
+            ..types::CompletionItem::default()
+        };
+        let resolved_option = resolve_completion_item(raw_option).unwrap();
+        assert_eq!(resolved_option.detail.unwrap(), "Zsh option");
+        let types::Documentation::MarkupContent(opt_markup) =
+            resolved_option.documentation.unwrap()
+        else {
+            panic!("expected markup");
+        };
+        assert!(opt_markup.value.contains("filename generation"));
     }
 }

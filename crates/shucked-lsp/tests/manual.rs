@@ -2831,3 +2831,131 @@ fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
         .unwrap();
     server_thread.join().unwrap().unwrap();
 }
+
+#[test]
+fn zsh_language_intelligence_session() {
+    let (server_connection, client_connection) = Connection::memory();
+    let server_thread = thread::spawn(move || shucked_lsp::run_connection(server_connection));
+
+    let workspace_root = tempfile::tempdir().expect("tempdir should be created");
+    let script_path = workspace_root.path().join("script.zsh");
+    let script_uri =
+        Url::from_file_path(&script_path).expect("script path should convert to a URL");
+
+    send_request(
+        &client_connection,
+        1,
+        "initialize",
+        serde_json::json!({
+            "capabilities": replay_capabilities(),
+            "rootUri": Url::from_file_path(workspace_root.path())
+                .expect("workspace path should convert to a URL"),
+        }),
+    );
+    let _ = recv_response(&client_connection, 1);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "initialized".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+
+    let text = "#!/bin/zsh\nsetopt NULL_GLOB\nautoload -Uz compinit\nval=\"shuck\"\necho ${(q)val}\necho $pipestatus[1]\n";
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "textDocument/didOpen".to_owned(),
+            serde_json::json!({
+                "textDocument": {
+                    "uri": script_uri,
+                    "languageId": "shellscript",
+                    "version": 1,
+                    "text": text,
+                }
+            }),
+        )))
+        .unwrap();
+
+    // 1. Hover on autoload (line 2, char 2)
+    send_request(
+        &client_connection,
+        2,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 2, "character": 2 },
+        }),
+    );
+    let hover_resp = recv_response(&client_connection, 2);
+    let hover_doc = hover_resp["contents"]["value"].as_str().unwrap();
+    assert!(hover_doc.contains("`autoload` (Zsh Builtin)"));
+
+    // 2. Hover on NULL_GLOB (line 1, char 9)
+    send_request(
+        &client_connection,
+        3,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 1, "character": 9 },
+        }),
+    );
+    let hover_resp2 = recv_response(&client_connection, 3);
+    let hover_doc2 = hover_resp2["contents"]["value"].as_str().unwrap();
+    assert!(hover_doc2.contains("`NULL_GLOB` (Zsh Option)"));
+
+    // 3. Hover on pipestatus (line 5, char 8)
+    send_request(
+        &client_connection,
+        4,
+        "textDocument/hover",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 5, "character": 8 },
+        }),
+    );
+    let hover_resp3 = recv_response(&client_connection, 4);
+    let hover_doc3 = hover_resp3["contents"]["value"].as_str().unwrap();
+    assert!(hover_doc3.contains("pipestatus"));
+    assert!(hover_doc3.contains("Array of integers"));
+
+    // 4. Definition of val from ${(q)val} (line 4, char 11)
+    send_request(
+        &client_connection,
+        5,
+        "textDocument/definition",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 4, "character": 11 },
+        }),
+    );
+    let def_resp = recv_response(&client_connection, 5);
+    let def_range = &def_resp["range"];
+    assert_eq!(def_range["start"]["line"], 3);
+
+    // 5. Completion in setopt context (line 1, char 7)
+    send_request(
+        &client_connection,
+        6,
+        "textDocument/completion",
+        serde_json::json!({
+            "textDocument": { "uri": script_uri },
+            "position": { "line": 1, "character": 7 },
+        }),
+    );
+    let comp_resp = recv_response(&client_connection, 6);
+    let comp_items = comp_resp["items"].as_array().unwrap();
+    assert!(comp_items.iter().any(|item| item["label"] == "NULL_GLOB"));
+
+    send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
+    let _ = recv_response(&client_connection, 99);
+    client_connection
+        .sender
+        .send(Message::Notification(Notification::new(
+            "exit".to_owned(),
+            serde_json::json!({}),
+        )))
+        .unwrap();
+    server_thread.join().unwrap().unwrap();
+}

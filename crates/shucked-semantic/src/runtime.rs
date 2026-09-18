@@ -189,6 +189,7 @@ const ZSH_PREINITIALIZED: &[&str] = &[
     "parameters",
     "path",
     "pipestatus",
+    "prompt",
     "psvar",
     // Zsh populates these in regex and ZLE contexts, but they are still
     // reserved runtime-provided names rather than user-defined locals.
@@ -261,7 +262,46 @@ const COMMON_KNOWN_BUILTINS: &[&str] = &[
     "readonly", "return",
 ];
 const BASH_KNOWN_BUILTINS: &[&str] = &["mapfile", "readarray"];
-const ZSH_KNOWN_BUILTINS: &[&str] = &["compinit", "integer", "zparseopts", "zstyle"];
+const ZSH_KNOWN_BUILTINS: &[&str] = &[
+    "add-zsh-hook",
+    "autoload",
+    "bindkey",
+    "compadd",
+    "compdef",
+    "compinit",
+    "echotc",
+    "echoti",
+    "emulate",
+    "float",
+    "functions",
+    "getln",
+    "hash",
+    "integer",
+    "local",
+    "log",
+    "noglob",
+    "popd",
+    "print",
+    "pushd",
+    "pushln",
+    "rehash",
+    "sched",
+    "setcap",
+    "setopt",
+    "stat",
+    "typeset",
+    "unfunction",
+    "unhash",
+    "unsetopt",
+    "vared",
+    "whence",
+    "where",
+    "which",
+    "zle",
+    "zmodload",
+    "zparseopts",
+    "zstyle",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimePrelude {

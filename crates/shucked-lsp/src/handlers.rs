@@ -13,5 +13,6 @@ pub(crate) mod symbols;
 pub(crate) mod workspace_diagnostics;
 pub(crate) mod workspace_functions;
 pub(crate) mod workspace_variables;
+pub(crate) mod zsh;
 
 pub use self::lint::generate_diagnostics;
