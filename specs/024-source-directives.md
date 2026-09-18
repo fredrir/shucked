@@ -287,7 +287,7 @@ nested directives transitively. This is the same trust posture as ShellCheck's
 - **Resolution precedence**: a target present both next to the annotating
   script and under a configured root resolves to (and lints) only the local
   one; roots are searched in configured order.
-- **Default check path**: the above works under `make run ARGS="check <dir>"`
+- **Default check path**: the above works under `just run ARGS="check <dir>"`
   with no `--external-sources` flag.
 - **Config**: `lint-sources = false` downgrades `lint=true` to symbol import
   only; `source-paths` extends resolution.

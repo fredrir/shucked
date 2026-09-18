@@ -2,7 +2,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "tooling"]
 
 [workspace.metadata.cargo-shear]
 ignored = ["shucked-benchmark"]
@@ -130,4 +130,4 @@ github-action-commits = { "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f54
 allow-dirty = ["ci"]
 [[workspace.metadata.dist.extra-artifacts]]
 artifacts = ["shuck.cdx.xml"]
-build = ["./scripts/generate-release-sbom.sh"]
+build = ["./tooling/scripts/generate-release-sbom.sh"]

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project?
 
-Shuck is a shell script linter/checker CLI tool, built on top of **shucked-parser** (an in-process virtual bash interpreter written in Rust). The repo is a Cargo workspace containing both shucked (the linter) and shucked-parser (the underlying library).
+Shucked is a shell script linter/checker CLI tool, built on top of **shucked-parser** (an in-process virtual bash interpreter written in Rust). The repo is a Cargo workspace containing both shucked (the linter and CLI) and shucked-parser (the underlying library).
 
 ## Clean-Room Policy
 
@@ -34,14 +34,17 @@ This project is a clean-room reimplementation of ShellCheck. To preserve the int
 ## Build and test commands
 
 ```bash
-# Build just the shuck crates (fast iteration)
-make build                    # cargo build -p shucked-cli -p shucked-cache
+# Build just the shucked crates (fast iteration)
+just build                    # cargo build -p shucked-cli -p shucked-cache
 
-# Test just the shuck crates
-make test                     # cargo test -p shucked-cli -p shucked-cache
+# Test just the shucked crates
+just test                     # cargo test -p shucked-cli -p shucked-cache
 
-# Run the shuck CLI
-make run ARGS="check ."       # cargo run -p shucked-cli -- check .
+# Run full project checks (formatting, clippy, dependencies)
+just check
+
+# Run the shucked CLI
+just run ARGS="check ."       # cargo run -p shucked-cli -- check .
 
 # Build/test everything (including shucked-parser)
 cargo build
@@ -59,38 +62,41 @@ cargo clippy --all-targets -- -D warnings
 
 ## Large corpus tests
 
-Always run the large corpus comparisons with the nix-provided `shellcheck`, not a globally installed one. The supported path is `make test-large-corpus`, which enters the repo's nix dev environment before running the ignored large-corpus test.
+Always run the large corpus comparisons with the nix-provided `shellcheck`, not a globally installed one. The supported path is `just corpus test`, which enters the repo's nix dev environment before running the ignored large-corpus test.
 
 ```bash
 # Download/populate the corpus if needed
-make setup-large-corpus
+just corpus download
 
 # Run the full compatibility comparison
-make test-large-corpus
+just corpus test
 
 # Run a targeted comparison for one rule or a CSV list of selectors
-make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001
-make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
+just corpus test SHUCK_LARGE_CORPUS_RULES=C001
+just corpus test SHUCK_LARGE_CORPUS_RULES=C001,C006
 
 # Run a smaller sample while iterating
-make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+just corpus test SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
 
-# Print only the 25 slowest Shuck fixtures and always exit successfully
-make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1
+# Print only the 25 slowest Shucked fixtures and always exit successfully
+just corpus test SHUCK_LARGE_CORPUS_TIMING=1
+
+# Generate the large corpus compatibility report
+just corpus report
 ```
 
 Relevant environment variables for the large-corpus harness:
 
-- `SHUCK_TEST_LARGE_CORPUS=1` — enables the ignored large-corpus test. `make test-large-corpus` sets this for you.
+- `SHUCK_TEST_LARGE_CORPUS=1` — enables the ignored large-corpus test. `just corpus test` sets this for you.
 - `SHUCK_LARGE_CORPUS_ROOT=/path/to/corpus` — overrides corpus discovery. By default the test looks under `.cache/large-corpus` and then `../shell-checks`.
 - `SHUCK_LARGE_CORPUS_TIMEOUT_SECS=300` — ShellCheck timeout budget per fixture.
-- `SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=30` — Shuck timeout budget per fixture.
+- `SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=30` — Shucked timeout budget per fixture.
 - `TEST_SHARD_INDEX=0` and `TEST_TOTAL_SHARDS=1` — split the corpus run across shards.
 - `SHUCK_LARGE_CORPUS_RULES=C001,C006` — comma-separated rule selectors to compare. Accepts exact rule codes and the existing selector syntax such as category or prefix selectors.
 - `SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=100` — deterministic fixture sampling percentage in `[1,100]`.
-- `SHUCK_LARGE_CORPUS_MAPPED_ONLY=1` — limits ShellCheck diagnostics to codes that Shuck maps today.
+- `SHUCK_LARGE_CORPUS_MAPPED_ONLY=1` — limits ShellCheck diagnostics to codes that Shucked maps today.
 - `SHUCK_LARGE_CORPUS_KEEP_GOING=1` — collects all fixture failures instead of stopping at the first one.
-- `SHUCK_LARGE_CORPUS_TIMING=1` — runs a Shuck-only timing pass, prints the 25 slowest fixtures, and always exits successfully. This mode does not produce a compatibility log, so `make large-corpus-report` rejects it.
+- `SHUCK_LARGE_CORPUS_TIMING=1` — runs a Shucked-only timing pass, prints the 25 slowest fixtures, and always exits successfully. This mode does not produce a compatibility log, so `just corpus report` rejects it.
 
 If you need to call `shellcheck` directly while debugging a large-corpus issue, do it through nix so the version matches the test harness. For example:
 
@@ -102,22 +108,24 @@ nix --extra-experimental-features 'nix-command flakes' develop --command shellch
 
 ### Workspace crates
 
-- **`crates/shucked-cli`** — CLI binary. Discovers files, resolves config, coordinates caching, parses shell sources, runs lint/format commands, applies fixes, and renders reports. Project roots are resolved by walking up to find `.shuck.toml` or `shuck.toml`.
+- **`crates/shucked-cli`** — CLI binary. Discovers files, resolves config, coordinates caching, parses shell sources, runs lint/format commands, applies fixes, and renders reports. Project roots are resolved by walking up to find `.shucked.toml` or `shucked.toml`.
 - **`crates/shucked-linter`** — Rule registry, checker dispatch, suppressions, generated rule metadata, fix application, and linter-owned facts built over parser, indexer, and semantic output.
 - **`crates/shucked-semantic`** — Semantic model for bindings, references, scopes, declarations, source closure, call graph, CFG, and dataflow.
 - **`crates/shucked-indexer`** — Positional and structural indexes over parsed scripts, including lines, comments, syntactic regions, heredocs, and continuation lines.
 - **`crates/shucked-extract`** — Embedded shell extraction for supported host files such as GitHub Actions workflows and composite actions.
-- **`crates/shucked-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
+- **`crates/shucked-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCKED_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shucked` / `$XDG_CACHE_HOME/shucked`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
 - **`crates/shucked-parser`** — The shell parser library. Provides source-backed lexing, dialect/profile-aware parsing, AST construction, recovery diagnostics, and syntax facts.
 - **`crates/shucked-ast`** — Shared AST node types, tokens, identifiers, and source span utilities.
 - **`crates/shucked-formatter`** — Shell formatting built directly on the parser and AST.
+- **`crates/shucked-benchmark`** — Shared benchmark fixtures and benchmark harness helpers.
+- **`tooling` (`shucked-tooling`)** — Fast Rust-based development toolkit (`tooling/`) providing corpus management, release checks, sanity verification, and benchmark runners.
 
-### Data flow for `shuck check`
+### Data flow for `shucked check`
 
 1. **Discover** (`discover.rs`) — Walk input paths, detect shell scripts by extension (`.sh`, `.bash`, `.zsh`, `.ksh`) or shebang, skip ignored dirs (`.git`, `node_modules`, etc.)
 2. **Cache lookup** (`shucked-cache`) — Check if file has a valid cached result based on mtime/permissions
 3. **Parse and index** (`shucked-parser`, `shucked-indexer`) — Infer the shell dialect, parse into an AST with recovery diagnostics, and build line/comment/region indexes
-4. **Suppressions and analysis** (`shucked-linter`) — Parse shuck and ShellCheck-style directives, build the semantic model and linter facts, dispatch enabled rules, and apply per-file ignores
+4. **Suppressions and analysis** (`shucked-linter`) — Parse shucked and ShellCheck-style directives, build the semantic model and linter facts, dispatch enabled rules, and apply per-file ignores
 5. **Fix and report** — Optionally apply requested fixes, remap embedded diagnostics back to host files, render the selected output format, cache results, and return the appropriate exit status
 
 ### shucked-parser internals
@@ -134,9 +142,9 @@ The parser (`crates/shucked-parser/src/parser/`) is a recursive descent parser w
 
 - Rust edition 2024, requires nightly features (let-chains used extensively)
 - `#[allow(clippy::unwrap_used)]` is used in the parser module since unwraps follow validated bounds checks
-- Suppression codes: shuck uses `SH-NNN` format (e.g., `SH-001`), shellcheck uses `SCNNNN` format (e.g., `SC2086`). Both are supported as suppression directives.
-- Config files: `.shuck.toml` or `shuck.toml` at project root
-- Cache directory: shared OS cache root by default; legacy `.shuck_cache/` directories are still ignored and `shuck clean` removes them during cleanup
+- Suppression codes: shucked uses category codes (e.g., `C001`, `S001`) or ShellCheck codes (e.g., `SC2086`). Both are supported as suppression directives.
+- Config files: `.shucked.toml` or `shucked.toml` at project root
+- Cache directory: shared OS cache root by default; `shucked clean` removes cache files during cleanup
 
 ## Commit messages
 

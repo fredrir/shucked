@@ -292,15 +292,15 @@ A bump arena of borrowed AST nodes could reduce allocation overhead, but it woul
 
 Each phase should keep behavior stable:
 
-- `cargo test -p shuck-ast`
-- `cargo test -p shuck-parser`
-- `cargo test -p shuck-indexer`
-- `cargo test -p shuck-semantic`
-- `cargo test -p shuck-linter`
-- `cargo test -p shuck-formatter`
-- `make test`
-- `cargo bench -p shuck-benchmark --bench large_corpus_hotspots`
-- `cargo bench -p shuck-benchmark --bench check_command`
-- `make bench-memory-compare`
+- `cargo test -p shucked-ast`
+- `cargo test -p shucked-parser`
+- `cargo test -p shucked-indexer`
+- `cargo test -p shucked-semantic`
+- `cargo test -p shucked-linter`
+- `cargo test -p shucked-formatter`
+- `just test`
+- `cargo bench -p shucked-benchmark --bench large_corpus_hotspots`
+- `cargo bench -p shucked-benchmark --bench check_command`
+- `just bench memory-compare`
 
 Phase 1 should additionally include recursive-vs-arena structural equivalence tests. Phase 2 should compare recursive and arena diagnostics for a focused fixture set before switching default paths. Phase 3 and Phase 4 should include allocation and throughput measurements; the migration should not continue past a phase that regresses `shuck check --no-cache --output-format concise` without a known reason.

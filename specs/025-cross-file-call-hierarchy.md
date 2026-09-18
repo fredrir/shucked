@@ -274,7 +274,7 @@ process:
   `# shuck: source=` directive *appears* — demonstrating hints maximize
   the resolvable graph.
 - **Regression**: single-file call hierarchy (023) and all 024 behaviors
-  unchanged; `make test` and the black-box LSP suite green.
+  unchanged; `just test` and the black-box LSP suite green.
 
 Clean-room: all names, types, and documentation are authored in-repo; no
 ShellCheck source or wiki text is referenced.

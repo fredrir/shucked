@@ -16,16 +16,16 @@ git clone https://github.com/ewhauser/shuck.git
 cd shuck
 
 # Set up pre-commit hooks (runs cargo fmt and clippy before each commit)
-make setup-hooks
+just setup-hooks
 
 # Build
-make build
+just build
 
 # Run tests
-make test
+just test
 
 # Run the CLI
-make run ARGS="check ."
+just run ARGS="check ."
 ```
 
 ## Development Workflow
@@ -33,8 +33,8 @@ make run ARGS="check ."
 Before submitting changes, run the full check suite:
 
 ```bash
-make check    # formatting, clippy, dependency, and shell-script checks
-make hawk     # reject public APIs that are unreachable from shipped targets
+just check    # formatting, clippy, dependency, and security checks
+just hawk     # reject public APIs that are unreachable from shipped targets
 ```
 
 The Hawk check requires `cargo-hawk` 0.1.8 and the Rust 1.97.0 toolchain. CI
@@ -94,13 +94,13 @@ You do **not** bump `workspace.package.version` or edit `CHANGELOG.md` by hand. 
 **Run all tests:**
 
 ```bash
-make test          # or: cargo test
+just test          # or: cargo test
 ```
 
 **Run a single test:**
 
 ```bash
-cargo test -p shuck-linter -- test_name
+cargo test -p shucked-linter -- test_name
 ```
 
 **Snapshot tests** — The linter uses [insta](https://insta.rs) for snapshot testing. When you add or change a rule, the test will fail with a diff. Review and accept with:
@@ -112,32 +112,34 @@ cargo insta accept --workspace
 **Large corpus conformance** (requires Nix):
 
 ```bash
-make setup-large-corpus       # download corpus (first time only)
-make test-large-corpus        # run full comparison against ShellCheck
+just corpus download          # download corpus (first time only)
+just corpus test              # run full comparison against ShellCheck
 ```
 
 You can target specific rules or sample a subset:
 
 ```bash
-make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001
-make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
-make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1
+just corpus test SHUCK_LARGE_CORPUS_RULES=C001
+just corpus test SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+just corpus test SHUCK_LARGE_CORPUS_TIMING=1
 ```
 
 ## Fuzzing
 
-Shuck keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `scripts/`.
+Shuck keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `tooling/scripts/`.
 
 Initialize the fuzz toolchain, generated corpora, and artifact directories with:
 
 ```bash
-bash ./scripts/fuzz-init.sh
+just fuzz init
+# or: bash ./tooling/scripts/fuzz-init.sh
 ```
 
 For CI or non-interactive setup:
 
 ```bash
-bash ./scripts/fuzz-init.sh --ci
+just fuzz init --ci
+# or: bash ./tooling/scripts/fuzz-init.sh --ci
 ```
 
 The setup script seeds repository-owned fixtures into two generated corpora:
@@ -147,10 +149,10 @@ The setup script seeds repository-owned fixtures into two generated corpora:
 
 Seed sources:
 
-- `crates/shuck-linter/resources/test/fixtures`
-- `crates/shuck-formatter/tests/oracle-fixtures`
-- `crates/shuck-benchmark/resources/files`
-- `scripts`
+- `crates/shucked-linter/resources/test/fixtures`
+- `crates/shucked-formatter/tests/oracle-fixtures`
+- `crates/shucked-benchmark/resources/files`
+- `tooling/scripts`
 
 If `rustup` is not installed yet, the setup script bootstraps it so fuzzing can use nightly
 without changing the repo's default stable toolchain.
@@ -158,23 +160,23 @@ without changing the repo's default stable toolchain.
 List fuzz targets:
 
 ```bash
-make fuzz-list
+just fuzz list
 ```
 
 Blocking smoke coverage:
 
 ```bash
-make fuzz-smoke
+just fuzz smoke
 ```
 
-`make fuzz-smoke` is intentionally deterministic. It runs each PR-blocking fuzz target with
+`just fuzz smoke` is intentionally deterministic. It runs each PR-blocking fuzz target with
 `-runs=1` to verify toolchain setup, corpus wiring, and harness startup. Longer mutation-heavy
 fuzzing belongs in the scheduled GitHub Actions workflow or in manual local runs.
 
 Run one target with a longer budget:
 
 ```bash
-make fuzz-run FUZZ_TARGET=parser_fuzz FUZZ_ARGS='-max_total_time=60'
+just fuzz run parser_fuzz '-max_total_time=60'
 ```
 
 Available `cargo-fuzz` targets:
@@ -197,7 +199,7 @@ sessions that do not shut down cleanly.
 Run the CLI generator-driven fuzzer:
 
 ```bash
-make fuzz-cli FUZZ_CLI_ARGS='--dialect bash --profile full --count 50 --seed 100'
+just fuzz cli '--dialect bash --profile full --count 50 --seed 100'
 ```
 
 Useful CLI fuzzer flags:
@@ -226,16 +228,17 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 
 | Crate | Purpose |
 |-------|---------|
-| `shuck-cli` | CLI binary `shuck` — command orchestration, discovery, config, caching, fixes, and reporting |
-| `shuck-linter` | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics |
-| `shuck-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
-| `shuck-indexer` | Positional and structural indexes over parsed scripts |
-| `shuck-parser` | Recursive-descent Bash parser |
-| `shuck-ast` | AST node types, tokens, spans |
-| `shuck-extract` | Embedded shell extraction for supported host files such as GitHub Actions workflows |
-| `shuck-cache` | SHA-256 keyed file-level result caching |
-| `shuck-formatter` | Shell script formatter |
-| `shuck-benchmark` | Shared benchmark fixtures and benchmark harness helpers |
+| `shucked-cli` | CLI binary `shuck` — command orchestration, discovery, config, caching, fixes, and reporting |
+| `shucked-linter` | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics |
+| `shucked-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
+| `shucked-indexer` | Positional and structural indexes over parsed scripts |
+| `shucked-parser` | Recursive-descent Bash parser |
+| `shucked-ast` | AST node types, tokens, spans |
+| `shucked-extract` | Embedded shell extraction for supported host files such as GitHub Actions workflows |
+| `shucked-cache` | SHA-256 keyed file-level result caching |
+| `shucked-formatter` | Shell script formatter |
+| `shucked-benchmark` | Shared benchmark fixtures and benchmark harness helpers |
+| `shucked-tooling` | High-performance developer tooling CLI (`tooling/`) |
 
 ## Adding a Lint Rule
 
@@ -279,7 +282,7 @@ examples:
 
 ### Step 2: Register the rule
 
-In `crates/shuck-linter/src/registry.rs`, add an entry to the `declare_rules!` macro in code-sorted order:
+In `crates/shucked-linter/src/registry.rs`, add an entry to the `declare_rules!` macro in code-sorted order:
 
 ```rust
 declare_rules! {
@@ -298,19 +301,19 @@ If the rule maps to a ShellCheck code, set `shellcheck_code` in `docs/rules/{COD
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' develop --command \
-  python3 scripts/update_shellcheck_levels.py --rules C042
+  python3 tooling/scripts/update_shellcheck_levels.py --rules C042
 ```
 
-`crates/shuck-linter/build.rs` generates the runtime rule metadata and ordinary
+`crates/shucked-linter/build.rs` generates the runtime rule metadata and ordinary
 ShellCheck-code mappings from `docs/rules/*.yaml`. Do not hand-edit
-`crates/shuck-linter/src/suppression/shellcheck_map.rs` for normal rule
+`crates/shucked-linter/src/suppression/shellcheck_map.rs` for normal rule
 mappings; only update `SUPPRESSION_ALIAS_CODES` there when an old ShellCheck
 code should suppress a rule without being the rule's canonical compatibility
 code.
 
 ### Step 4: Implement the rule
 
-Create `crates/shuck-linter/src/rules/{category}/{snake_case_name}.rs`:
+Create `crates/shucked-linter/src/rules/{category}/{snake_case_name}.rs`:
 
 ```rust
 use crate::{Checker, Rule, Violation};
@@ -346,7 +349,7 @@ Key APIs available on `Checker`:
 New rule files should be cheap filters over `checker.facts()` or
 `checker.semantic()`. Do not directly walk the AST or rescan source text to
 rediscover shell structure; if a rule needs structural data that facts do not
-expose yet, add that data to `crates/shuck-linter/src/facts/` first.
+expose yet, add that data to `crates/shucked-linter/src/facts/` first.
 
 Look at existing rules for patterns:
 - Simple semantic rule: `rules/correctness/unused_assignment.rs`
@@ -355,7 +358,7 @@ Look at existing rules for patterns:
 
 ### Step 5: Register the module
 
-In `crates/shuck-linter/src/rules/{category}/mod.rs`, add:
+In `crates/shucked-linter/src/rules/{category}/mod.rs`, add:
 
 ```rust
 pub mod your_rule_name;
@@ -369,7 +372,7 @@ Then add a `#[test_case]` entry in the test function at the bottom of the same f
 
 ### Step 6: Wire into checker dispatch
 
-In `crates/shuck-linter/src/checker.rs`, add the rule to the appropriate checker phase:
+In `crates/shucked-linter/src/checker.rs`, add the rule to the appropriate checker phase:
 
 | Phase | Use for |
 |-------|---------|
@@ -389,7 +392,7 @@ if self.is_rule_enabled(Rule::YourRuleName) {
 
 ### Step 7: Create a test fixture
 
-Create `crates/shuck-linter/resources/test/fixtures/{category}/C042.sh` with both triggering and non-triggering cases:
+Create `crates/shucked-linter/resources/test/fixtures/{category}/C042.sh` with both triggering and non-triggering cases:
 
 ```bash
 #!/bin/sh
@@ -404,7 +407,7 @@ correct_code
 ### Step 8: Run tests and accept snapshots
 
 ```bash
-cargo test -p shuck-linter -- your_rule_name    # run the new tests
+cargo test -p shucked-linter -- your_rule_name    # run the new tests
 cargo insta accept --workspace                   # accept snapshot output
 cargo test                                       # verify no regressions
 ```
@@ -431,10 +434,10 @@ See `CLAUDE.md` for the full policy.
 ## Benchmarking
 
 ```bash
-make bench                    # Criterion microbenchmarks
-make bench-parser             # parser benchmarks only
-make bench-linter             # linter benchmarks only
-make bench-macro              # Hyperfine comparison vs ShellCheck (requires Nix)
+just bench                    # Criterion microbenchmarks
+just bench-parser             # parser benchmarks only
+just bench-linter             # linter benchmarks only
+just bench-macro              # Hyperfine comparison vs ShellCheck (requires Nix)
 ```
 
 ## License

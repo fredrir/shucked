@@ -136,7 +136,7 @@ impl From<ManagedShellArg> for shucked_run::Shell {
 
 #[derive(Debug, Parser)]
 #[command(name = "shucked")]
-#[command(about = "Shell checker CLI for shucked")]
+#[command(about = "Shell checker CLI for shuck")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(styles = STYLES)]
 struct StableCli {

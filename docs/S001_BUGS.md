@@ -1,7 +1,7 @@
 # S001 Reviewed Divergence Bugs
 
 This file classifies the current reviewed S001/SC2086 large-corpus divergences.
-The source of truth was a fresh `make large-corpus-report SHUCK_LARGE_CORPUS_RULES=S001`
+The source of truth was a fresh `just corpus report SHUCK_LARGE_CORPUS_RULES=S001`
 run with ShellCheck 0.11.0.
 
 Current summary from `target/large-corpus-report/latest.log`:
@@ -15,7 +15,7 @@ The harness summary counts reviewed divergence groups. This document lists the i
 diagnostic records that need to be cleared.
 
 When a record is fixed, remove the matching entry from
-`crates/shuck-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
+`crates/shucked-cli/tests/testdata/corpus-metadata/s001.yaml` in the same change.
 Resolved records should not remain as reviewed divergences.
 
 ## [ ] ShellCheck-only: semantically safe in Shuck (8)

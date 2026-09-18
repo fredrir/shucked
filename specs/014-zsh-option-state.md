@@ -587,7 +587,7 @@ The harness extracts `@option` directives to configure the option state, `@expec
 | noglob | `noglob cmd *.txt` suppresses globbing | Precommand modifier |
 | Conditional merge | Options set in branches | `if ...; then setopt ...; fi` |
 
-The harness runs as part of `make test` when `zsh` is available on the system (detected at test time). When `zsh` is not available, the harness tests are skipped with a diagnostic message. The harness does not require nix, unlike the ShellCheck large-corpus comparison.
+The harness runs as part of `just test` when `zsh` is available on the system (detected at test time). When `zsh` is not available, the harness tests are skipped with a diagnostic message. The harness does not require nix, unlike the ShellCheck large-corpus comparison.
 
 #### Integration with Large Corpus
 
@@ -600,7 +600,7 @@ This is a separate test target from the ShellCheck conformance corpus:
 cargo test -p shuck -- zsh_option_state
 
 # Zsh option-state with the large corpus
-make test-large-corpus-zsh
+just corpus test-zsh
 ```
 
 ### Phased Rollout
@@ -650,7 +650,7 @@ make test-large-corpus-zsh
 - Build the `zsh -fc` black-box harness.
 - Write fixture suites for each option-sensitive behavior category.
 - Integrate with the existing zsh parse test track.
-- Add `make test-large-corpus-zsh` target.
+- Add `just corpus test-zsh` recipe.
 
 ## Alternatives Considered
 
@@ -737,5 +737,5 @@ cargo test -p shuck-linter -- leading_glob
 cargo test -p shuck -- zsh_option_state
 
 # Full workspace
-make test
+just test
 ```

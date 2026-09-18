@@ -572,8 +572,8 @@ cargo test -p shuck-config contracts
 cargo test -p shuck-semantic contract
 cargo test -p shuck-linter unused_assignment
 cargo test -p shuck-cli contract
-make test
-make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
+just test
+just corpus test SHUCK_LARGE_CORPUS_RULES=C001,C006
 ```
 
 The large-corpus run belongs after implementation, not after this spec-only

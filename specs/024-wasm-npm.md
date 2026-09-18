@@ -129,12 +129,12 @@ Run:
 
 ```sh
 cargo test -p shuck-wasm
-make test-wasm
-make build-wasm
+just wasm test
+just wasm build
 npm pack --dry-run ./target/npm/shuck-wasm
 ```
 
-`make test-wasm` builds a Node.js-targeted package and executes the public API.
+`just wasm test` builds a Node.js-targeted package and executes the public API.
 CI additionally compiles and packs the bundler artifact. A release is complete
 when the workflow publishes `shuck-wasm` at the same version as its `vX.Y.Z`
 tag and npm records provenance for it.

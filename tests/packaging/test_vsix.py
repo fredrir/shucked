@@ -50,7 +50,7 @@ def vsix_path(repo_root: Path) -> Path:
 
     vsix_files = list(vscode_dir.glob("*.vsix"))
     assert len(vsix_files) > 0, f"No .vsix file found in {vscode_dir}"
-    return vsix_files[0]
+    return max(vsix_files, key=lambda p: p.stat().st_mtime)
 
 
 def test_vsix_archive_structure(vsix_path: Path):
@@ -139,7 +139,7 @@ def test_vsix_binary_bundling_and_permissions(repo_root: Path):
         )
         assert res.returncode == 0, f"vsix packaging with bin failed: {res.stderr}"
 
-        vsix_file = next(vscode_dir.glob("*.vsix"))
+        vsix_file = max(vscode_dir.glob("*.vsix"), key=lambda p: p.stat().st_mtime)
         with zipfile.ZipFile(vsix_file, "r") as archive:
             assert "extension/bin/shucked" in archive.namelist(), (
                 "extension/bin/shucked should be bundled in the archive"

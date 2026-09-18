@@ -452,12 +452,12 @@ Implementation should be verified in layers:
 
 - **Semantic option behavior:** `cargo test -p shuck-semantic zsh_option_analysis --lib`
 - **Runtime function ambiguity:** `cargo test -p shuck-semantic semantic_runtime_ksh_arrays_state --lib`
-- **C100 fact migration:** `cargo test -p shuck-linter quoted_bash_source --lib`
-- **Expansion behavior migration:** `cargo test -p shuck-linter unquoted_expansion --lib`
-- **Full linter tests:** `cargo test -p shuck-linter --lib`
-- **Workspace tests:** `make test`
-- **Compatibility guard:** `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C100`
-- **Rule raw-option guard:** `rg "zsh_options_at|zsh_ksh_arrays_runtime_state_at|ZshOptionState|OptionValue" crates/shuck-linter/src/rules`
+- **C100 fact migration:** `cargo test -p shucked-linter quoted_bash_source --lib`
+- **Expansion behavior migration:** `cargo test -p shucked-linter unquoted_expansion --lib`
+- **Full linter tests:** `cargo test -p shucked-linter --lib`
+- **Workspace tests:** `just test`
+- **Compatibility guard:** `just corpus test SHUCK_LARGE_CORPUS_RULES=C100`
+- **Rule raw-option guard:** `rg "zsh_options_at|zsh_ksh_arrays_runtime_state_at|ZshOptionState|OptionValue" crates/shucked-linter/src/rules`
 
 The raw-option guard should have no production rule hits after migration. If a rule intentionally needs a raw option during an intermediate phase, the spec should be updated with the reason and the planned removal point.
 

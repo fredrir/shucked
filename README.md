@@ -248,7 +248,7 @@ That said, shuck is not a port of ShellCheck. It is a clean-room reimplementatio
 - Shuck's parser and analysis logic were written from scratch. Edge cases may be handled differently, and some diagnostics may fire in slightly different locations or contexts.
 - In cases where ShellCheck's behavior appears incorrect or inconsistent with shell semantics, shuck intentionally chooses correctness over compatibility.
 
-Compatibility is continuously validated against a large corpus of shell scripts from popular open-source projects including [acme.sh](https://github.com/acmesh-official/acme.sh), [oh-my-zsh](https://github.com/ohmyzsh/ohmyzsh), [nvm](https://github.com/nvm-sh/nvm), [pyenv](https://github.com/pyenv/pyenv), [pi-hole](https://github.com/pi-hole/pi-hole), [bats-core](https://github.com/bats-core/bats-core), [powerlevel10k](https://github.com/romkatv/powerlevel10k), [dokku](https://github.com/dokku/dokku), [gentoo](https://github.com/gentoo/gentoo), and [many others](scripts/corpus-download.sh). The latest conformance report is published at [ewhauser.github.io/shuck/reports/corpus](https://ewhauser.github.io/shuck/reports/corpus/).
+Compatibility is continuously validated against a large corpus of shell scripts from popular open-source projects including [acme.sh](https://github.com/acmesh-official/acme.sh), [oh-my-zsh](https://github.com/ohmyzsh/ohmyzsh), [nvm](https://github.com/nvm-sh/nvm), [pyenv](https://github.com/pyenv/pyenv), [pi-hole](https://github.com/pi-hole/pi-hole), [bats-core](https://github.com/bats-core/bats-core), [powerlevel10k](https://github.com/romkatv/powerlevel10k), [dokku](https://github.com/dokku/dokku), [gentoo](https://github.com/gentoo/gentoo), and [many others](tooling/scripts/corpus-download.sh). The latest conformance report is published at [ewhauser.github.io/shuck/reports/corpus](https://ewhauser.github.io/shuck/reports/corpus/).
 
 ## Suppression
 
@@ -439,6 +439,40 @@ Shuck caches lint and format results per file in a shared cache root outside the
 Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
 Disable caching with `--no-cache` or remove a project's cache entries with `shuck clean [PATH]`.
+
+## Development
+
+Shuck uses [just](https://github.com/casey/just) as its primary task runner and provides a high-performance development toolkit crate under `tooling/` (`shucked-tooling`).
+
+Common commands:
+
+```sh
+# Build the project (fast iteration)
+just build
+
+# Run unit and integration tests
+just test
+
+# Run code style, clippy linting, and dependency checks
+just check
+
+# Run the CLI
+just run ARGS="check ."
+
+# Download large corpus fixtures
+just corpus download
+
+# Run large corpus compatibility tests against ShellCheck
+just corpus test
+
+# Generate large corpus HTML report
+just corpus report
+
+# Run fuzz testing smoke suite
+just fuzz smoke
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflows and guidelines.
 
 ## Rust API
 

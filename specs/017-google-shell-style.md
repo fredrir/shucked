@@ -23,7 +23,7 @@ The rules are deliberately opinionated and project-policy oriented, so they must
 This spec covers two classes of rules:
 
 1. **Novel Google-style rules** — checks the Google guide prescribes that ShellCheck does not implement and that the formatter cannot enforce. These have no `shellcheck_code` mapping and use shuck-only diagnostic wording.
-2. **ShellCheck-mapped rules** — checks the Google guide aligns with that map directly to ShellCheck rules (default-on or optional) shuck has not yet imported. These follow the project's existing conformance pattern (parity testing via `make test-large-corpus`).
+2. **ShellCheck-mapped rules** — checks the Google guide aligns with that map directly to ShellCheck rules (default-on or optional) shuck has not yet imported. These follow the project's existing conformance pattern (parity testing via `just corpus test`).
 
 Both classes share the same constraints:
 
@@ -536,7 +536,7 @@ End-to-end checks:
   - `shuck check` with default config produces no diagnostics from any rule in this spec on a fixture that would trigger them.
   - `shuck check --select google` produces the expected set on the same fixture.
   - `shuck check --select S078 --shuck-toml <path>` honors the `allowed-shells` option.
-- `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=...` runs each new rule against the corpus. The two rule classes verify differently:
+- `just corpus test SHUCK_LARGE_CORPUS_RULES=...` runs each new rule against the corpus. The two rule classes verify differently:
   - **Novel rules** (S078–S098, C158–C160, X082–X083) have no ShellCheck counterpart, so parity comparison is skipped; the harness should treat unmapped shuck-only rules as informational rather than diff-failing. A small change to the corpus runner is in scope for this spec.
   - **ShellCheck-mapped rules** (S099–S104, C161, C162) follow the existing conformance pattern: the corpus harness compares shuck output against ShellCheck output for the mapped code, and a `docs/bugs/` document captures any deltas before the rule is shipped.
 - `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` clean.

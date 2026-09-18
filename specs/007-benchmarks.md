@@ -234,9 +234,9 @@ Add `tikv-jemallocator` as an optional dev-dependency, gated behind a `jemalloc`
 
 ### Macro-Benchmarks: Hyperfine Scripts
 
-Shell scripts in `scripts/benchmarks/` for CLI-level comparison against shellcheck. These use the same vendored fixture files — no corpus download required.
+Shell scripts in `tooling/benchmarks/` for CLI-level comparison against shellcheck. These use the same vendored fixture files — no corpus download required.
 
-#### scripts/benchmarks/setup.sh
+#### tooling/benchmarks/setup.sh
 
 Builds shuck and verifies shellcheck is available:
 
@@ -246,7 +246,7 @@ set -eu
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 
 echo "Building shuck in release mode..."
-cargo build --release -p shuck --manifest-path="$repo_root/Cargo.toml"
+cargo build --release -p shucked-cli --manifest-path="$repo_root/Cargo.toml"
 
 echo "Verifying shellcheck is installed..."
 if ! command -v shellcheck >/dev/null 2>&1; then
@@ -255,11 +255,11 @@ if ! command -v shellcheck >/dev/null 2>&1; then
 fi
 
 echo "Setup complete."
-echo "  shuck:      $(cargo run --release -p shuck -- --version 2>/dev/null || echo 'built')"
+echo "  shuck:      $(cargo run --release -p shucked-cli -- --version 2>/dev/null || echo 'built')"
 echo "  shellcheck: $(shellcheck --version | head -2 | tail -1)"
 ```
 
-#### scripts/benchmarks/run.sh
+#### tooling/benchmarks/run.sh
 
 Runs shuck vs shellcheck on each fixture file individually and on all files together, mirroring the Go frontend's `BenchmarkCLI` structure:
 
@@ -267,7 +267,7 @@ Runs shuck vs shellcheck on each fixture file individually and on all files toge
 #!/bin/sh
 set -eu
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-fixtures_dir="$repo_root/crates/shuck-benchmark/resources/files"
+fixtures_dir="$repo_root/crates/shucked-benchmark/resources/files"
 shuck="$repo_root/target/release/shuck"
 
 # Per-file benchmarks
@@ -296,7 +296,7 @@ hyperfine \
 
 Note: The macro benchmark compares shuck against the default shellcheck CLI invocation. The `--no-cache` flag ensures shuck measures cold parse performance.
 
-#### scripts/benchmarks/run_single.sh
+#### tooling/benchmarks/run_single.sh
 
 Benchmarks a single file for focused comparison:
 
@@ -314,27 +314,27 @@ hyperfine \
     -n "shellcheck" "shellcheck --severity=style $file"
 ```
 
-### Makefile Targets
+### Justfile Recipes
 
-```makefile
+```just
 bench:
-	cargo bench -p shuck-benchmark
+    cargo bench -p shucked-benchmark
 
 bench-save:
-	cargo bench -p shuck-benchmark -- --save-baseline=main
+    cargo bench -p shucked-benchmark -- --save-baseline=main
 
 bench-compare:
-	cargo bench -p shuck-benchmark -- --baseline=main
+    cargo bench -p shucked-benchmark -- --baseline=main
 
 bench-parser:
-	cargo bench -p shuck-benchmark --bench parser
+    cargo bench -p shucked-benchmark --bench parser
 
 bench-lexer:
-	cargo bench -p shuck-benchmark --bench lexer
+    cargo bench -p shucked-benchmark --bench lexer
 
 bench-macro:
-	./scripts/benchmarks/setup.sh
-	./scripts/benchmarks/run.sh
+    ./tooling/benchmarks/setup.sh
+    ./tooling/benchmarks/run.sh
 ```
 
 ### Profiling Support
@@ -391,7 +391,7 @@ Use the `divan` crate (simpler API, less boilerplate) for micro-benchmarks.
 
 ### Alternative D: Use the Large Corpus (129 Repos) for Benchmarks
 
-Use the `scripts/corpus-download.sh` output instead of the Go frontend's 5 fixtures.
+Use the `tooling/scripts/corpus-download.sh` output instead of the Go frontend's 5 fixtures.
 
 **Rejected because:** The large corpus requires a ~10 minute download step, produces thousands of files of variable quality, and isn't deterministic across runs (repos change). The Go frontend's 5-fixture set is curated, pinned to exact commits, covers a good size range (12 KB to 150 KB), and — critically — lets us compare Rust vs Go benchmark numbers directly since both frontends measure the same files.
 
@@ -403,7 +403,7 @@ Once implemented, verify with:
 - **All vendored files load:** Each `TestFile` in `TEST_FILES` has non-empty source (the `include_str!` calls compile).
 - **Throughput reported:** Criterion output includes `throughput: X.XX MiB/s` for each benchmark.
 - **Baseline comparison works:** Run `cargo bench -p shuck-benchmark -- --save-baseline=main`, make a change, then `cargo bench -p shuck-benchmark -- --baseline=main` shows a comparison.
-- **Macro-benchmarks run:** `./scripts/benchmarks/run.sh` produces `bench-*.json` files with timing data for shuck and shellcheck.
+- **Macro-benchmarks run:** `./tooling/benchmarks/run.sh` produces `bench-*.json` files with timing data for shuck and shellcheck.
 - **Per-file and all-files:** The macro-benchmark output includes both individual fixture results and the combined "all" benchmark.
-- **Single-file comparison:** `./scripts/benchmarks/run_single.sh crates/shuck-benchmark/resources/files/nvm.sh` produces hyperfine output comparing shuck vs shellcheck.
-- **Make targets:** `make bench` and `make bench-macro` succeed.
+- **Single-file comparison:** `./tooling/benchmarks/run_single.sh crates/shucked-benchmark/resources/files/nvm.sh` produces hyperfine output comparing shuck vs shellcheck.
+- **Just recipes:** `just bench` and `just bench-macro` succeed.

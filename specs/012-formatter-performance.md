@@ -374,13 +374,13 @@ cargo bench -p shuck-benchmark --bench formatter -- --noplot
 Run the formatter macro benchmarks against the installed `shfmt` in the Nix shell:
 
 ```bash
-make bench-macro-format
+just bench format
 ```
 
 For focused one-off runs:
 
 ```bash
-make bench-macro-format-single BENCH_FILE=/absolute/path/to/script.sh
+just bench format-single BENCH_FILE=/absolute/path/to/script.sh
 ```
 
 For comparison against a locally built `shfmt` checkout, put that binary first on `PATH` before running the formatter benchmark helpers. In this workspace, the local checkout lives at `/Users/ewhauser/working/shfmt`.
@@ -390,9 +390,9 @@ For comparison against a locally built `shfmt` checkout, put that binary first o
 Run formatter tests and oracle coverage:
 
 ```bash
-cargo test -p shuck-formatter
-make test-oracle-shfmt-fixtures
-make test-oracle-shfmt-benchmark
+cargo test -p shucked-formatter
+just test-oracle-shfmt-fixtures
+just test-oracle-shfmt-benchmark
 ```
 
 ### Profiling Verification
@@ -400,8 +400,8 @@ make test-oracle-shfmt-benchmark
 Use the profiling helpers to confirm that time moves out of the targeted hot paths:
 
 ```bash
-make profile-formatter PROFILE_CASE=nvm
-make flame-formatter PROFILE_CASE=nvm
+just profile formatter PROFILE_CASE=nvm
+just flame formatter PROFILE_CASE=nvm
 ```
 
 ### Exit Criteria

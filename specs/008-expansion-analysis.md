@@ -404,13 +404,13 @@ The expansion analysis layer is verified at three levels:
 - **Snapshot and fixture tests** per consumer rule: Each rule that uses the expansion system has its own test suite validating that the combined analysis produces correct diagnostics for known patterns.
 
 - **Large corpus conformance**: The expansion system's accuracy is validated indirectly through the large corpus comparison against ShellCheck for affected rules:
-  - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S001`
-  - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=S004,S008`
-  - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C048,C055`
-  - `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C057,C058`
+  - `just corpus test SHUCK_LARGE_CORPUS_RULES=S001`
+  - `just corpus test SHUCK_LARGE_CORPUS_RULES=S004,S008`
+  - `just corpus test SHUCK_LARGE_CORPUS_RULES=C048,C055`
+  - `just corpus test SHUCK_LARGE_CORPUS_RULES=C057,C058`
 
 Verifying a new rule that consumes the expansion system:
 
-1. `cargo test -p shuck-linter -- <rule_test_name>` — rule-level tests pass.
-2. `cargo test -p shuck-linter` — no regressions across the linter.
-3. `make test-large-corpus SHUCK_LARGE_CORPUS_RULES=<rule_code>` — corpus conformance holds.
+1. `cargo test -p shucked-linter -- <rule_test_name>` — rule-level tests pass.
+2. `cargo test -p shucked-linter` — no regressions across the linter.
+3. `just corpus test SHUCK_LARGE_CORPUS_RULES=<rule_code>` — corpus conformance holds.

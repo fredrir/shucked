@@ -196,7 +196,7 @@ must not initialize during ordinary `AnalysisRequest::analyze` or
 
 Performance regressions are evaluated separately for CLI linting and server
 requests. It is acceptable for an editor request to pay for an editor index.
-It is not acceptable for that index to appear in `make profile-cli`,
+It is not acceptable for that index to appear in `just profile cli`,
 `shuck check`, or large-corpus lint timing unless a lint rule also consumes the
 same structure.
 
@@ -679,14 +679,14 @@ cargo fmt --all --check
 cargo clippy -p shuck-server -p shuck-cli --all-targets -- -D warnings
 cargo test -p shuck-server
 cargo test -p shuck-semantic
-make test
+just test
 ```
 
 Lint-mode performance validation:
 
 ```bash
-make profile-cli
-make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1
+just profile cli
+just corpus test SHUCK_LARGE_CORPUS_TIMING=1
 ```
 
 The implementation should compare these against the pre-feature baseline and

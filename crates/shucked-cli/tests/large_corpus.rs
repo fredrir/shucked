@@ -1181,7 +1181,7 @@ fn select_large_corpus_timing_fixtures(
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires the large corpus; run `make test-large-corpus`"]
+#[ignore = "requires the large corpus; run `just corpus test`"]
 fn large_corpus_conforms_with_shellcheck() {
     let cfg = match resolve_large_corpus_config() {
         Some(cfg) => cfg,
@@ -1288,7 +1288,7 @@ fn large_corpus_conforms_with_shellcheck() {
 }
 
 #[test]
-#[ignore = "requires the large corpus; run `make test-large-corpus-zsh`"]
+#[ignore = "requires the large corpus; run `just corpus test-zsh`"]
 fn large_corpus_zsh_fixtures_parse() {
     let cfg = match resolve_large_corpus_config() {
         Some(cfg) => cfg,
@@ -1328,7 +1328,7 @@ fn large_corpus_zsh_fixtures_parse() {
 }
 
 #[test]
-#[ignore = "requires the zsh diagnostic corpus; run `make test-large-corpus`"]
+#[ignore = "requires the zsh diagnostic corpus; run `just corpus test`"]
 fn zsh_diagnostic_corpus_matches_baseline() {
     let cfg = match resolve_zsh_diagnostic_corpus_config() {
         Some(cfg) => cfg,

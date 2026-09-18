@@ -712,8 +712,8 @@ losing precision.
 cargo test -p shuck-linter build_script
 cargo test -p shuck-linter ambient_contracts
 cargo test -p shuck-cli contract
-make test
-make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
+just test
+just corpus test SHUCK_LARGE_CORPUS_RULES=C001,C006
 ```
 
 The large-corpus command is required before landing the implementation because

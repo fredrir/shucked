@@ -867,7 +867,7 @@ cargo test -p shuck-semantic plugin_resolution
 cargo test -p shuck-linter zsh
 cargo test -p shuck-cli check::cache
 cargo test -p shuck-cli check::watch
-make test
+just test
 ```
 
 If corpus fixtures are added for real zsh plugin repos, run the corresponding

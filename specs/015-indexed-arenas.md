@@ -78,14 +78,14 @@ Rules could switch directly from `&CommandFact` slices to explicit fact views ov
 
 ## Verification
 
-- `cargo test -p shuck-ast`
-- `cargo test -p shuck-linter`
-- `cargo test -p shuck-semantic`
-- `cargo test -p shuck-parser`
-- `cargo test -p shuck-formatter`
-- `make test`
-- `cargo bench -p shuck-benchmark --bench large_corpus_hotspots`
-- `cargo bench -p shuck-benchmark --bench check_command`
-- `make bench-memory-compare`
+- `cargo test -p shucked-ast`
+- `cargo test -p shucked-linter`
+- `cargo test -p shucked-semantic`
+- `cargo test -p shucked-parser`
+- `cargo test -p shucked-formatter`
+- `just test`
+- `cargo bench -p shucked-benchmark --bench large_corpus_hotspots`
+- `cargo bench -p shucked-benchmark --bench check_command`
+- `just bench memory-compare`
 
 For the fact-packing milestone, rule snapshots should not change. Benchmark runs should show no throughput regression before continuing to the AST migration.
