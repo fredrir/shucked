@@ -1,6 +1,6 @@
 # AGENTS.md
 
-These instructions apply to `crates/shuck-linter`. Follow the repo-level
+These instructions apply to `crates/shucked-linter`. Follow the repo-level
 `AGENTS.md` at the repo root first, then this file.
 
 ## The layered architecture
@@ -8,19 +8,19 @@ These instructions apply to `crates/shuck-linter`. Follow the repo-level
 Linting is split into layers and each layer has a single job. Work at the
 lowest layer that gets the answer right; do not duplicate that work higher up.
 
-1. **Lexer / Parser** (`crates/shuck-parser`) — tokenizes and parses shell
+1. **Lexer / Parser** (`crates/shucked-parser`) — tokenizes and parses shell
    source into an AST. Owns all source/text scanning.
-2. **AST** (`crates/shuck-ast`) — typed AST node definitions and span data.
-3. **Indexer** (`crates/shuck-indexer`) — precomputed positional indexes over
+2. **AST** (`crates/shucked-ast`) — typed AST node definitions and span data.
+3. **Indexer** (`crates/shucked-indexer`) — precomputed positional indexes over
    the source/AST. Cheap query surface.
-4. **Semantic model** (`crates/shuck-semantic`) — bindings, references,
+4. **Semantic model** (`crates/shucked-semantic`) — bindings, references,
    scopes, declarations, source closure, call graph, CFG, dataflow.
-5. **Linter facts** (`crates/shuck-linter/src/facts.rs` and
+5. **Linter facts** (`crates/shucked-linter/src/facts.rs` and
    `src/facts/`) — linter-owned structural summaries built once per file:
    normalized commands, wrapper chains, option-shape summaries, word/expansion
    facts, pipeline/loop/list facts, redirect/substitution facts, surface
    fragment facts, test/conditional facts.
-6. **Rules** (`crates/shuck-linter/src/rules/{category}/`) — cheap filters
+6. **Rules** (`crates/shucked-linter/src/rules/{category}/`) — cheap filters
    over facts plus rule-specific policy and wording.
 
 ## Hard rules for rule files
@@ -55,8 +55,8 @@ If you reach for one of these, **stop**. The fix is to extend a lower layer:
   `LinterFacts` (or one of the fact submodules in `src/facts/`) and consume
   the new field from the rule.
 - Need new bindings/references/scope/dataflow data? Extend
-  `crates/shuck-semantic` and surface it via `checker.semantic()`.
-- Need new tokenization or parsing behavior? Extend `crates/shuck-parser` and
+  `crates/shucked-semantic` and surface it via `checker.semantic()`.
+- Need new tokenization or parsing behavior? Extend `crates/shucked-parser` and
   let it propagate up through the AST and semantic layers.
 
 ## What rule files look like
@@ -150,7 +150,7 @@ the edit is obviously local and semantics-preserving.
 - For autofix snapshots, use the helper in `src/test.rs` so snapshots show
   diagnostics plus the applied diff/fixed source.
 - If the fix is reachable from the CLI, add or update integration coverage in
-  `crates/shuck-cli/tests/` for `check --fix`, `--unsafe-fixes`, and any relevant
+  `crates/shucked-cli/tests/` for `check --fix`, `--unsafe-fixes`, and any relevant
   exit behavior.
 
 The first question for any new fix should be: "Do we already have an exact
@@ -180,7 +180,7 @@ command/body discovery instead of adding local recursive walkers.
   command visits, body-scoped command iteration, parent/child command queries,
   syntax-backed command queries, and nested word-command filtering. If a query
   becomes useful outside linter facts, promote the relationship into
-  `shuck-semantic` and keep the linter helper as a thin adapter.
+  `shucked-semantic` and keep the linter helper as a thin adapter.
 - Use `BodyTopology` for local statement-sequence topology: direct statements,
   sibling pairs, indexed sibling pairs, previous/next direct siblings, and
   nested body traversal with explicit descend/skip/break behavior.

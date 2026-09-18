@@ -1,18 +1,18 @@
-# shuck-wasm
+# shucked-wasm
 
-WebAssembly bindings for the [Shuck](https://github.com/ewhauser/shuck) shell
+WebAssembly bindings for the [Shucked](https://github.com/fredrir/shucked) shell
 script linter and formatter.
 
 The npm package is built for wasm-aware bundlers such as webpack, Rollup, or
 esbuild. It can be bundled into Node.js editor extensions and browser-hosted
-editors without installing the native `shuck` executable.
+editors without installing the native `shucked` executable.
 
 ```sh
-npm install shuck-wasm
+npm install shucked-wasm
 ```
 
 ```ts
-import { format, lint, version } from "shuck-wasm";
+import { format, lint, version } from "shucked-wasm";
 
 const diagnostics = lint("echo $name\n", {
   filename: "script.bash",
@@ -29,7 +29,7 @@ const formatted = format("hello(){\necho hi\n}\n", {
   indentWidth: 2,
 });
 
-console.log(`shuck ${version()}`);
+console.log(`shucked ${version()}`);
 ```
 
 Diagnostic and fix ranges use zero-based UTF-16 positions, matching VS Code and
@@ -39,4 +39,4 @@ the filesystem.
 
 The package exposes source linting and formatting. Project discovery,
 configuration-file loading, embedded shell extraction, source-file resolution,
-and the stdio language server remain features of the native Shuck CLI.
+and the stdio language server remain features of the native Shucked CLI.

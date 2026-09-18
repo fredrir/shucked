@@ -87,6 +87,7 @@ pub fn server_capabilities(
             },
         })),
         selection_range_provider: Some(types::SelectionRangeProviderCapability::Simple(true)),
+        inlay_hint_provider: Some(OneOf::Left(true)),
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
@@ -107,12 +108,28 @@ pub enum SupportedCodeAction {
     QuickFix,
     /// Fix all code actions (`source.fixAll.shucked`).
     SourceFixAll,
+    /// Refactor code actions.
+    Refactor,
+    /// Extract refactorings.
+    RefactorExtract,
+    /// Inline refactorings.
+    RefactorInline,
+    /// Rewrite refactorings.
+    RefactorRewrite,
 }
 
 impl SupportedCodeAction {
     /// Iterator over all supported code action types.
     pub fn all() -> impl Iterator<Item = Self> {
-        [Self::QuickFix, Self::SourceFixAll].into_iter()
+        [
+            Self::QuickFix,
+            Self::SourceFixAll,
+            Self::Refactor,
+            Self::RefactorExtract,
+            Self::RefactorInline,
+            Self::RefactorRewrite,
+        ]
+        .into_iter()
     }
 
     /// Convert to LSP `CodeActionKind`.
@@ -120,6 +137,10 @@ impl SupportedCodeAction {
         match self {
             Self::QuickFix => CodeActionKind::QUICKFIX,
             Self::SourceFixAll => crate::SOURCE_FIX_ALL_SHUCKED,
+            Self::Refactor => CodeActionKind::REFACTOR,
+            Self::RefactorExtract => CodeActionKind::REFACTOR_EXTRACT,
+            Self::RefactorInline => CodeActionKind::REFACTOR_INLINE,
+            Self::RefactorRewrite => CodeActionKind::REFACTOR_REWRITE,
         }
     }
 }
@@ -233,5 +254,28 @@ mod tests {
             };
             assert_eq!(options.workspace_diagnostics, expected);
         }
+    }
+
+    #[test]
+    fn advertises_refactor_code_action_kinds() {
+        let capabilities = server_capabilities(PositionEncoding::UTF16, false);
+        let Some(types::CodeActionProviderCapability::Options(options)) =
+            capabilities.code_action_provider
+        else {
+            panic!("expected code action provider options");
+        };
+        let kinds = options
+            .code_action_kinds
+            .expect("should advertise action kinds");
+        assert!(kinds.contains(&types::CodeActionKind::REFACTOR));
+        assert!(kinds.contains(&types::CodeActionKind::REFACTOR_EXTRACT));
+        assert!(kinds.contains(&types::CodeActionKind::REFACTOR_INLINE));
+        assert!(kinds.contains(&types::CodeActionKind::REFACTOR_REWRITE));
+    }
+
+    #[test]
+    fn advertises_inlay_hint_capability() {
+        let capabilities = server_capabilities(PositionEncoding::UTF16, false);
+        assert_eq!(capabilities.inlay_hint_provider, Some(OneOf::Left(true)));
     }
 }

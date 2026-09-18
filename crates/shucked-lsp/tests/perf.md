@@ -1,11 +1,11 @@
-# shuck-server perf notes
+# shucked-server perf notes
 
 ## Criterion LSP suite
 
 Run the end-to-end in-memory LSP benchmarks with:
 
 ```bash
-make bench-lsp
+just bench lsp
 ```
 
 The suite measures warm and invalidated pull diagnostics for a 5 KiB open
@@ -20,20 +20,20 @@ Use Criterion baselines for regression comparisons rather than committing a
 machine-specific latency threshold:
 
 ```bash
-cargo bench -p shuck-benchmark --bench lsp -- --save-baseline=lsp-main
-cargo bench -p shuck-benchmark --bench lsp -- --baseline=lsp-main
+cargo bench -p shucked-benchmark --bench lsp -- --save-baseline=lsp-main
+cargo bench -p shucked-benchmark --bench lsp -- --baseline=lsp-main
 ```
 
 ## Historical measurements
 
-Recorded on 2026-05-03 from `/Users/ewhauser/working/shuck-lsp`.
+Recorded on 2026-05-03 from `/Users/ewhauser/working/shucked-lsp`.
 
 ## Benchmark gate
 
 Command:
 
 ```bash
-cargo bench -p shuck-benchmark --bench check_command
+cargo bench -p shucked-benchmark --bench check_command
 ```
 
 Result:
@@ -47,7 +47,7 @@ Result:
 Command:
 
 ```bash
-cargo test -p shuck-server --release --test latency measure_pull_diagnostics_round_trip -- --ignored --nocapture
+cargo test -p shucked-server --release --test latency measure_pull_diagnostics_round_trip -- --ignored --nocapture
 ```
 
 Result:

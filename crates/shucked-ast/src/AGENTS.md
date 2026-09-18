@@ -1,6 +1,6 @@
 # AGENTS.md
 
-These instructions apply to `crates/shuck-ast/src`. Follow the repo-level
+These instructions apply to `crates/shucked-ast/src`. Follow the repo-level
 `AGENTS.md` at the repo root first, then this file.
 
 ## AST allocation guardrails

@@ -1,6 +1,6 @@
-# shuck-formatter
+# shucked-formatter
 
-`shuck-formatter` formats shell scripts using the parser and AST from the Shuck workspace.
+`shucked-formatter` formats shell scripts using the parser and AST from the Shucked workspace.
 
 It exposes formatting options, source-level formatting helpers, and AST-based formatting entry
-points. The crate powers the `shuck format` command and remains pre-1.0.
+points. The crate powers the `shucked format` command and remains pre-1.0.

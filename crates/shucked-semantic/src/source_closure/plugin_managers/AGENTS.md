@@ -25,7 +25,7 @@ not become a second shell interpreter.
 - Plugin managers may model framework contracts and bounded deferred behavior,
   such as static hook registrations or known generated wrapper templates.
 - Keep symbolic execution intentionally bounded. Follow static names and literal
-  arguments when Shuck has already extracted them; do not evaluate arbitrary shell
+  arguments when Shucked has already extracted them; do not evaluate arbitrary shell
   code, run commands, or interpret unconstrained `eval` strings.
 - Avoid hard-coded plugin allowlists in Rust. If behavior is plugin-specific and
   cannot be inferred from source shape, prefer resolver data or future manifest
@@ -41,7 +41,7 @@ not become a second shell interpreter.
   regression test that would fail without the fix.
 - Include a negative test for every new inference path, especially generated
   callbacks or dynamic-looking source patterns.
-- Run at least `cargo test -p shuck-semantic` and
-  `cargo clippy -p shuck-semantic --all-targets -- -D warnings` before pushing.
+- Run at least `cargo test -p shucked-semantic` and
+  `cargo clippy -p shucked-semantic --all-targets -- -D warnings` before pushing.
   For source-closure changes that can affect zsh corpus behavior, also run the
   targeted zsh large-corpus comparison.

@@ -202,6 +202,24 @@ pub(crate) fn collect_raw_diagnostics_for_analysis(
     }
 }
 
+/// Returns the LSP diagnostic tags associated with a linter rule, if any.
+pub fn diagnostic_tags_for_rule(rule: shucked_linter::Rule) -> Option<Vec<types::DiagnosticTag>> {
+    match rule {
+        shucked_linter::Rule::UnusedAssignment
+        | shucked_linter::Rule::UnreachableAfterExit
+        | shucked_linter::Rule::UnusedHeredoc => Some(vec![types::DiagnosticTag::UNNECESSARY]),
+        shucked_linter::Rule::AvoidLetBuiltin
+        | shucked_linter::Rule::LegacyBackticks
+        | shucked_linter::Rule::LegacyArithmeticExpansion
+        | shucked_linter::Rule::EgrepDeprecated
+        | shucked_linter::Rule::FgrepDeprecated
+        | shucked_linter::Rule::DeprecatedTempfileCommand => {
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        }
+        _ => None,
+    }
+}
+
 fn to_lsp_diagnostic(
     snapshot: &DocumentSnapshot,
     diagnostic: &ShuckDiagnostic,
@@ -231,7 +249,7 @@ fn to_lsp_diagnostic(
         source: Some(DIAGNOSTIC_NAME.into()),
         message: diagnostic.message.clone(),
         related_information: None,
-        tags: None,
+        tags: diagnostic_tags_for_rule(diagnostic.rule),
         data,
     }
 }
@@ -329,7 +347,7 @@ fn parse_error_to_lsp(
     }
 }
 
-fn to_lsp_text_edit(
+pub(crate) fn to_lsp_text_edit(
     edit: &ShuckEdit,
     source: &str,
     line_index: &LineIndex,
@@ -565,5 +583,93 @@ mod tests {
         .expect("diagnostic payload should deserialize");
         assert_eq!(data.edits[0].range.start.line, 1);
         assert_eq!(data.edits[0].range.start.character, 0);
+    }
+
+    #[test]
+    fn diagnostic_tags_for_rule_classifies_rules() {
+        use shucked_linter::Rule;
+
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::UnusedAssignment),
+            Some(vec![types::DiagnosticTag::UNNECESSARY])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::UnreachableAfterExit),
+            Some(vec![types::DiagnosticTag::UNNECESSARY])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::UnusedHeredoc),
+            Some(vec![types::DiagnosticTag::UNNECESSARY])
+        );
+
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::AvoidLetBuiltin),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::LegacyBackticks),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::LegacyArithmeticExpansion),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::EgrepDeprecated),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::FgrepDeprecated),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+        assert_eq!(
+            diagnostic_tags_for_rule(Rule::DeprecatedTempfileCommand),
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
+
+        assert_eq!(diagnostic_tags_for_rule(Rule::UndefinedVariable), None);
+    }
+
+    #[test]
+    fn diagnostics_include_tags_for_unnecessary_and_deprecated_rules() {
+        let snapshot = make_snapshot(
+            &std::env::temp_dir().join("unused.sh"),
+            "foo=1\n",
+            "shellscript",
+            PositionEncoding::UTF16,
+            ClientOptions::default(),
+        );
+
+        let diagnostics = generate_diagnostics(&snapshot);
+        assert!(!diagnostics.is_empty());
+        assert_eq!(
+            diagnostics[0].tags,
+            Some(vec![types::DiagnosticTag::UNNECESSARY])
+        );
+
+        let snapshot_deprecated = make_snapshot(
+            &std::env::temp_dir().join("deprecated.sh"),
+            "echo `date`\n",
+            "shellscript",
+            PositionEncoding::UTF16,
+            ClientOptions {
+                lint: Some(shucked_config::LintConfig {
+                    extend_select: Some(vec!["S005".to_owned()]),
+                    ..shucked_config::LintConfig::default()
+                }),
+                ..ClientOptions::default()
+            },
+        );
+
+        let diagnostics_dep = generate_diagnostics(&snapshot_deprecated);
+        assert!(!diagnostics_dep.is_empty());
+        let backtick_diag = diagnostics_dep
+            .iter()
+            .find(|d| d.code == Some(types::NumberOrString::String("S005".into())))
+            .expect("should find S005 diagnostic");
+        assert_eq!(
+            backtick_diag.tags,
+            Some(vec![types::DiagnosticTag::DEPRECATED])
+        );
     }
 }

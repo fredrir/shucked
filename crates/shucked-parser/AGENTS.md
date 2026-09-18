@@ -1,6 +1,6 @@
 # AGENTS.md
 
-These instructions apply to `crates/shuck-parser`. Follow the repo-level
+These instructions apply to `crates/shucked-parser`. Follow the repo-level
 `AGENTS.md` at the repo root first, then this file.
 
 ## Performance guardrails

@@ -6,5 +6,5 @@ the relevant framework/plugin-manager root, and any standalone plugin repositori
 that should be resolved automatically.
 
 The files are intentionally tiny. They should preserve the loading shape that
-Shuck needs to understand without copying full third-party plugins into tests.
+Shucked needs to understand without copying full third-party plugins into tests.
 

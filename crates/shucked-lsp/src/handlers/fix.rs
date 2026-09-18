@@ -4,8 +4,8 @@ use lsp_types as types;
 use serde::{Deserialize, Serialize};
 
 use crate::lint::{
-    AssociatedDiagnosticData, associated_diagnostic_data, directive_edit_for_line,
-    fix_all_document_edits, generate_diagnostics,
+    AssociatedDiagnosticData, associated_diagnostic_data, collect_raw_diagnostics_for_snapshot,
+    directive_edit_for_line, fix_all_document_edits, generate_diagnostics, to_lsp_text_edit,
 };
 use crate::session::{Client, DocumentSnapshot, Session};
 
@@ -19,6 +19,18 @@ pub(crate) fn code_actions(
     let include_quickfix = wants_kind(only, &types::CodeActionKind::QUICKFIX);
     let include_fix_all = wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCKED)
         || wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCKED);
+    let include_refactor = only.is_none_or(|kinds| {
+        kinds.iter().any(|kind| {
+            let s = kind.as_str();
+            s == "refactor"
+                || s.starts_with("refactor.")
+                || action_kind_matches(kind, &types::CodeActionKind::REFACTOR)
+        })
+    });
+
+    let mut semantic_fixes = Vec::new();
+    let mut fixable_rule_codes = Vec::new();
+    let mut suppression_actions = Vec::new();
 
     if include_quickfix {
         for diagnostic in diagnostics_for_range(&snapshot, &params.range) {
@@ -27,18 +39,41 @@ pub(crate) fn code_actions(
             };
 
             if should_offer_fix(&snapshot, &data) {
-                actions.push(types::CodeActionOrCommand::CodeAction(
+                semantic_fixes.push(types::CodeActionOrCommand::CodeAction(
                     diagnostic_fix_action(&snapshot, &diagnostic, &data),
                 ));
+                if !fixable_rule_codes.contains(&data.code) {
+                    fixable_rule_codes.push(data.code.clone());
+                }
             }
 
             if let Some(edit) = data.directive_edit.clone() {
-                actions.push(types::CodeActionOrCommand::CodeAction(
+                suppression_actions.push(types::CodeActionOrCommand::CodeAction(
                     diagnostic_directive_action(&snapshot, &diagnostic, &data, edit),
                 ));
             }
+
+            let file_edit = file_suppression_edit(&snapshot, &data.code);
+            suppression_actions.push(types::CodeActionOrCommand::CodeAction(
+                diagnostic_file_directive_action(&snapshot, &diagnostic, &data.code, file_edit),
+            ));
         }
     }
+
+    let mut batch_fixes = Vec::new();
+    if include_quickfix {
+        for rule_code in fixable_rule_codes {
+            let edits = batch_rule_edits(&snapshot, &rule_code);
+            if !edits.is_empty() {
+                batch_fixes.push(types::CodeActionOrCommand::CodeAction(batch_fix_action(
+                    &snapshot, &rule_code, edits,
+                )));
+            }
+        }
+    }
+
+    actions.extend(semantic_fixes);
+    actions.extend(batch_fixes);
 
     if include_fix_all && snapshot.client_settings().fix_all() {
         let edits = fix_all_document_edits(
@@ -54,6 +89,13 @@ pub(crate) fn code_actions(
                 &snapshot, edits,
             )?));
         }
+    }
+
+    actions.extend(suppression_actions);
+
+    if include_refactor {
+        let refactor_actions = crate::handlers::refactor::refactor_code_actions(&snapshot, &params);
+        actions.extend(refactor_actions);
     }
 
     Ok((!actions.is_empty()).then_some(actions))
@@ -214,6 +256,215 @@ fn diagnostic_directive_action(
     }
 }
 
+fn diagnostic_file_directive_action(
+    snapshot: &DocumentSnapshot,
+    diagnostic: &types::Diagnostic,
+    code: &str,
+    edit: types::TextEdit,
+) -> types::CodeAction {
+    types::CodeAction {
+        title: format!("Shucked ({code}): Disable for entire file"),
+        kind: Some(types::CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(workspace_edit_for_document(snapshot, vec![edit])),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    }
+}
+
+fn file_suppression_edit(snapshot: &DocumentSnapshot, code: &str) -> types::TextEdit {
+    let source = snapshot.query().document().contents();
+    let line_index = snapshot.query().document().index();
+    let encoding = snapshot.encoding();
+
+    let mut offset = 0;
+    let mut lines = source.split_inclusive('\n');
+
+    if let Some(first_line) = lines.next() {
+        let trimmed = first_line.trim_start();
+        if trimmed.starts_with("#!") || trimmed.starts_with('#') {
+            offset += first_line.len();
+            for line in lines {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with('#') {
+                    offset += line.len();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    let newline = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let prefix_nl = if offset > 0 && !source[..offset].ends_with('\n') {
+        newline
+    } else {
+        ""
+    };
+
+    let range = crate::edit::to_lsp_range(
+        shucked_ast::TextRange::new(
+            shucked_ast::TextSize::new(offset as u32),
+            shucked_ast::TextSize::new(offset as u32),
+        ),
+        source,
+        line_index,
+        encoding,
+    );
+
+    types::TextEdit {
+        range,
+        new_text: format!("{prefix_nl}# shuck: disable-file={code}{newline}"),
+    }
+}
+
+fn batch_fix_action(
+    snapshot: &DocumentSnapshot,
+    rule_code: &str,
+    edits: Vec<types::TextEdit>,
+) -> types::CodeAction {
+    types::CodeAction {
+        title: format!("Shucked ({rule_code}): Fix all in this file"),
+        kind: Some(types::CodeActionKind::QUICKFIX),
+        diagnostics: None,
+        edit: Some(workspace_edit_for_document(snapshot, edits)),
+        command: None,
+        is_preferred: Some(false),
+        disabled: None,
+        data: None,
+    }
+}
+
+pub(crate) fn batch_rule_edits(
+    snapshot: &DocumentSnapshot,
+    rule_code: &str,
+) -> Vec<types::TextEdit> {
+    let Some(raw) = collect_raw_diagnostics_for_snapshot(snapshot) else {
+        return Vec::new();
+    };
+
+    let source = snapshot.query().document().contents();
+    let line_index = snapshot.query().document().index();
+    let encoding = snapshot.encoding();
+    let allow_unsafe = snapshot.client_settings().unsafe_fixes();
+
+    let matching_diagnostics = raw.shell_diagnostics.iter().filter(|diagnostic| {
+        diagnostic.code() == rule_code
+            && snapshot
+                .shuck_settings()
+                .fixable_rules()
+                .contains(diagnostic.rule)
+    });
+
+    let mut candidate_fixes: Vec<Vec<shucked_linter::Edit>> = Vec::new();
+    for diagnostic in matching_diagnostics {
+        let Some(fix) = diagnostic.fix.as_ref() else {
+            continue;
+        };
+        if !allow_unsafe && fix.applicability() != shucked_linter::Applicability::Safe {
+            continue;
+        }
+        let mut edits = fix.edits().to_vec();
+        if edits.is_empty() {
+            continue;
+        }
+        edits.sort_by(compare_shuck_edits);
+        candidate_fixes.push(edits);
+    }
+
+    candidate_fixes.sort_by(|a, b| compare_candidate_fixes(a, b));
+
+    let mut applied_edits: Vec<shucked_linter::Edit> = Vec::new();
+    for candidate_edits in candidate_fixes {
+        if has_internal_edit_conflicts(&candidate_edits) {
+            continue;
+        }
+        if candidate_edits.iter().any(|edit| {
+            applied_edits
+                .iter()
+                .any(|applied| shuck_edits_conflict(edit, applied))
+        }) {
+            continue;
+        }
+        applied_edits.extend(candidate_edits);
+    }
+
+    if applied_edits.is_empty() {
+        return Vec::new();
+    }
+
+    applied_edits.sort_by(compare_shuck_edits);
+
+    applied_edits
+        .iter()
+        .map(|edit| to_lsp_text_edit(edit, source, line_index, encoding))
+        .collect()
+}
+
+fn compare_candidate_fixes(
+    left: &[shucked_linter::Edit],
+    right: &[shucked_linter::Edit],
+) -> std::cmp::Ordering {
+    for (left_edit, right_edit) in left.iter().zip(right) {
+        let ordering = compare_shuck_edits(left_edit, right_edit);
+        if !ordering.is_eq() {
+            return ordering;
+        }
+    }
+    left.len().cmp(&right.len())
+}
+
+fn compare_shuck_edits(
+    left: &shucked_linter::Edit,
+    right: &shucked_linter::Edit,
+) -> std::cmp::Ordering {
+    let left_start = usize::from(left.range().start());
+    let right_start = usize::from(right.range().start());
+    let left_end = usize::from(left.range().end());
+    let right_end = usize::from(right.range().end());
+
+    left_start
+        .cmp(&right_start)
+        .then(left_end.cmp(&right_end))
+        .then(left.content().cmp(right.content()))
+}
+
+fn has_internal_edit_conflicts(edits: &[shucked_linter::Edit]) -> bool {
+    edits
+        .windows(2)
+        .any(|window| shuck_edits_conflict(&window[0], &window[1]))
+}
+
+fn shuck_edits_conflict(left: &shucked_linter::Edit, right: &shucked_linter::Edit) -> bool {
+    let left_start = usize::from(left.range().start());
+    let left_end = usize::from(left.range().end());
+    let right_start = usize::from(right.range().start());
+    let right_end = usize::from(right.range().end());
+
+    let left_is_insertion = left.range().is_empty();
+    let right_is_insertion = right.range().is_empty();
+
+    if left_is_insertion && right_is_insertion {
+        return left_start == right_start;
+    }
+
+    if left_is_insertion {
+        return right_start <= left_start && left_start <= right_end;
+    }
+
+    if right_is_insertion {
+        return left_start <= right_start && right_start <= left_end;
+    }
+
+    left_start < right_end && right_start < left_end
+}
+
 fn fix_all_action(
     snapshot: &DocumentSnapshot,
     edits: Vec<types::TextEdit>,
@@ -246,7 +497,7 @@ fn fix_all_action(
     Ok(action)
 }
 
-fn workspace_edit_for_document(
+pub(crate) fn workspace_edit_for_document(
     snapshot: &DocumentSnapshot,
     edits: Vec<types::TextEdit>,
 ) -> types::WorkspaceEdit {
@@ -885,5 +1136,155 @@ mod tests {
                     .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCKED))
             );
         }
+    }
+
+    #[test]
+    fn batch_rule_fix_offers_fix_for_all_occurrences_in_file() {
+        let capabilities = ClientCapabilities::default();
+        let (session, client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\nbar=2\n", "shellscript", "script.sh");
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 3)),
+                context: CodeActionContext {
+                    diagnostics: Vec::new(),
+                    only: Some(vec![types::CodeActionKind::QUICKFIX]),
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("code actions should be present");
+
+        let actions = extract_actions(response);
+
+        let semantic_fix = actions
+            .iter()
+            .find(|a| a.title.contains("rename the unused assignment target"))
+            .expect("semantic fix should be offered");
+        assert_eq!(semantic_fix.kind, Some(types::CodeActionKind::QUICKFIX));
+        assert_eq!(semantic_fix.is_preferred, Some(true));
+
+        let batch_fix = actions
+            .iter()
+            .find(|a| a.title == "Shucked (C001): Fix all in this file")
+            .expect("batch fix should be offered");
+        assert_eq!(batch_fix.kind, Some(types::CodeActionKind::QUICKFIX));
+        assert_eq!(batch_fix.is_preferred, Some(false));
+
+        let edit = batch_fix
+            .edit
+            .as_ref()
+            .expect("batch fix must have an edit");
+        let edit_count = if let Some(types::DocumentChanges::Edits(edits)) = &edit.document_changes
+        {
+            edits.first().map(|e| e.edits.len()).unwrap_or(0)
+        } else if let Some(changes) = &edit.changes {
+            changes.values().map(|v| v.len()).sum()
+        } else {
+            0
+        };
+        assert_eq!(edit_count, 2);
+    }
+
+    #[test]
+    fn file_suppression_edit_inserts_after_shebang_and_comments() {
+        let capabilities = ClientCapabilities::default();
+
+        // 1. Shebang only
+        let (session, _client, _client_receiver, uri) = make_session(
+            capabilities.clone(),
+            "#!/bin/bash\nfoo=1\n",
+            "shellscript",
+            "s1.sh",
+        );
+        let snapshot = session.take_snapshot(uri).unwrap();
+        let edit = file_suppression_edit(&snapshot, "C001");
+        assert_eq!(edit.range.start.line, 1);
+        assert_eq!(edit.range.start.character, 0);
+        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+
+        // 2. Shebang and initial comments
+        let (session, _client, _client_receiver, uri) = make_session(
+            capabilities.clone(),
+            "#!/bin/bash\n# comment 1\n# comment 2\nfoo=1\n",
+            "shellscript",
+            "s2.sh",
+        );
+        let snapshot = session.take_snapshot(uri).unwrap();
+        let edit = file_suppression_edit(&snapshot, "C001");
+        assert_eq!(edit.range.start.line, 3);
+        assert_eq!(edit.range.start.character, 0);
+        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+
+        // 3. Comments without shebang
+        let (session, _client, _client_receiver, uri) = make_session(
+            capabilities.clone(),
+            "# header\nfoo=1\n",
+            "shellscript",
+            "s3.sh",
+        );
+        let snapshot = session.take_snapshot(uri).unwrap();
+        let edit = file_suppression_edit(&snapshot, "C001");
+        assert_eq!(edit.range.start.line, 1);
+        assert_eq!(edit.range.start.character, 0);
+        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+
+        // 4. No shebang, no comments
+        let (session, _client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\n", "shellscript", "s4.sh");
+        let snapshot = session.take_snapshot(uri).unwrap();
+        let edit = file_suppression_edit(&snapshot, "C001");
+        assert_eq!(edit.range.start.line, 0);
+        assert_eq!(edit.range.start.character, 0);
+        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+    }
+
+    #[test]
+    fn code_actions_order_semantic_batch_then_suppressions_at_bottom() {
+        let capabilities = ClientCapabilities::default();
+        let (session, client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\n", "shellscript", "script.sh");
+        let snapshot = session.take_snapshot(uri.clone()).unwrap();
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 3)),
+                context: CodeActionContext {
+                    diagnostics: Vec::new(),
+                    only: None,
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("code actions should be present");
+
+        let actions = extract_actions(response);
+        let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
+
+        // Semantic fix is first
+        assert!(titles[0].starts_with("Shucked (C001): rename"));
+        // Batch fix is next
+        assert_eq!(titles[1], "Shucked (C001): Fix all in this file");
+        // Fix all is next
+        assert_eq!(titles[2], "Shucked: Fix all auto-fixable issues");
+        // Suppressions are at the bottom
+        assert_eq!(titles[3], "Shucked (C001): Disable for this line");
+        assert_eq!(titles[4], "Shucked (C001): Disable for entire file");
     }
 }

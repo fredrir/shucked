@@ -86,6 +86,9 @@ pub(super) fn request(req: server::Request) -> Task {
         request::Hover::METHOD => {
             background_session_request_task::<request::Hover>(req, BackgroundSchedule::Worker)
         }
+        request::InlayHint::METHOD => {
+            background_request_task::<request::InlayHint>(req, BackgroundSchedule::Worker)
+        }
         request::PrepareRename::METHOD => {
             background_session_request_task::<request::PrepareRename>(
                 req,

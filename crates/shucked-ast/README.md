@@ -1,11 +1,11 @@
-# shuck-ast
+# shucked-ast
 
-`shuck-ast` defines the abstract syntax tree, token kinds, and span types shared across the
-Shuck workspace.
+`shucked-ast` defines the abstract syntax tree, token kinds, and span types shared across the
+Shucked workspace.
 
 Use this crate when you need to inspect or transform parsed shell syntax. In most cases,
-`shuck-parser` is the crate that produces these types, while `shuck-indexer`, `shuck-linter`,
-and `shuck-formatter` consume them.
+`shucked-parser` is the crate that produces these types, while `shucked-indexer`, `shucked-linter`,
+and `shucked-formatter` consume them.
 
 AST node documentation is available from the crate root. Start with `File`, then traverse
 `File::body` through `Stmt` and `Command`.

@@ -186,6 +186,11 @@ impl DocumentAnalysis {
         &self.indexer
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn shell_profile(&self) -> &ShellProfile {
+        &self.shell_profile
+    }
+
     pub(crate) fn semantic(&self) -> &SemanticModel {
         self.semantic.get_or_init(|| {
             SemanticModel::build_with_options(

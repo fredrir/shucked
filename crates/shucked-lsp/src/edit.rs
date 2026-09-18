@@ -82,7 +82,7 @@ fn clamp_offset_to_char_boundary(text: &str, offset: usize) -> usize {
     clamped
 }
 
-fn offset_to_position(
+pub(crate) fn offset_to_position(
     text: &str,
     index: &shucked_indexer::LineIndex,
     offset: usize,

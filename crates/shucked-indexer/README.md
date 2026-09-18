@@ -1,6 +1,6 @@
-# shuck-indexer
+# shucked-indexer
 
-`shuck-indexer` builds positional and structural indexes over parsed shell scripts.
+`shucked-indexer` builds positional and structural indexes over parsed shell scripts.
 
 It sits between parsing and higher-level analysis by providing efficient lookups for lines,
 comments, quoted regions, heredocs, command substitutions, and continuation lines. The crate is

@@ -1,8 +1,8 @@
 # Manual Neovim Black-Box Tests
 
-This directory holds the Neovim-backed LSP smoke harness for `shuck server`.
+This directory holds the Neovim-backed LSP smoke harness for `shucked server`.
 
-It exercises a real headless Neovim client talking to a real `shuck server`
+It exercises a real headless Neovim client talking to a real `shucked server`
 process over stdio, with a feature-organized fixture workspace staged into a
 temporary directory for each run.
 
@@ -12,23 +12,21 @@ The same harness powers the GitHub Actions job named `LSP Integration Tests`.
 
 Enter the repo dev shell so the expected runtimes are on `PATH`:
 
-```bash
-nix --extra-experimental-features 'nix-command flakes' develop
-```
+
 
 ## Run
 
 Run the full smoke suite:
 
 ```bash
-python3 crates/shuck-server/tests/manual/run_neovim_blackbox.py
+python3 crates/shucked-lsp/tests/manual/run_neovim_blackbox.py
 ```
 
 Run a single scenario:
 
 ```bash
-python3 crates/shuck-server/tests/manual/run_neovim_blackbox.py --case diagnostics/open_edit
-python3 crates/shuck-server/tests/manual/run_neovim_blackbox.py --case code_actions/quick_fix
+python3 crates/shucked-lsp/tests/manual/run_neovim_blackbox.py --case diagnostics/open_edit
+python3 crates/shucked-lsp/tests/manual/run_neovim_blackbox.py --case code_actions/quick_fix
 ```
 
 Available scenarios:
@@ -46,10 +44,10 @@ Available scenarios:
 - `formatting/request_round_trip`
 - `configuration/reload_workspace_config`
 
-The runner builds `target/debug/shuck`, stages `fixtures/workspace/` into a
+The runner builds `target/debug/shucked`, stages `fixtures/workspace/` into a
 temporary workspace, launches `nvim --headless`, and exits non-zero if either
 the Neovim-side assertions or the server transport fail.
 
 The formatting scenario verifies that a real `textDocument/formatting` request
-is routed through `shuck-formatter` and applies the returned text edit to the
+is routed through `shucked-formatter` and applies the returned text edit to the
 buffer.

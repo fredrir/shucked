@@ -64,6 +64,10 @@ fn shell_document_snapshot_reports_native_shuck_diagnostic() {
         Some(NumberOrString::String("C001".to_owned()))
     );
     assert!(!diagnostic.message.is_empty());
+    assert_eq!(
+        diagnostic.tags,
+        Some(vec![lsp_types::DiagnosticTag::UNNECESSARY])
+    );
 
     let data = diagnostic
         .data

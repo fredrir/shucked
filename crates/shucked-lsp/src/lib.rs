@@ -10,7 +10,7 @@ use std::num::NonZeroUsize;
 
 pub use capabilities::server_capabilities;
 pub use edit::{DocumentKey, PositionEncoding, TextDocument};
-pub use handlers::generate_diagnostics;
+pub use handlers::{diagnostic_tags_for_rule, generate_diagnostics};
 use lsp_types::CodeActionKind;
 pub use server::Server;
 pub use session::{
@@ -30,8 +30,8 @@ pub mod server;
 pub mod session;
 
 pub(crate) use handlers::{
-    analysis, call_hierarchy, editor_features, fix, folding, format, lint, resolve, selection,
-    symbols, workspace_diagnostics, workspace_functions, workspace_variables,
+    analysis, call_hierarchy, editor_features, fix, folding, format, inlay_hints, lint, resolve,
+    selection, symbols, workspace_diagnostics, workspace_functions, workspace_variables,
 };
 pub(crate) use session::workspace;
 
