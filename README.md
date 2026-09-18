@@ -364,7 +364,7 @@ root.
 
 If no project config is found, Shucked falls back to a user-level global config at
 `~/.config/shucked/shucked.toml` (or `.shucked.toml`), honoring `XDG_CONFIG_HOME` when
-set. Set `SHUCK_CONFIG_HOME` to point at a different directory for the global
+set. Set `SHUCKED_CONFIG_HOME` to point at a different directory for the global
 config. A project config always takes precedence over the global one, and
 `--config <file>` or `--isolated` bypass global config entirely.
 
@@ -436,7 +436,7 @@ Gitignore and `.ignore` files are respected by default. Use `--no-respect-gitign
 
 Shucked caches lint and format results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shucked` on macOS and `$XDG_CACHE_HOME/shucked` or `~/.cache/shucked` on Linux.
 
-Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
+Override the cache root with `--cache-dir` or `SHUCKED_CACHE_DIR`.
 
 Disable caching with `--no-cache` or remove a project's cache entries with `shucked clean [PATH]`.
 

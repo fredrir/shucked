@@ -925,7 +925,8 @@ fn parses_script_metadata_before_non_comment_lines() {
 #[test]
 fn rejects_unknown_metadata_keys() {
     assert!(
-        parse_script_metadata("# /// shucked\n# shell = \"bash\"\n# foo = \"bar\"\n# ///\n").is_err()
+        parse_script_metadata("# /// shucked\n# shell = \"bash\"\n# foo = \"bar\"\n# ///\n")
+            .is_err()
     );
 }
 

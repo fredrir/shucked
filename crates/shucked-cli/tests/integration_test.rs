@@ -1348,7 +1348,7 @@ fn check_rdjson_output_is_valid_json() {
     assert_eq!(output.status.code(), Some(1));
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["source"]["name"], "shuck");
+    assert_eq!(value["source"]["name"], "shucked");
     assert_eq!(value["diagnostics"][0]["location"]["path"], "warn.sh");
 }
 
@@ -1366,7 +1366,7 @@ fn check_sarif_output_is_valid_json() {
 
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["version"], "2.1.0");
-    assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "shuck");
+    assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "shucked");
 }
 
 #[test]
