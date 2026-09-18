@@ -65,6 +65,46 @@
     "configuration": {
       "title": "Shucked",
       "properties": {
+        "shucked.fixAll.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the 'Fix all auto-fixable issues' code action and on-save action."
+        },
+        "shucked.unsafeFixes.enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Offer suggestions and quick fixes that may require manual review (unsafe fixes)."
+        },
+        "shucked.lint.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable background linting diagnostics."
+        },
+        "shucked.lint.showSyntaxErrors": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shell syntax errors in problems and editor."
+        },
+        "shucked.format.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable shell script formatting."
+        },
+        "shucked.codeAction.disableRuleComment.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show 'Disable for this line' and 'Disable for entire file' directive code actions."
+        },
+        "shucked.server.workspaceDiagnostics.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics across the entire workspace."
+        },
+        "shucked.server.workspaceSymbols.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Index workspace symbols for Go to Symbol in Workspace."
+        },
         "shucked.server.path": {
           "type": "string",
           "default": "",

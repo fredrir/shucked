@@ -133,6 +133,21 @@ interface ProgressNotificationParams {
 }
 
 /**
+ * Constructs initialization options from the current `shucked` workspace configuration.
+ */
+export function getInitializationOptions(
+  config: vscode.WorkspaceConfiguration,
+): Record<string, unknown> {
+  return {
+    unsafeFixes: config.get("unsafeFixes"),
+    fixAll: config.get("fixAll"),
+    lint: config.get("lint"),
+    format: config.get("format"),
+    codeAction: config.get("codeAction"),
+  };
+}
+
+/**
  * Manages the lifecycle of the Shucked LanguageClient.
  */
 export class ClientManager implements vscode.Disposable {
@@ -190,6 +205,10 @@ export class ClientManager implements vscode.Disposable {
       ],
       outputChannel: this.outputChannel,
       traceOutputChannel: this.traceChannel,
+      synchronize: {
+        configurationSection: "shucked",
+      },
+      initializationOptions: getInitializationOptions(config),
       errorHandler: new ShuckedErrorHandler(
         this.crashTracker,
         this.outputChannel,
