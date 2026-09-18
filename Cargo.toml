@@ -2,107 +2,107 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/*", "tooling"]
+members  = ["crates/*", "tooling"]
 
 [workspace.metadata.cargo-shear]
 ignored = ["shucked-benchmark"]
 
 [workspace.package]
-version = "0.2.2"
-edition = "2024"
+version      = "0.2.2"
+edition      = "2024"
 rust-version = "1.94.1"
-license = "MIT"
-authors = ["Eric Hauser"]
-repository = "https://github.com/ewhauser/shuck"
-description = "A fast shell script linter"
-keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
-categories = ["command-line-utilities", "development-tools"]
+license      = "MIT"
+authors      = ["Eric Hauser"]
+repository   = "https://github.com/fredrir/shucked"
+description  = "A fast shell script linter"
+keywords     = ["shell", "bash", "linter", "static-analysis", "cli"]
+categories   = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
 # Internal crates — path plus version so publishes to crates.io resolve.
 # The release script bumps these in lockstep with workspace.package.version.
-shucked-ast = { path = "crates/shucked-ast", version = "0.2.2" }
+shucked-ast       = { path = "crates/shucked-ast", version = "0.2.2" }
 shucked-benchmark = { path = "crates/shucked-benchmark" }
-shucked-cache = { path = "crates/shucked-cache", version = "0.2.2" }
-shucked-config = { path = "crates/shucked-config", version = "0.2.2" }
-shucked-discover = { path = "crates/shucked-discover", version = "0.2.2" }
+shucked-cache     = { path = "crates/shucked-cache", version = "0.2.2" }
+shucked-config    = { path = "crates/shucked-config", version = "0.2.2" }
+shucked-discover  = { path = "crates/shucked-discover", version = "0.2.2" }
 shucked-formatter = { path = "crates/shucked-formatter", version = "0.2.2" }
-shucked-indexer = { path = "crates/shucked-indexer", version = "0.2.2" }
-shucked-linter = { path = "crates/shucked-linter", version = "0.2.2" }
-shucked-parser = { path = "crates/shucked-parser", version = "0.2.2" }
-shucked-run = { path = "crates/shucked-run", version = "0.2.2" }
-shucked-semantic = { path = "crates/shucked-semantic", version = "0.2.2" }
-shucked-cli = { path = "crates/shucked-cli", version = "0.2.2" }
-shucked-extract = { path = "crates/shucked-extract", version = "0.2.2" }
-shucked-lsp = { path = "crates/shucked-lsp", version = "0.2.2" }
-shucked-server = { path = "crates/shucked-server", version = "0.2.2" }
-shucked-wasm = { path = "crates/shucked-wasm", version = "0.2.2" }
+shucked-indexer   = { path = "crates/shucked-indexer", version = "0.2.2" }
+shucked-linter    = { path = "crates/shucked-linter", version = "0.2.2" }
+shucked-parser    = { path = "crates/shucked-parser", version = "0.2.2" }
+shucked-run       = { path = "crates/shucked-run", version = "0.2.2" }
+shucked-semantic  = { path = "crates/shucked-semantic", version = "0.2.2" }
+shucked-cli       = { path = "crates/shucked-cli", version = "0.2.2" }
+shucked-extract   = { path = "crates/shucked-extract", version = "0.2.2" }
+shucked-lsp       = { path = "crates/shucked-lsp", version = "0.2.2" }
+shucked-server    = { path = "crates/shucked-server", version = "0.2.2" }
+shucked-wasm      = { path = "crates/shucked-wasm", version = "0.2.2" }
 
 # Error handling
-thiserror = "2"
-anyhow = "1"
-etcetera = "0.8"
-rayon = "1.10"
-annotate-snippets = "0.10"
-crossbeam = "0.8.4"
-rustc-hash = "2.0.0"
-tracing = "0.1.40"
+thiserror          = "2"
+anyhow             = "1"
+etcetera           = "0.8"
+rayon              = "1.10"
+annotate-snippets  = "0.10"
+crossbeam          = "0.8.4"
+rustc-hash         = "2.0.0"
+tracing            = "0.1.40"
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["fmt", "std"] }
-lsp-server = "0.7.6"
-lsp-types = { version = "0.95.1", features = ["proposed"] }
+lsp-server         = "0.7.6"
+lsp-types          = { version = "0.95.1", features = ["proposed"] }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
+serde       = { version = "1", features = ["derive"] }
 compact_str = "0.8"
-smallvec = "1.15"
+smallvec    = "1.15"
 
 # Checksums
 sha2 = "0.11"
 
 # CLI
-clap = { version = "4", features = ["derive", "env"] }
+clap        = { version = "4", features = ["derive", "env"] }
 clearscreen = "4.0.0"
-colored = "3"
-globset = "0.4"
-ignore = "0.4"
-notify = "8.0.0"
+colored     = "3"
+globset     = "0.4"
+ignore      = "0.4"
+notify      = "8.0.0"
 
 # Serialization
-serde_json = "1"
-serde_yaml = "0.9"
-saphyr = "0.0.6"
-saphyr-parser = "0.0.6"
+serde_json                 = "1"
+serde_yaml                 = "0.9"
+saphyr                     = "0.0.6"
+saphyr-parser              = "0.0.6"
 github-actions-expressions = "=1.30.0-rc1"
-similar = "2"
-toml = "0.8"
-quick-junit = "0.6.1"
-url = "2.5.0"
-js-sys = "0.3"
-wasm-bindgen = "0.2"
+similar                    = "2"
+toml                       = "0.8"
+quick-junit                = "0.6.1"
+url                        = "2.5.0"
+js-sys                     = "0.3"
+wasm-bindgen               = "0.2"
 
 # Testing
-tempfile = "3"
-memchr = "2"
-insta = "1.42"
+tempfile  = "3"
+memchr    = "2"
+insta     = "1.42"
 test-case = "3"
 roxmltree = "0.20"
 
 [profile.release]
-lto = "thin"
+lto           = "thin"
 codegen-units = 1
-panic = "abort"
-strip = "symbols"
+panic         = "abort"
+strip         = "symbols"
 
 [profile.profiling]
 inherits = "release"
-strip = false
-debug = "full"
-lto = false
+strip    = false
+debug    = "full"
+lto      = false
 
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
-lto = "thin"
+lto      = "thin"
 
 # Config for 'dist'
 [workspace.metadata.dist]
@@ -113,11 +113,18 @@ ci = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell", "homebrew"]
 # A GitHub repo to push Homebrew formulas to
-tap = "ewhauser/homebrew-tap"
+tap = "fredrir/homebrew-tap"
 # Publish jobs to run in CI
 publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+targets = [
+ "aarch64-apple-darwin",
+ "aarch64-unknown-linux-gnu",
+ "aarch64-unknown-linux-musl",
+ "x86_64-unknown-linux-gnu",
+ "x86_64-unknown-linux-musl",
+ "x86_64-pc-windows-msvc",
+]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program
@@ -129,5 +136,5 @@ github-action-commits = { "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f54
 # Skip checking whether the specified configuration files are up to date
 allow-dirty = ["ci"]
 [[workspace.metadata.dist.extra-artifacts]]
-artifacts = ["shuck.cdx.xml"]
-build = ["./tooling/scripts/generate-release-sbom.sh"]
+artifacts = ["shucked.cdx.xml"]
+build     = ["./tooling/scripts/generate-release-sbom.sh"]

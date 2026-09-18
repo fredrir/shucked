@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::runner::{
-    find_repo_root, print_error, print_section, print_step, print_success, print_warning,
+    RunOptions, find_repo_root, print_error, print_section, print_step, print_success,
+    print_warning, run_command,
 };
 
 pub const DEFAULT_WORKFLOW_PATH: &str = ".github/workflows/release.yml";
@@ -524,6 +525,84 @@ pub fn run_check_config() -> Result<()> {
     }
 
     print_success("Release-please config covers all Rust crates and Python packaging metadata.");
+    Ok(())
+}
+
+/// Generate CycloneDX SBOM for release packaging.
+pub fn run_generate_sbom() -> Result<()> {
+    let repo_root = find_repo_root()?;
+    print_section("Release SBOM Generation");
+
+    let crates_dir = repo_root.join("crates");
+
+    // Clean existing *.cdx.xml in crates/
+    print_step("Cleaning previous SBOM artifacts...");
+    for entry in walkdir::WalkDir::new(&crates_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file()
+            && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+
+    let opts = RunOptions {
+        cwd: Some(&repo_root),
+        ..Default::default()
+    };
+
+    print_step("Generating CycloneDX SBOM using cargo cyclonedx...");
+    let args = [
+        "cyclonedx",
+        "--manifest-path",
+        "Cargo.toml",
+        "--format",
+        "xml",
+        "-q",
+    ];
+    run_command("cargo", &args, &opts)?;
+
+    // Dist expects a single release artifact: shuck.cdx.xml at the repo root.
+    // Copy the CLI crate's SBOM to the repo root.
+    let possible_sources = [
+        crates_dir.join("shucked-cli/shucked-cli.cdx.xml"),
+        crates_dir.join("shuck-cli/shuck-cli.cdx.xml"),
+    ];
+
+    let dest = repo_root.join("shuck.cdx.xml");
+    let mut copied = false;
+    for src in &possible_sources {
+        if src.is_file() {
+            fs::copy(src, &dest).with_context(|| {
+                format!("Failed to copy {} to {}", src.display(), dest.display())
+            })?;
+            copied = true;
+            break;
+        }
+    }
+
+    // Clean temporary *.cdx.xml in crates/
+    for entry in walkdir::WalkDir::new(&crates_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if entry.file_type().is_file()
+            && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+
+    if !copied {
+        bail!("Could not find generated CLI SBOM in {:?}", possible_sources);
+    }
+
+    print_success(&format!(
+        "Successfully generated release SBOM: {}",
+        dest.display()
+    ));
     Ok(())
 }
 

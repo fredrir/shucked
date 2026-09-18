@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=70.1"]
+requires      = ["setuptools>=70.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,25 +12,25 @@ license = "MIT"
 authors = [{ name = "Eric Hauser" }]
 keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 classifiers = [
-  "Environment :: Console",
-  "Operating System :: MacOS",
-  "Operating System :: Microsoft :: Windows",
-  "Operating System :: POSIX :: Linux",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3 :: Only",
-  "Topic :: Software Development :: Quality Assurance",
+ "Environment :: Console",
+ "Operating System :: MacOS",
+ "Operating System :: Microsoft :: Windows",
+ "Operating System :: POSIX :: Linux",
+ "Programming Language :: Python :: 3",
+ "Programming Language :: Python :: 3 :: Only",
+ "Topic :: Software Development :: Quality Assurance",
 ]
 
 [project.urls]
-Homepage = "https://github.com/ewhauser/shuck"
-Issues = "https://github.com/ewhauser/shuck/issues"
-Repository = "https://github.com/ewhauser/shuck"
+Homepage   = "https://github.com/fredrir/shucked"
+Issues     = "https://github.com/fredrir/shucked/issues"
+Repository = "https://github.com/fredrir/shucked"
 
 [project.scripts]
 shuck = "shuck_cli._launcher:main"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
+package-dir          = { "" = "src" }
 include-package-data = true
 
 [tool.setuptools.packages.find]

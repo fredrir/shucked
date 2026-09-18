@@ -156,30 +156,85 @@ pub fn run_profile(
             }
         }
         ProfileTarget::LargeCorpus => {
-            let script = repo_root.join("scripts/profiling/profile_large_corpus.sh");
             let case_name = case.unwrap_or("xwmx__nb__nb");
+            let safe_case = case_name.replace(['/', ':'], "_");
+            let large_corpus_dir = out_dir.join("large-corpus");
+            std::fs::create_dir_all(&large_corpus_dir)?;
+
+            print_step("Building large corpus profiling harness...");
+            run_command(
+                "cargo",
+                &[
+                    "build",
+                    "--profile",
+                    "profiling",
+                    "-p",
+                    "shucked-benchmark",
+                    "--features",
+                    "large-corpus-hotspots",
+                    "--example",
+                    "large_corpus_profile",
+                ],
+                &opts,
+            )?;
+
+            let binary = repo_root.join("target/profiling/examples/large_corpus_profile");
+            if !binary.is_file() {
+                bail!("Compiled profiling binary not found: {}", binary.display());
+            }
+
+            let output_file = large_corpus_dir.join(format!("{safe_case}.json.gz"));
+            let manifest_file = large_corpus_dir.join("large-corpus-fixtures.tsv");
+
+            print_step("Preparing fixture manifest outside sampled process...");
+            let binary_str = binary.to_str().unwrap();
+            let manifest_str = manifest_file.to_str().unwrap();
+            run_command(
+                binary_str,
+                &["--write-fixture-manifest", manifest_str],
+                &opts,
+            )?;
+
+            print_step(&format!(
+                "Recording profile for large-corpus/{case_name}..."
+            ));
             let rate_str = rate.to_string();
             let iter_str = iterations.to_string();
-            let mut envs = std::collections::HashMap::new();
-            if view {
-                envs.insert("SAMPLY_VIEW", "1");
+            let profile_name = format!("large-corpus/{case_name}");
+            let output_str = output_file.to_str().unwrap();
+
+            let samply_args = [
+                "record",
+                "--save-only",
+                "--output",
+                output_str,
+                "--rate",
+                &rate_str,
+                "--iteration-count",
+                &iter_str,
+                "--profile-name",
+                &profile_name,
+                "--",
+                binary_str,
+                case_name,
+                "--iterations",
+                &iter_str,
+                "--fixture-manifest",
+                manifest_str,
+            ];
+
+            run_command("samply", &samply_args, &opts)?;
+
+            if view || std::env::var("SAMPLY_VIEW").is_ok_and(|v| v == "1") {
+                print_step("Opening profile in samply viewer...");
+                run_command("samply", &["load", output_str], &opts)?;
+            } else {
+                print_success(&format!("Profile saved to: {}", output_file.display()));
+                println!(
+                    "  Open with: {}",
+                    format!("samply load {}", output_file.display()).cyan()
+                );
             }
-            let profile_opts = RunOptions {
-                cwd: Some(&repo_root),
-                envs,
-                ..Default::default()
-            };
-            run_command(
-                script.to_str().unwrap(),
-                &[
-                    case_name,
-                    out_dir.to_str().unwrap(),
-                    &rate_str,
-                    &iter_str,
-                    &iter_str,
-                ],
-                &profile_opts,
-            )?;
         }
         bench_target => {
             let bench_name = bench_target.as_str();

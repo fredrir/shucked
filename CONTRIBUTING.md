@@ -1,8 +1,8 @@
-# Contributing to Shuck
+# Contributing to Shucked
 
-Thanks for your interest in contributing to Shuck! This guide covers how to build, test, and add lint rules.
+Thanks for your interest in contributing to Shucked! This guide covers how to build, test, and add lint rules.
 
-By participating in this project you agree to abide by its [Code of Conduct](CODE_OF_CONDUCT.md). Please also read [CLEAN_ROOM.md](CLEAN_ROOM.md) before looking at ShellCheck internals — shuck is a clean-room reimplementation and contributions must preserve that.
+By participating in this project you agree to abide by its [Code of Conduct](CODE_OF_CONDUCT.md). Please also read [CLEAN_ROOM.md](CLEAN_ROOM.md) before looking at ShellCheck internals — Shucked is a clean-room reimplementation and contributions must preserve that.
 
 ## Prerequisites
 
@@ -12,8 +12,8 @@ By participating in this project you agree to abide by its [Code of Conduct](COD
 ## Getting Started
 
 ```bash
-git clone https://github.com/ewhauser/shuck.git
-cd shuck
+git clone https://github.com/ewhauser/shucked.git
+cd shucked
 
 # Set up pre-commit hooks (runs cargo fmt and clippy before each commit)
 just setup-hooks
@@ -51,7 +51,7 @@ Pre-commit hooks enforce formatting and clippy automatically when you commit.
 
 ## Commit messages
 
-Shuck uses [Conventional Commits](https://www.conventionalcommits.org/) so that [release-please](https://github.com/googleapis/release-please) can generate `CHANGELOG.md` and pick the next version automatically from commit history on `main`.
+Shucked uses [Conventional Commits](https://www.conventionalcommits.org/) so that [release-please](https://github.com/googleapis/release-please) can generate `CHANGELOG.md` and pick the next version automatically from commit history on `main`.
 
 PRs are squash-merged, so **the PR title is what ends up on `main`** — please write PR titles in Conventional Commit form:
 
@@ -73,7 +73,7 @@ Common types:
 | `ci` | Workflows under `.github/` | no |
 | `build` | Build system, packaging | no |
 
-For a breaking change, append `!` to the type or add a `BREAKING CHANGE:` footer (e.g., `feat!: drop the --legacy flag`).
+For a breaking change, append `!` to the type or add a `BREAKING CHANGE:` footer (e.g., `feat!: drop C005`).
 
 Examples:
 
@@ -81,7 +81,7 @@ Examples:
 feat(linter): add C042 for unused function parameters
 fix(parser): handle nested heredocs inside $()
 perf(checker): cache fact lookups per rule
-docs: clarify SH-NNN vs SCNNNN suppression syntax
+docs: clarify category code vs SCNNNN suppression syntax
 chore(deps): bump clap to 4.5
 ```
 
@@ -126,20 +126,18 @@ just corpus test SHUCK_LARGE_CORPUS_TIMING=1
 
 ## Fuzzing
 
-Shuck keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `tooling/scripts/`.
+Shucked keeps fuzzing under the repo-root `fuzz/` workspace, with helper scripts under `tooling/scripts/`.
 
 Initialize the fuzz toolchain, generated corpora, and artifact directories with:
 
 ```bash
 just fuzz init
-# or: bash ./tooling/scripts/fuzz-init.sh
 ```
 
 For CI or non-interactive setup:
 
 ```bash
 just fuzz init --ci
-# or: bash ./tooling/scripts/fuzz-init.sh --ci
 ```
 
 The setup script seeds repository-owned fixtures into two generated corpora:
@@ -228,7 +226,7 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 
 | Crate | Purpose |
 |-------|---------|
-| `shucked-cli` | CLI binary `shuck` — command orchestration, discovery, config, caching, fixes, and reporting |
+| `shucked-cli` | CLI binary `shucked` — command orchestration, discovery, config, caching, fixes, and reporting |
 | `shucked-linter` | Lint rule registry, checker dispatch, facts, suppressions, fixes, and diagnostics |
 | `shucked-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
 | `shucked-indexer` | Positional and structural indexes over parsed scripts |
@@ -257,8 +255,6 @@ Rules are organized into five categories:
 Create `docs/rules/{CODE}.yaml` with the rule definition:
 
 ```yaml
-legacy_code: SH-NNN
-legacy_name: rule-name
 new_category: Correctness
 new_code: C042
 runtime_kind: ast          # ast, semantic, or flow
@@ -292,8 +288,6 @@ declare_rules! {
     // ...
 }
 ```
-
-If the rule has a legacy `SH-NNN` code, add an alias in the `code_to_rule()` function in the same file.
 
 ### Step 3: Populate generated metadata
 
@@ -414,7 +408,7 @@ cargo test                                       # verify no regressions
 
 ## Clean-Room Policy
 
-Shuck is a clean-room reimplementation. All contributors must follow these rules:
+Shucked is a clean-room reimplementation. All contributors must follow these rules:
 
 - **Do not** read, reference, or import ShellCheck source code or wiki pages
 - **Do not** reuse diagnostic wording from ShellCheck materials
@@ -429,7 +423,7 @@ See `CLAUDE.md` for the full policy.
 - **Rust edition 2024**, stable toolchain
 - Repo-pinned `rustfmt` settings via `rustfmt.toml`, plus default `clippy` settings
 - **Error handling**: `anyhow` for error propagation with `.context()`, `thiserror` for domain-specific error enums
-- **Suppression codes**: Shuck uses `SH-NNN` format; ShellCheck `SCNNNN` format is also accepted in suppression directives
+- **Suppression codes**: Shucked uses category codes (e.g., `C001`, `S001`) or ShellCheck `SCNNNN` format in suppression directives
 
 ## Benchmarking
 

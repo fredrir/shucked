@@ -140,14 +140,21 @@ pub fn run_test(
             ];
             run_command("wasm-pack", &build_args, &opts)?;
 
-            let smoke_script = repo_root.join("scripts/ci/smoke-wasm-package.mjs");
-            if smoke_script.is_file() {
-                let node_args = [
-                    smoke_script.to_str().unwrap(),
-                    "target/wasm-test/shucked-wasm",
-                ];
-                run_command("node", &node_args, &opts)?;
-            }
+            let node_code = r#"
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const pkgDir = path.resolve(process.argv[1]);
+const shuck = require(pkgDir);
+const pkgJson = require(path.join(pkgDir, "package.json"));
+const diagnostics = shuck.lint("echo $name\n", { filename: "script.bash", select: ["ALL"] });
+assert.ok(Array.isArray(diagnostics));
+assert.ok(Array.isArray(shuck.lint("echo ok\n")));
+assert.equal(shuck.version(), pkgJson.version);
+console.log(`smoke-tested ${pkgJson.name}@${pkgJson.version}`);
+"#;
+            let target_wasm = "target/wasm-test/shucked-wasm";
+            let node_args = ["-e", node_code, target_wasm];
+            run_command("node", &node_args, &opts)?;
         }
     }
 
