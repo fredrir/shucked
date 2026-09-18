@@ -184,6 +184,18 @@ impl Span {
     pub fn line(&self) -> usize {
         self.start.line as usize
     }
+
+    /// Return whether this span completely contains `other`.
+    #[inline]
+    pub fn contains_span(&self, other: Span) -> bool {
+        self.start.offset <= other.start.offset && other.end.offset <= self.end.offset
+    }
+
+    /// Return a span covering the leading keyword starting at this span's start position.
+    #[inline]
+    pub fn leading_keyword(&self, keyword: &str) -> Span {
+        Self::from_positions(self.start, self.start.advanced_by(keyword))
+    }
 }
 
 impl std::fmt::Display for Span {

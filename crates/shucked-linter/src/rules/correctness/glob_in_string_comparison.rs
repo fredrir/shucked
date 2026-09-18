@@ -1,9 +1,12 @@
-use shucked_ast::{word_is_standalone_variable_like, word_is_standalone_zsh_force_glob_parameter};
+use shucked_ast::{
+    ConditionalBinaryOp, word_is_standalone_variable_like,
+    word_is_standalone_zsh_force_glob_parameter,
+};
 
 use super::pattern_policy;
 use crate::{
     Checker, ConditionalNodeFact, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
-    WordQuote, conditional_binary_op_is_string_match,
+    WordQuote,
 };
 
 pub struct GlobInStringComparison;
@@ -69,6 +72,15 @@ pub fn glob_in_string_comparison(checker: &mut Checker) {
     for diagnostic in diagnostics {
         checker.report_diagnostic_dedup(diagnostic);
     }
+}
+
+fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
+    matches!(
+        op,
+        ConditionalBinaryOp::PatternEqShort
+            | ConditionalBinaryOp::PatternEq
+            | ConditionalBinaryOp::PatternNe
+    )
 }
 
 #[cfg(test)]

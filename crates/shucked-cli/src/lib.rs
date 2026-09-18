@@ -14,7 +14,6 @@ mod cache;
 mod commands;
 #[doc(hidden)]
 pub mod config_docs;
-mod discover;
 mod format_settings;
 #[doc(hidden)]
 pub mod shellcheck_compat;

@@ -1,7 +1,7 @@
 use lsp_types::{self as types, request as req};
 use shucked_semantic::EditorSymbolTarget;
 
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::resolve;
 use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
 use crate::workspace_functions::{
@@ -60,17 +60,10 @@ fn hover(
         return Ok(None);
     };
     let position = params.text_document_position_params.position;
-    let offset = usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(
-            analysis.source(),
-            analysis.line_index(),
-            snapshot.encoding(),
-        )
-        .start(),
+    let offset = position.to_offset(
+        analysis.source(),
+        analysis.line_index(),
+        snapshot.encoding(),
     );
     let Some(EditorSymbolTarget::FunctionCall(call)) =
         analysis.semantic().editor_query().target_at_offset(offset)

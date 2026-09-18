@@ -119,39 +119,6 @@ const SOURCE_TEXT_PATTERN_REPARSE_MAX_DEPTH: usize = 4;
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
-/// Returns whether `text` parses as a nontrivial arithmetic expression.
-///
-/// Plain numbers and plain variable names are considered trivial. The helper
-/// returns `false` for empty text and for text that cannot be parsed inside a
-/// shell arithmetic command.
-pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-
-    let source = format!("(( {text} ))");
-    let file = Parser::new(&source).parse();
-    if file.is_err() {
-        return false;
-    }
-
-    let Some(statement) = file.file.body.first() else {
-        return false;
-    };
-
-    let AstCommand::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
-        return false;
-    };
-
-    command.expr_ast.as_ref().is_some_and(|expr| {
-        !matches!(
-            expr.kind,
-            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_)
-        )
-    })
-}
-
 /// Returns whether `text` parses as an arithmetic expression without variable
 /// references, subscripts, shell words, or assignments.
 ///
@@ -213,22 +180,7 @@ fn arithmetic_expr_is_self_contained(expr: &ArithmeticExprNode) -> bool {
 
 #[cfg(test)]
 mod arithmetic_text_helper_tests {
-    use super::{
-        text_is_self_contained_arithmetic_expression,
-        text_looks_like_nontrivial_arithmetic_expression,
-    };
-
-    #[test]
-    fn requires_nontrivial_expressions() {
-        assert!(text_looks_like_nontrivial_arithmetic_expression("1 + 2"));
-        assert!(text_looks_like_nontrivial_arithmetic_expression("arr[1]"));
-        assert!(text_looks_like_nontrivial_arithmetic_expression("++count"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression("123"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression("name"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression(
-            "latest value"
-        ));
-    }
+    use super::text_is_self_contained_arithmetic_expression;
 
     #[test]
     fn distinguishes_self_contained_expressions() {

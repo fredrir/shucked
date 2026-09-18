@@ -11,7 +11,7 @@ use shucked_semantic::{
     ExactFunctionRenameError,
 };
 
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::editor_features;
 use crate::server::Error;
 use crate::session::{Client, DocumentSnapshot};
@@ -116,17 +116,10 @@ fn resolve_function(
     let Some(analysis) = snapshot.analysis() else {
         return Ok(FunctionResolution::Unavailable);
     };
-    let offset = usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(
-            analysis.source(),
-            analysis.line_index(),
-            snapshot.encoding(),
-        )
-        .start(),
+    let offset = position.to_offset(
+        analysis.source(),
+        analysis.line_index(),
+        snapshot.encoding(),
     );
     let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
         return Ok(FunctionResolution::NotFunction);

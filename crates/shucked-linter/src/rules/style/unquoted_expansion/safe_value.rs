@@ -453,7 +453,7 @@ impl<'a> SafeValueIndex<'a> {
                 else {
                     return false;
                 };
-                if !span_contains(word.span, span) {
+                if !word.span.contains_span(span) {
                     return false;
                 }
 
@@ -464,7 +464,7 @@ impl<'a> SafeValueIndex<'a> {
                         fact.command_substitution_spans()
                             .iter()
                             .copied()
-                            .any(|command_substitution| span_contains(command_substitution, span))
+                            .any(|command_substitution| command_substitution.contains_span(span))
                     })
                     && !self.span_is_inside_loop_context(span)
                     && !self.span_is_inside_if_condition(span)
@@ -544,7 +544,7 @@ impl<'a> SafeValueIndex<'a> {
             else {
                 return false;
             };
-            span_contains(word.span, span)
+            word.span.contains_span(span)
                 && self
                     .facts
                     .words()
@@ -553,7 +553,7 @@ impl<'a> SafeValueIndex<'a> {
                         fact.command_substitution_spans()
                             .iter()
                             .copied()
-                            .any(|command_substitution| span_contains(command_substitution, span))
+                            .any(|command_substitution| command_substitution.contains_span(span))
                     })
         })
     }
@@ -602,11 +602,11 @@ impl<'a> SafeValueIndex<'a> {
         while let Some(command_id) = current {
             if let Command::Compound(CompoundCommand::If(command)) =
                 self.facts.command_facts().command(command_id).command()
-                && (span_contains(command.condition.span, span)
+                && (command.condition.span.contains_span(span)
                     || command
                         .elif_branches
                         .iter()
-                        .any(|(condition, _)| span_contains(condition.span, span)))
+                        .any(|(condition, _)| condition.span.contains_span(span)))
             {
                 return true;
             }
@@ -1079,21 +1079,21 @@ impl<'a> SafeValueIndex<'a> {
                         command
                             .code
                             .as_ref()
-                            .is_some_and(|word| span_contains(word.span, at))
+                            .is_some_and(|word| word.span.contains_span(at))
                             || command
                                 .extra_args
                                 .iter()
-                                .any(|word| span_contains(word.span, at))
+                                .any(|word| word.span.contains_span(at))
                     }
                     Command::Builtin(BuiltinCommand::Return(command)) => {
                         command
                             .code
                             .as_ref()
-                            .is_some_and(|word| span_contains(word.span, at))
+                            .is_some_and(|word| word.span.contains_span(at))
                             || command
                                 .extra_args
                                 .iter()
-                                .any(|word| span_contains(word.span, at))
+                                .any(|word| word.span.contains_span(at))
                     }
                     Command::Simple(_)
                     | Command::Builtin(_)
@@ -1122,11 +1122,11 @@ impl<'a> SafeValueIndex<'a> {
                         command
                             .code
                             .as_ref()
-                            .is_some_and(|word| span_contains(word.span, at))
+                            .is_some_and(|word| word.span.contains_span(at))
                             || command
                                 .extra_args
                                 .iter()
-                                .any(|word| span_contains(word.span, at))
+                                .any(|word| word.span.contains_span(at))
                     }
                     Command::Simple(_)
                     | Command::Builtin(_)
@@ -1143,7 +1143,7 @@ impl<'a> SafeValueIndex<'a> {
         self.facts.commands().iter().any(|command| {
             command
                 .body_name_word()
-                .is_some_and(|word| span_contains(word.span, at))
+                .is_some_and(|word| word.span.contains_span(at))
         })
     }
 
@@ -2338,7 +2338,7 @@ impl<'a> SafeValueIndex<'a> {
             list.segments()
                 .iter()
                 .skip(1)
-                .any(|segment| span_contains(segment.span(), span))
+                .any(|segment| segment.span().contains_span(span))
         })
     }
 
@@ -2552,7 +2552,7 @@ impl<'a> SafeValueIndex<'a> {
                     .targets
                     .iter()
                     .any(|target| target.span == definition_span)
-                    && span_contains(header.command().body.span, at)
+                    && header.command().body.span.contains_span(at)
             })
             || self
                 .facts
@@ -2561,7 +2561,7 @@ impl<'a> SafeValueIndex<'a> {
                 .iter()
                 .any(|header| {
                     header.command().variable_span == definition_span
-                        && span_contains(header.command().body.span, at)
+                        && header.command().body.span.contains_span(at)
                 })
     }
 
@@ -4076,7 +4076,7 @@ impl<'a> SafeValueIndex<'a> {
 
         bindings.into_iter().any(|binding_id| {
             let binding = self.semantic.binding(binding_id);
-            span_contains(body_span, binding.span)
+            body_span.contains_span(binding.span)
                 && self.binding_assigns_numeric_operand_value(binding_id, at)
         })
     }
@@ -4271,7 +4271,7 @@ impl<'a> SafeValueIndex<'a> {
             .iter()
             .filter_map(|command| match command.command() {
                 Command::Compound(CompoundCommand::While(command))
-                    if span_contains(command.condition.span, at) =>
+                    if command.condition.span.contains_span(at) =>
                 {
                     Some(command.body.span)
                 }
@@ -4386,10 +4386,6 @@ fn plain_scalar_reference_name_from_part(part: &WordPart) -> Option<Name> {
         | WordPart::ProcessSubstitution { .. }
         | WordPart::Transformation { .. } => None,
     }
-}
-
-fn span_contains(container: Span, inner: Span) -> bool {
-    container.start.offset() <= inner.start.offset() && inner.end.offset() <= container.end.offset()
 }
 
 fn shell_name_is_uppercase_setup_value(text: &str) -> bool {

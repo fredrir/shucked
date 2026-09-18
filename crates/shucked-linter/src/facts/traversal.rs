@@ -4,15 +4,10 @@ use super::*;
 // command visits rather than maintaining a separate recursive command walker.
 
 /// Controls traversal when walking nested statement-sequence bodies.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BodyTraversal {
     /// Visit nested bodies below the current body.
     Descend,
-    /// Visit the current body but do not visit its nested bodies.
-    SkipChildren,
-    /// Stop body traversal immediately.
-    Break,
 }
 
 /// Local topology view for one statement-sequence body.
@@ -64,17 +59,10 @@ impl<'a> BodyTopology<'a> {
     }
 
     /// Returns the direct statement before `index`, if one exists.
-    #[allow(dead_code)]
     pub(crate) fn previous_sibling(&self, index: usize) -> Option<&'a Stmt> {
         index
             .checked_sub(1)
             .and_then(|previous| self.statements().get(previous))
-    }
-
-    /// Returns the direct statement after `index`, if one exists.
-    #[allow(dead_code)]
-    pub(crate) fn next_sibling(&self, index: usize) -> Option<&'a Stmt> {
-        self.statements().get(index + 1)
     }
 
     /// Visits this body and nested statement-sequence bodies in source order.
@@ -94,8 +82,6 @@ impl<'a> BodyTopology<'a> {
         while let Some(body) = stack.pop() {
             match visitor(body) {
                 BodyTraversal::Descend => {}
-                BodyTraversal::SkipChildren => continue,
-                BodyTraversal::Break => break,
             }
 
             let mut nested_bodies = Vec::new();

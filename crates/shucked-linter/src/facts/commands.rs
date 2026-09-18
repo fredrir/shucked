@@ -210,6 +210,10 @@ impl<'a> CommandFact<'a> {
     pub fn is_assignment_only(&self, source: &str) -> bool {
         super::assignments::command_is_assignment_only(self, source)
     }
+
+    pub fn is_simple(&self) -> bool {
+        matches!(self.command(), Command::Simple(_))
+    }
 }
 
 impl<'facts, 'a> CommandFactRef<'facts, 'a> {
@@ -255,6 +259,10 @@ impl<'facts, 'a> CommandFactRef<'facts, 'a> {
 
     pub fn is_assignment_only(self, source: &str) -> bool {
         self.fact.is_assignment_only(source)
+    }
+
+    pub fn is_simple(self) -> bool {
+        self.fact.is_simple()
     }
 
     pub(crate) fn shell_behavior(self) -> &'facts ShellBehaviorAt<'a> {

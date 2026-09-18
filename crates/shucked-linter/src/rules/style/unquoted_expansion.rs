@@ -228,7 +228,7 @@ fn collect_array_assignment_split_candidate_spans(checker: &Checker) -> Vec<Span
                 .filter(move |span| {
                     command_substitution_spans
                         .iter()
-                        .any(|outer| span_contains(*outer, *span))
+                        .any(|outer| outer.contains_span(*span))
                 })
         })
         .collect::<Vec<_>>();
@@ -305,10 +305,6 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
         | ExpansionContext::ParameterPattern
         | ExpansionContext::TrapAction => false,
     }
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn arithmetic_word_follows_command_substitution(
@@ -412,7 +408,7 @@ fn report_word_expansions<F>(
         if backtick_escaped_parameter_spans
             .iter()
             .copied()
-            .any(|span| span_contains(span, part_span))
+            .any(|span| span.contains_span(part_span))
         {
             continue;
         }
@@ -460,7 +456,7 @@ fn part_is_in_numeric_test_operand(part_span: Span, operand_spans: &[Span]) -> b
     operand_spans
         .iter()
         .copied()
-        .any(|operand_span| span_contains(operand_span, part_span))
+        .any(|operand_span| operand_span.contains_span(part_span))
 }
 
 #[cfg(test)]

@@ -244,7 +244,7 @@ fn short_circuit_call_can_target_later_definition(checker: &Checker<'_>, call: &
     checker.facts().command_facts().lists().iter().any(|list| {
         list.segments()
             .iter()
-            .position(|segment| span_contains(segment.span(), call.name_span))
+            .position(|segment| segment.span().contains_span(call.name_span))
             .is_some_and(|index| index > 0)
     })
 }
@@ -680,10 +680,6 @@ fn span_can_run_before_blocks(
         target_blocks,
         &FxHashSet::default(),
     )
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn call_is_unreachable(checker: &Checker<'_>, call: &CallSite) -> bool {

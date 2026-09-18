@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use etcetera::BaseStrategy;
 
-use crate::discover::normalize_path;
+use shucked_discover::normalize_path;
 
 pub(crate) fn resolve_cache_root(cwd: &Path, override_path: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = override_path {

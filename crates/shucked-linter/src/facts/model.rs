@@ -358,6 +358,10 @@ impl<'a> LinterFacts<'a> {
     pub fn compat(&self) -> CompatFacts<'_, 'a> {
         CompatFacts { facts: self }
     }
+
+    pub fn script_line_count(&self) -> ScriptLineCountFact {
+        self.source_facts().script_line_count()
+    }
 }
 
 impl<'facts, 'a> CommandFactQueries<'facts, 'a> {

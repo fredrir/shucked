@@ -14,8 +14,8 @@ use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
-use crate::discover::{DiscoveryOptions, FileKind};
 use crate::format_settings::{ResolvedFormatSettings, resolve_project_format_settings};
+use shucked_discover::{DiscoveryOptions, FileKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DisplayedFormatError {

@@ -9,7 +9,7 @@ use clap::{
     Args as ClapArgs, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum,
 };
 use shucked_formatter::{IndentStyle, ShellDialect};
-use shucked_linter::RuleSelector;
+use shucked_linter::{Applicability, RuleSelector};
 
 use shucked_config::FormatSettingsPatch;
 use shucked_config::{ConfigArgumentParser, ConfigArguments, SingleConfigArgument};
@@ -88,6 +88,13 @@ pub enum CheckOutputFormatArg {
     Rdjson,
     /// Emit SARIF.
     Sarif,
+}
+
+impl CheckOutputFormatArg {
+    /// Whether the output format is intended for human consumption.
+    pub fn is_human_readable(self) -> bool {
+        matches!(self, Self::Concise | Self::Full | Self::Grouped)
+    }
 }
 
 /// Color preference for terminal output.
@@ -345,6 +352,17 @@ impl CheckCommand {
     /// Whether excludes should also apply to explicitly passed paths.
     pub fn force_exclude(&self) -> bool {
         self.file_selection.force_exclude()
+    }
+
+    /// Requested fix applicability mode, if any fix flags were provided.
+    pub fn fix_applicability(&self) -> Option<Applicability> {
+        if self.unsafe_fixes {
+            Some(Applicability::Unsafe)
+        } else if self.fix {
+            Some(Applicability::Safe)
+        } else {
+            None
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::{Serialize, de::DeserializeOwned};
 use shucked_cache::{CacheKey, CacheKeyHasher, FileCacheKey, PackageCache};
 
-use crate::discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
+use shucked_discover::{DiscoveredFile, DiscoveryOptions, ProjectRoot, discover_files};
 
 pub(crate) struct ProjectRun<T, S>
 where

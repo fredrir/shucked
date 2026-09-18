@@ -45,10 +45,6 @@ impl Scheduler {
                     BackgroundSchedule::Fmt => {
                         self.fmt_pool.spawn(ThreadPriority::LatencySensitive, task);
                     }
-                    BackgroundSchedule::LatencySensitive => {
-                        self.background_pool
-                            .spawn(ThreadPriority::LatencySensitive, task);
-                    }
                     BackgroundSchedule::Worker => {
                         self.background_pool.spawn(ThreadPriority::Worker, task);
                     }

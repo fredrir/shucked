@@ -2116,129 +2116,125 @@ fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Resu
     }
 
     if let Some(c001_value) = rule_options.get("c001") {
-        validate_c001_rule_options_override(c001_value)?;
+        validate_table_option_keys(
+            c001_value,
+            "lint.rule-options.c001",
+            CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(c063_value) = rule_options.get("c063") {
-        validate_c063_rule_options_override(c063_value)?;
+        validate_table_option_keys(
+            c063_value,
+            "lint.rule-options.c063",
+            CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s078_value) = rule_options.get("s078") {
-        validate_s078_rule_options_override(s078_value)?;
+        validate_table_option_keys(
+            s078_value,
+            "lint.rule-options.s078",
+            CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s079_value) = rule_options.get("s079") {
-        validate_s079_rule_options_override(s079_value)?;
+        validate_table_option_keys(
+            s079_value,
+            "lint.rule-options.s079",
+            CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s080_value) = rule_options.get("s080") {
-        validate_s080_rule_options_override(s080_value)?;
+        validate_table_option_keys(
+            s080_value,
+            "lint.rule-options.s080",
+            CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS,
+        )?;
+        if let Some(count) = s080_value.get("count") {
+            validate_s080_count_value(count)?;
+        }
     }
     if let Some(s081_value) = rule_options.get("s081") {
-        validate_s081_rule_options_override(s081_value)?;
+        validate_table_option_keys(
+            s081_value,
+            "lint.rule-options.s081",
+            CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s082_value) = rule_options.get("s082") {
-        validate_s082_rule_options_override(s082_value)?;
+        validate_table_option_keys(
+            s082_value,
+            "lint.rule-options.s082",
+            CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s083_value) = rule_options.get("s083") {
-        validate_s083_rule_options_override(s083_value)?;
+        validate_table_option_keys(
+            s083_value,
+            "lint.rule-options.s083",
+            CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s084_value) = rule_options.get("s084") {
-        validate_s084_rule_options_override(s084_value)?;
+        validate_table_option_keys(
+            s084_value,
+            "lint.rule-options.s084",
+            CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(s085_value) = rule_options.get("s085") {
-        validate_s085_rule_options_override(s085_value)?;
+        validate_table_option_keys(
+            s085_value,
+            "lint.rule-options.s085",
+            CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(c158_value) = rule_options.get("c158") {
-        validate_c158_rule_options_override(c158_value)?;
+        validate_table_option_keys(
+            c158_value,
+            "lint.rule-options.c158",
+            CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(c159_value) = rule_options.get("c159") {
-        validate_c159_rule_options_override(c159_value)?;
+        validate_table_option_keys(
+            c159_value,
+            "lint.rule-options.c159",
+            CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(c160_value) = rule_options.get("c160") {
-        validate_c160_rule_options_override(c160_value)?;
+        validate_table_option_keys(
+            c160_value,
+            "lint.rule-options.c160",
+            CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS,
+        )?;
     }
     if let Some(c161_value) = rule_options.get("c161") {
-        validate_c161_rule_options_override(c161_value)?;
+        validate_table_option_keys(
+            c161_value,
+            "lint.rule-options.c161",
+            CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS,
+        )?;
     }
 
     Ok(())
 }
 
-fn validate_c001_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c001 = value
+fn validate_table_option_keys(
+    value: &toml::Value,
+    table_name: &str,
+    allowed_keys: &[&str],
+) -> std::result::Result<(), String> {
+    let table = value
         .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c001]` must be a TOML table".to_owned())?;
-    for key in c001.keys() {
-        if !CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS.contains(&key.as_str()) {
+        .ok_or_else(|| format!("`[{table_name}]` must be a TOML table"))?;
+    for key in table.keys() {
+        if !allowed_keys.contains(&key.as_str()) {
             return Err(format!(
-                "unsupported `[lint.rule-options.c001]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS.join(", ")
+                "unsupported `[{table_name}]` option `{key}`; expected one of: {}",
+                allowed_keys.join(", ")
             ));
         }
-    }
-
-    Ok(())
-}
-
-fn validate_c063_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c063 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c063]` must be a TOML table".to_owned())?;
-    for key in c063.keys() {
-        if !CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c063]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C063_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s078_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s078 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s078]` must be a TOML table".to_owned())?;
-    for key in s078.keys() {
-        if !CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s078]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S078_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s079_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s079 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s079]` must be a TOML table".to_owned())?;
-    for key in s079.keys() {
-        if !CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s079]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S079_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s080_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s080 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s080]` must be a TOML table".to_owned())?;
-    for key in s080.keys() {
-        if !CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s080]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S080_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-    if let Some(count) = s080.get("count") {
-        validate_s080_count_value(count)?;
     }
 
     Ok(())
@@ -2257,150 +2253,6 @@ fn validate_s080_count_value(value: &toml::Value) -> std::result::Result<(), Str
             CONFIG_OVERRIDE_S080_COUNT_VALUES.join(", ")
         ))
     }
-}
-
-fn validate_s084_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s084 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s084]` must be a TOML table".to_owned())?;
-    for key in s084.keys() {
-        if !CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s084]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S084_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s081_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s081 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s081]` must be a TOML table".to_owned())?;
-    for key in s081.keys() {
-        if !CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s081]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S081_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s082_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s082 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s082]` must be a TOML table".to_owned())?;
-    for key in s082.keys() {
-        if !CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s082]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S082_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s083_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s083 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s083]` must be a TOML table".to_owned())?;
-    for key in s083.keys() {
-        if !CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s083]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S083_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_s085_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let s085 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.s085]` must be a TOML table".to_owned())?;
-    for key in s085.keys() {
-        if !CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.s085]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_S085_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_c158_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c158 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c158]` must be a TOML table".to_owned())?;
-    for key in c158.keys() {
-        if !CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c158]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_c159_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c159 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c159]` must be a TOML table".to_owned())?;
-    for key in c159.keys() {
-        if !CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c159]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_c160_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c160 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c160]` must be a TOML table".to_owned())?;
-    for key in c160.keys() {
-        if !CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c160]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_c161_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let c161 = value
-        .as_table()
-        .ok_or_else(|| "`[lint.rule-options.c161]` must be a TOML table".to_owned())?;
-    for key in c161.keys() {
-        if !CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[lint.rule-options.c161]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS.join(", ")
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 fn invalid_config_argument(
@@ -2451,7 +2303,7 @@ A `--config` flag must either be a path to a `.toml` configuration file
 }
 
 /// Parse a config-file indentation style value.
-pub fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
+pub(crate) fn parse_config_indent_style(value: &str) -> Result<IndentStyle> {
     match value.trim().to_ascii_lowercase().as_str() {
         "tab" => Ok(IndentStyle::Tab),
         "space" => Ok(IndentStyle::Space),

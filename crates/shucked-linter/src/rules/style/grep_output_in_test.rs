@@ -260,13 +260,9 @@ fn word_has_top_level_grep_substitution(
             && substitution.body_contains_grep()
             && !candidates.iter().any(|other| {
                 other.span() != substitution.span()
-                    && span_contains(other.span(), substitution.span())
+                    && other.span().contains_span(substitution.span())
             })
     })
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 #[cfg(test)]

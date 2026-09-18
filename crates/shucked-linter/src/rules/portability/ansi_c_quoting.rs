@@ -36,16 +36,12 @@ pub fn ansi_c_quoting(checker: &mut Checker) {
         .filter(|fragment| {
             !regex_rhs_spans
                 .iter()
-                .any(|span| span_contains(*span, fragment.span()))
+                .any(|span| span.contains_span(fragment.span()))
         })
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AnsiCQuoting);
-}
-
-fn span_contains(outer: shucked_ast::Span, inner: shucked_ast::Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn is_well_formed_ansi_c_quote(span: shucked_ast::Span, source: &str) -> bool {

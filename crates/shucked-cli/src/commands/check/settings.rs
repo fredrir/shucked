@@ -27,7 +27,7 @@ use crate::args::{
     PatternFrameworkNameTriple, PatternPathPair, PatternRuleSelectorPair, PatternShellPair,
     RuleSelectionArgs, ZshPluginArgs,
 };
-use crate::discover::{ProjectRoot, normalize_path};
+use shucked_discover::{ProjectRoot, normalize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EffectiveCheckSettings {
@@ -1692,59 +1692,27 @@ fn apply_per_file_shell_layer(
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
-
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::sync::mpsc::{TryRecvError, channel};
 
-    use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shucked_extract::{
-        EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
-    };
-    use shucked_linter::{
-        AmbientContractActivation, AmbientContractConfig, AmbientContractEffects,
-        AmbientContractSpec, Category, LinterSettings, NamedGroup, Rule, RuleSelector, RuleSet,
-        ShellCheckCodeMap, ShellDialect,
-    };
-    use shucked_parser::parser::Parser;
-    use shucked_semantic::FileContract;
-    use tempfile::tempdir;
-
-    use super::*;
-    use crate::ExitStatus;
-    use crate::args::{
-        CheckCommand, CheckOutputFormatArg, FileSelectionArgs, PatternRuleSelectorPair,
-        PatternShellPair, RuleSelectionArgs,
-    };
-    use crate::commands::check::add_ignore::run_add_ignore_with_cwd;
-    use crate::commands::check::analyze::{
-        analyze_file, collect_lint_diagnostics, read_shared_source,
-    };
-    use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
-    use crate::commands::check::display::display_lint_diagnostics;
-    use crate::commands::check::embedded::remap_embedded_position;
-    use crate::commands::check::run::run_check_with_cwd;
-    use crate::commands::check::settings::{
-        CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
-    };
-    use crate::commands::check::test_support::*;
-    use crate::commands::check::watch::{
-        WatchTarget, collect_watch_targets, drain_watch_batch, should_clear_screen,
-        watch_event_requires_rerun,
-    };
-    use crate::commands::check::{CheckReport, diagnostics_exit_status};
-    use crate::commands::check_output::{
-        DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
-    };
-    use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, ProjectRoot, normalize_path};
     use shucked_config::{
         ConfigArguments, LintContractActivationConfig, LintContractActivationTypeConfig,
         LintContractConsumesConfig, LintContractWhenConfig, LintContractsConfig,
         LintCustomContractConfig,
     };
+    use shucked_discover::ProjectRoot;
+    use shucked_linter::{
+        AmbientContractActivation, AmbientContractConfig, AmbientContractEffects,
+        AmbientContractSpec, Category, NamedGroup, Rule, RuleSelector, RuleSet, ShellDialect,
+    };
+    use shucked_semantic::FileContract;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::args::{PatternRuleSelectorPair, PatternShellPair, RuleSelectionArgs};
+    use crate::commands::check::run::run_check_with_cwd;
+    use crate::commands::check::test_support::*;
 
     fn default_ambient_contracts() -> Arc<ResolvedAmbientContracts> {
         Arc::new(ResolvedAmbientContracts::default())

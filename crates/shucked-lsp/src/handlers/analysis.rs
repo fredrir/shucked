@@ -186,7 +186,6 @@ impl DocumentAnalysis {
         &self.indexer
     }
 
-    #[allow(dead_code)]
     pub(crate) fn shell_profile(&self) -> &ShellProfile {
         &self.shell_profile
     }

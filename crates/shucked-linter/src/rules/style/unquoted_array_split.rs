@@ -43,7 +43,7 @@ pub fn unquoted_array_split(checker: &mut Checker) {
                 .filter(|(_part, part_span)| {
                     !command_substitution_spans
                         .iter()
-                        .any(|outer| span_contains(*outer, *part_span))
+                        .any(|outer| outer.contains_span(*part_span))
                         && !is_excluded_special_parameter_span(*part_span, source)
                 })
                 .map(|(_, part_span)| part_span)
@@ -58,10 +58,6 @@ pub fn unquoted_array_split(checker: &mut Checker) {
     for diagnostic in diagnostics {
         checker.report_diagnostic_dedup(diagnostic);
     }
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn is_excluded_special_parameter_span(span: Span, source: &str) -> bool {

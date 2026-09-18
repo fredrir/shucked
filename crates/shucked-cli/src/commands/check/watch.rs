@@ -15,7 +15,7 @@ use super::display::print_report;
 use super::run::run_check_with_cwd;
 use crate::ExitStatus;
 use crate::args::CheckCommand;
-use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, normalize_path};
+use shucked_discover::{DEFAULT_IGNORED_DIR_NAMES, normalize_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WatchTarget {
@@ -433,52 +433,17 @@ fn watch_event_path_is_ignored(path: &Path, cache_root: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
-
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
     use std::sync::mpsc::{TryRecvError, channel};
 
     use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shucked_extract::{
-        EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
-    };
-    use shucked_linter::{
-        Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    };
-    use shucked_parser::parser::Parser;
+    use shucked_config::ConfigArguments;
+    use shucked_discover::normalize_path;
     use tempfile::tempdir;
 
     use super::*;
-    use crate::ExitStatus;
-    use crate::args::{
-        CheckCommand, CheckOutputFormatArg, FileSelectionArgs, PatternRuleSelectorPair,
-        PatternShellPair, RuleSelectionArgs,
-    };
-    use crate::commands::check::add_ignore::run_add_ignore_with_cwd;
-    use crate::commands::check::analyze::{
-        analyze_file, collect_lint_diagnostics, read_shared_source,
-    };
-    use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
-    use crate::commands::check::display::display_lint_diagnostics;
-    use crate::commands::check::embedded::remap_embedded_position;
-    use crate::commands::check::run::run_check_with_cwd;
-    use crate::commands::check::settings::{
-        CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
-    };
     use crate::commands::check::test_support::*;
-    use crate::commands::check::watch::{
-        WatchTarget, collect_watch_targets, drain_watch_batch, should_clear_screen,
-        watch_event_requires_rerun,
-    };
-    use crate::commands::check::{CheckReport, diagnostics_exit_status};
-    use crate::commands::check_output::{
-        DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
-    };
-    use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, normalize_path};
-    use shucked_config::ConfigArguments;
 
     #[test]
     fn watch_event_filter_ignores_access_other_ignored_dirs_and_cache_paths() {
@@ -629,7 +594,7 @@ mod tests {
                     tempdir.path()
                 ),
                 recursive: true,
-                match_paths: match_paths(
+                match_paths: watch_paths(
                     &fs::canonicalize(tempdir.path()).unwrap(),
                     tempdir.path()
                 ),
@@ -653,7 +618,7 @@ mod tests {
                         tempdir.path()
                     ),
                     recursive: false,
-                    match_paths: match_paths(
+                    match_paths: watch_paths(
                         &fs::canonicalize(tempdir.path().join("shucked.toml")).unwrap(),
                         &tempdir.path().join("shucked.toml"),
                     ),
@@ -662,7 +627,7 @@ mod tests {
                     watch_path: normalize_path(&nested),
                     watch_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
                     recursive: true,
-                    match_paths: match_paths(&fs::canonicalize(&nested).unwrap(), &nested),
+                    match_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
                 },
             ]
         );
@@ -684,7 +649,7 @@ mod tests {
                         tempdir.path()
                     ),
                     recursive: false,
-                    match_paths: match_paths(
+                    match_paths: watch_paths(
                         &fs::canonicalize(tempdir.path().join("shucked.toml")).unwrap(),
                         &tempdir.path().join("shucked.toml"),
                     ),
@@ -693,7 +658,7 @@ mod tests {
                     watch_path: normalize_path(&nested),
                     watch_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
                     recursive: false,
-                    match_paths: match_paths(&fs::canonicalize(&file).unwrap(), &file),
+                    match_paths: watch_paths(&fs::canonicalize(&file).unwrap(), &file),
                 },
             ]
         );

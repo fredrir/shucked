@@ -11,7 +11,7 @@ use lsp_types as types;
 use shucked_ast::Name;
 use shucked_semantic::{CallFunctionId, CallNodeKind, CrossFileCall, EditorSymbolTarget};
 
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::editor_features::{self, CallHierarchyData, CallHierarchyPrepareResponse};
 use crate::session::{Client, DocumentSnapshot};
 use crate::workspace_functions::{
@@ -34,14 +34,7 @@ pub(crate) fn prepare_call_hierarchy(
     };
     let source = analysis.source();
     let position = params.text_document_position_params.position;
-    let offset = usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(source, analysis.line_index(), snapshot.encoding())
-        .start(),
-    );
+    let offset = position.to_offset(source, analysis.line_index(), snapshot.encoding());
     let target = analysis.semantic().editor_query().target_at_offset(offset);
     let Some(EditorSymbolTarget::FunctionCall(call)) = target else {
         return editor_features::prepare_call_hierarchy(snapshot, client, params);

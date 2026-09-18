@@ -31,7 +31,8 @@ pub fn c_style_for_in_sh(checker: &mut Checker) {
         .iter()
         .filter_map(|fact| match fact.command() {
             Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
-                let span = keyword_span(fact.span_in_source(checker.source()), "for");
+                let span = fact.span_in_source(checker.source()).leading_keyword("for");
+
                 let diagnostic = Diagnostic::new(CStyleForInSh, span);
                 Some(
                     match c_style_for_fix(
@@ -57,10 +58,6 @@ pub fn c_style_for_in_sh(checker: &mut Checker) {
     for diagnostic in diagnostics {
         checker.report_diagnostic(diagnostic);
     }
-}
-
-fn keyword_span(span: Span, keyword: &str) -> Span {
-    Span::from_positions(span.start, span.start.advanced_by(keyword))
 }
 
 fn c_style_for_fix(

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -144,11 +142,6 @@ impl Index {
         )
     }
 
-    pub(super) fn has_open_document(&self, key: &DocumentKey) -> bool {
-        let DocumentKey::Text(url) = key;
-        self.documents.contains_key(url)
-    }
-
     pub(super) fn update_text_document(
         &mut self,
         key: &DocumentKey,
@@ -260,10 +253,6 @@ impl Index {
         Ok(())
     }
 
-    pub(super) fn config_file_paths(&self) -> impl Iterator<Item = &Path> {
-        std::iter::empty()
-    }
-
     pub(super) fn workspace_roots(&self) -> &[PathBuf] {
         &self.workspace_roots
     }
@@ -286,11 +275,6 @@ impl Index {
                 crate::symbols::WorkspaceOpenDocument::new(url.clone(), document.clone())
             })
             .collect()
-    }
-
-    pub(super) fn workspace_options_for_url(&self, url: &Url) -> Option<&ClientOptions> {
-        self.workspace_settings_for_url(url)
-            .and_then(|workspace| workspace.options.as_ref())
     }
 
     pub(super) fn clear_project_settings_cache(&self) {

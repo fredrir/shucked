@@ -110,10 +110,4 @@ impl Diagnostic {
         self.alternative_fixes.push(AlternativeFix::new(title, fix));
         self
     }
-
-    /// Sets or overrides the fix title.
-    pub fn with_fix_title(mut self, title: impl Into<String>) -> Self {
-        self.fix_title = Some(title.into());
-        self
-    }
 }

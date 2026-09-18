@@ -22,8 +22,8 @@ pub struct GlobalOptions {
 
 impl GlobalOptions {
     /// Resolve client-provided options into runtime global settings.
-    pub fn into_settings(self, client: Client) -> GlobalClientSettings {
-        GlobalClientSettings::new(self.client, client)
+    pub fn into_settings(self, _client: Client) -> GlobalClientSettings {
+        GlobalClientSettings::new(self.client)
     }
 }
 
@@ -143,6 +143,7 @@ impl ServerOptions {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn call_hierarchy_layered_over(
         &self,
         base: CallHierarchyFeatureOptions,
@@ -351,6 +352,7 @@ struct CallHierarchyFeatureOptionsOverrides {
     max_files: Option<usize>,
 }
 
+#[allow(dead_code)]
 impl CallHierarchyFeatureOptionsOverrides {
     fn has_overrides(self) -> bool {
         self.max_files.is_some()

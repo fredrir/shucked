@@ -3,7 +3,7 @@ use shucked_semantic::{
     CallFunctionId, CallNodeKind, EditorCallHierarchyTarget, EditorSymbolTarget,
 };
 
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::editor_features;
 use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
 use crate::workspace_functions::{
@@ -59,17 +59,10 @@ fn references(
         return Ok(None);
     };
     let position = params.text_document_position.position;
-    let offset = usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(
-            analysis.source(),
-            analysis.line_index(),
-            snapshot.encoding(),
-        )
-        .start(),
+    let offset = position.to_offset(
+        analysis.source(),
+        analysis.line_index(),
+        snapshot.encoding(),
     );
     let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
         return Ok(None);

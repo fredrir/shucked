@@ -12,7 +12,7 @@ use crate::commands::check_output::{
     DisplayedDiagnosticKind, DisplayedEdit, DisplayedFix, print_report_to,
 };
 use crate::commands::project_runner::PendingProjectFile;
-use crate::discover::DiscoveredFile;
+use shucked_discover::DiscoveredFile;
 
 pub(super) fn print_report(
     report: &CheckReport,
@@ -190,52 +190,16 @@ pub(super) fn push_lint_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
-
-    use std::fs;
-    use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::sync::mpsc::{TryRecvError, channel};
 
-    use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shucked_extract::{
-        EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
+    use crate::args::CheckOutputFormatArg;
+    use crate::commands::check::CheckReport;
+    use crate::commands::check::test_support::{
+        lint_displayed_diagnostic, parse_displayed_diagnostic,
     };
-    use shucked_linter::{
-        Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    };
-    use shucked_parser::parser::Parser;
-    use tempfile::tempdir;
-
-    use super::*;
-    use crate::ExitStatus;
-    use crate::args::{
-        CheckCommand, CheckOutputFormatArg, FileSelectionArgs, PatternRuleSelectorPair,
-        PatternShellPair, RuleSelectionArgs,
-    };
-    use crate::commands::check::add_ignore::run_add_ignore_with_cwd;
-    use crate::commands::check::analyze::{
-        analyze_file, collect_lint_diagnostics, read_shared_source,
-    };
-    use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
-    use crate::commands::check::display::display_lint_diagnostics;
-    use crate::commands::check::embedded::remap_embedded_position;
-    use crate::commands::check::run::run_check_with_cwd;
-    use crate::commands::check::settings::{
-        CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
-    };
-    use crate::commands::check::test_support::*;
-    use crate::commands::check::watch::{
-        WatchTarget, collect_watch_targets, drain_watch_batch, should_clear_screen,
-        watch_event_requires_rerun,
-    };
-    use crate::commands::check::{CheckReport, diagnostics_exit_status};
     use crate::commands::check_output::{
-        DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
+        DisplayPosition, DisplaySpan, DisplayedDiagnostic, print_report_to,
     };
-    use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, normalize_path};
-    use shucked_config::ConfigArguments;
 
     #[test]
     fn report_output_includes_ansi_styles_when_enabled() {

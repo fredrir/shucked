@@ -12,7 +12,7 @@ use shucked_semantic::{
 
 use super::zsh;
 use crate::analysis::DocumentAnalysis;
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::server::Error;
 use crate::session::{Client, DocumentSnapshot};
 
@@ -671,14 +671,7 @@ fn offset_for_position(
     line_index: &shucked_indexer::LineIndex,
     position: types::Position,
 ) -> usize {
-    usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(source, line_index, snapshot.encoding())
-        .start(),
-    )
+    position.to_offset(source, line_index, snapshot.encoding())
 }
 
 fn to_lsp_completion_kind(kind: EditorCompletionKind) -> types::CompletionItemKind {

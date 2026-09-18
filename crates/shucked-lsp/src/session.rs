@@ -1,8 +1,6 @@
 //! Language server session, workspace, and document management.
 
-#![allow(dead_code)]
-
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use lsp_types::{ClientCapabilities, FileEvent, Url};
@@ -206,14 +204,11 @@ impl Session {
         self.position_encoding
     }
 
-    pub(crate) fn config_file_paths(&self) -> impl Iterator<Item = &Path> {
-        self.index.config_file_paths()
-    }
-
     pub(crate) fn set_project_settings_cache_enabled(&mut self, enabled: bool) {
         self.index.set_project_settings_cache_enabled(enabled);
     }
 
+    #[cfg(any(test, feature = "fuzzing"))]
     pub(crate) fn update_client_options(&mut self, options: ClientOptions) {
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
@@ -244,8 +239,25 @@ impl Session {
         self.index.open_document_count()
     }
 
-    pub(crate) fn workspace_roots(&self) -> &[std::path::PathBuf] {
+    pub(crate) fn workspace_roots(&self) -> &[PathBuf] {
         self.index.workspace_roots()
+    }
+
+    fn resolved_workspace_roots(
+        &self,
+        workspace_settings: &[WorkspaceSettingsSnapshot],
+    ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let workspace_roots = self.index.workspace_roots().to_vec();
+        let mut settings_workspace_roots = workspace_roots.clone();
+        for workspace in workspace_settings {
+            let Some(canonical_root) = &workspace.canonical_root else {
+                continue;
+            };
+            if !settings_workspace_roots.contains(canonical_root) {
+                settings_workspace_roots.push(canonical_root.clone());
+            }
+        }
+        (workspace_roots, settings_workspace_roots)
     }
 
     pub(crate) fn workspace_document_snapshot_factory(&self) -> WorkspaceDocumentSnapshotFactory {
@@ -262,16 +274,8 @@ impl Session {
         cancellation: RequestCancellationToken,
     ) -> crate::workspace_diagnostics::WorkspaceDiagnosticContext {
         let workspace_settings = self.index.workspace_settings_snapshot();
-        let workspace_roots = self.index.workspace_roots().to_vec();
-        let mut settings_workspace_roots = workspace_roots.clone();
-        for workspace in &workspace_settings {
-            let Some(canonical_root) = &workspace.canonical_root else {
-                continue;
-            };
-            if !settings_workspace_roots.contains(canonical_root) {
-                settings_workspace_roots.push(canonical_root.clone());
-            }
-        }
+        let (workspace_roots, settings_workspace_roots) =
+            self.resolved_workspace_roots(&workspace_settings);
         let open_documents = self
             .index
             .open_documents_snapshot()
@@ -304,19 +308,8 @@ impl Session {
 
     pub(crate) fn workspace_symbol_context(&self) -> crate::symbols::WorkspaceSymbolContext {
         let workspace_settings = self.index.workspace_settings_snapshot();
-        let workspace_roots = self.index.workspace_roots().to_vec();
-        let mut settings_workspace_roots = workspace_roots.clone();
-        for workspace in &workspace_settings {
-            let Some(canonical_root) = &workspace.canonical_root else {
-                continue;
-            };
-            if !settings_workspace_roots
-                .iter()
-                .any(|root| root == canonical_root)
-            {
-                settings_workspace_roots.push(canonical_root.clone());
-            }
-        }
+        let (workspace_roots, settings_workspace_roots) =
+            self.resolved_workspace_roots(&workspace_settings);
 
         crate::symbols::WorkspaceSymbolContext {
             index: self.workspace_symbols.clone(),
@@ -336,16 +329,8 @@ impl Session {
         cancellation: RequestCancellationToken,
     ) -> crate::workspace_functions::WorkspaceFunctionContext {
         let workspace_settings = self.index.workspace_settings_snapshot();
-        let workspace_roots = self.index.workspace_roots().to_vec();
-        let mut settings_workspace_roots = workspace_roots.clone();
-        for workspace in &workspace_settings {
-            let Some(canonical_root) = &workspace.canonical_root else {
-                continue;
-            };
-            if !settings_workspace_roots.contains(canonical_root) {
-                settings_workspace_roots.push(canonical_root.clone());
-            }
-        }
+        let (workspace_roots, settings_workspace_roots) =
+            self.resolved_workspace_roots(&workspace_settings);
         crate::workspace_functions::WorkspaceFunctionContext {
             workspace_roots,
             settings_workspace_roots,

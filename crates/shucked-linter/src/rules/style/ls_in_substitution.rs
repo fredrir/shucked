@@ -58,7 +58,7 @@ fn processed_ls_pipeline_spans(checker: &Checker) -> Vec<Span> {
                     .command_facts()
                     .pipelines()
                     .iter()
-                    .any(|pipeline| span_contains(substitution.span(), pipeline.span()))
+                    .any(|pipeline| substitution.span().contains_span(pipeline.span()))
             })
             .flat_map(|substitution| substitution.body_processed_ls_pipeline_spans())
             .copied(),
@@ -91,10 +91,6 @@ fn pipeline_ls_command_span(
     };
 
     trim_trailing_whitespace(span, checker.source())
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && inner.end.offset() <= outer.end.offset()
 }
 
 fn trim_trailing_whitespace(span: Span, source: &str) -> Span {

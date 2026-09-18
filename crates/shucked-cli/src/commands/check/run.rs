@@ -5,7 +5,7 @@ use anyhow::Result;
 use rayon::prelude::*;
 use shucked_cache::FileCacheKey;
 use shucked_config::ConfigArguments;
-use shucked_linter::{Applicability, LinterSettings, RuleSelector, ShellCheckCodeMap};
+use shucked_linter::{LinterSettings, RuleSelector, ShellCheckCodeMap};
 
 use super::CheckReport;
 use super::analyze::{FileCheckResult, analyze_file, discover_followed_paths, read_shared_source};
@@ -16,7 +16,7 @@ use crate::args::{CheckCommand, FileSelectionArgs, RuleSelectionArgs};
 use crate::commands::project_runner::{
     PendingProjectFile, ProjectRunRequest, prepare_project_runs_with_cache_key,
 };
-use crate::discover::{DiscoveredFile, DiscoveryOptions, FileKind};
+use shucked_discover::{DiscoveredFile, DiscoveryOptions, FileKind};
 
 pub(super) fn run_check_with_cwd(
     args: &CheckCommand,
@@ -25,7 +25,7 @@ pub(super) fn run_check_with_cwd(
     cache_root: &Path,
 ) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
-    let fix_applicability = requested_fix_applicability(args);
+    let fix_applicability = args.fix_applicability();
     let mut runs = prepare_project_runs_with_cache_key::<
         CheckCacheData,
         ResolvedCheckSettings,
@@ -79,7 +79,7 @@ pub(super) fn run_check_with_cwd(
                 .iter()
                 .filter(|file| file.kind == FileKind::Shell)
                 .map(|file| {
-                    crate::discover::normalize_path(&file.absolute_path)
+                    shucked_discover::normalize_path(&file.absolute_path)
                         .canonicalize()
                         .unwrap_or_else(|_| file.absolute_path.clone())
                 }),
@@ -246,7 +246,7 @@ fn discover_followed_file_closure(
     let mut seen = HashSet::new();
     let mut files = Vec::new();
     while let Some((path, referrer)) = worklist.pop() {
-        let Ok(canonical) = crate::discover::normalize_path(&path).canonicalize() else {
+        let Ok(canonical) = shucked_discover::normalize_path(&path).canonicalize() else {
             continue;
         };
         if already_linted.contains(&canonical) || !seen.insert(canonical.clone()) {
@@ -345,64 +345,20 @@ pub(crate) fn benchmark_check_paths(
 
     Ok(report.diagnostics.len())
 }
-fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
-    if args.unsafe_fixes {
-        Some(Applicability::Unsafe)
-    } else if args.fix {
-        Some(Applicability::Safe)
-    } else {
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
-
     use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::sync::mpsc::{TryRecvError, channel};
+    use std::path::PathBuf;
 
-    use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shucked_extract::{
-        EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
-    };
-    use shucked_linter::{
-        Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    };
-    use shucked_parser::parser::Parser;
+    use shucked_config::ConfigArguments;
+    use shucked_linter::{Rule, RuleSelector};
     use tempfile::tempdir;
 
-    use super::*;
+    use super::run_check_with_cwd;
     use crate::ExitStatus;
-    use crate::args::{
-        CheckCommand, CheckOutputFormatArg, FileSelectionArgs, PatternRuleSelectorPair,
-        PatternShellPair, RuleSelectionArgs,
-    };
-    use crate::commands::check::add_ignore::run_add_ignore_with_cwd;
-    use crate::commands::check::analyze::{
-        analyze_file, collect_lint_diagnostics, read_shared_source,
-    };
-    use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
-    use crate::commands::check::display::display_lint_diagnostics;
-    use crate::commands::check::embedded::remap_embedded_position;
-    use crate::commands::check::run::run_check_with_cwd;
-    use crate::commands::check::settings::{
-        CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
-    };
-    use crate::commands::check::test_support::*;
-    use crate::commands::check::watch::{
-        WatchTarget, collect_watch_targets, drain_watch_batch, should_clear_screen,
-        watch_event_requires_rerun,
-    };
-    use crate::commands::check::{CheckReport, diagnostics_exit_status};
-    use crate::commands::check_output::{
-        DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
-    };
-    use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, normalize_path};
-    use shucked_config::ConfigArguments;
+    use crate::args::{CheckCommand, RuleSelectionArgs};
+    use crate::commands::check::test_support::{cache_root, check_args, diagnostic_codes};
 
     #[test]
     fn parse_failure_with_warning_lint_stays_fatal_under_exit_zero() {

@@ -35,13 +35,14 @@ pub(crate) fn loop_control_violations(
         .iter()
         .filter_map(|fact| match fact.command() {
             Command::Builtin(BuiltinCommand::Break(command)) if !continue_only => {
-                Some((command.span, keyword_span(command.span, "break"), "break"))
+                Some((command.span, command.span.leading_keyword("break"), "break"))
             }
             Command::Builtin(BuiltinCommand::Continue(command)) => Some((
                 command.span,
-                keyword_span(command.span, "continue"),
+                command.span.leading_keyword("continue"),
                 "continue",
             )),
+
             Command::Simple(_)
             | Command::Builtin(_)
             | Command::Decl(_)
@@ -76,10 +77,6 @@ pub(crate) fn loop_control_violations(
                 .unwrap_or(true)
         })
         .collect()
-}
-
-fn keyword_span(span: Span, keyword: &str) -> Span {
-    Span::from_positions(span.start, span.start.advanced_by(keyword))
 }
 
 #[cfg(test)]

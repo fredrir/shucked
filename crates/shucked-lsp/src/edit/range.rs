@@ -11,13 +11,13 @@ pub(crate) trait RangeExt {
     ) -> TextRange;
 }
 
-pub(crate) trait ToRangeExt {
-    fn to_range(
+pub(crate) trait PositionExt {
+    fn to_offset(
         &self,
         text: &str,
         index: &shucked_indexer::LineIndex,
         encoding: PositionEncoding,
-    ) -> lsp_types::Range;
+    ) -> usize;
 }
 
 impl RangeExt for lsp_types::Range {
@@ -31,13 +31,13 @@ impl RangeExt for lsp_types::Range {
     }
 }
 
-impl ToRangeExt for TextRange {
-    fn to_range(
+impl PositionExt for lsp_types::Position {
+    fn to_offset(
         &self,
         text: &str,
         index: &shucked_indexer::LineIndex,
         encoding: PositionEncoding,
-    ) -> lsp_types::Range {
-        crate::edit::to_lsp_range(*self, text, index, encoding)
+    ) -> usize {
+        crate::edit::position_to_offset(text, index, *self, encoding)
     }
 }

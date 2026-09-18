@@ -1,5 +1,3 @@
-use shucked_ast::Command;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct MissingMainEntrypoint {
@@ -25,7 +23,7 @@ pub fn missing_main_entrypoint(checker: &mut Checker) {
     let source = facts.source_facts().source();
     let command_facts = facts.command_facts();
 
-    if source.lines().count() < options.non_trivial_line_threshold
+    if facts.script_line_count().physical_lines() < options.non_trivial_line_threshold
         || command_facts.function_headers().len() < options.non_trivial_function_count
     {
         return;
@@ -56,8 +54,8 @@ pub fn missing_main_entrypoint(checker: &mut Checker) {
     };
 
     let last_command = command_facts.command(last_statement.command_id());
-    let ends_with_main_call = matches!(last_command.command(), Command::Simple(_))
-        && last_command.effective_name_is(&options.main_name);
+    let ends_with_main_call =
+        last_command.is_simple() && last_command.effective_name_is(&options.main_name);
 
     if ends_with_main_call {
         return;

@@ -8,15 +8,15 @@ use crate::commands::check::CheckReport;
 use crate::commands::check::settings::CompiledPerFileShellList;
 use crate::commands::check_output::{DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind};
 use crate::commands::project_runner::PendingProjectFile;
-use crate::discover::{FileKind, normalize_path};
+use shucked_discover::{DiscoveredFile, FileKind, ProjectRoot, normalize_path};
 
 pub(super) fn pending_project_file(path: &Path, project_root: &Path) -> PendingProjectFile {
     PendingProjectFile {
-        file: crate::discover::DiscoveredFile {
+        file: DiscoveredFile {
             display_path: path.strip_prefix(project_root).unwrap().to_path_buf(),
             absolute_path: path.to_path_buf(),
             relative_path: path.strip_prefix(project_root).unwrap().to_path_buf(),
-            project_root: crate::discover::ProjectRoot {
+            project_root: ProjectRoot {
                 storage_root: project_root.to_path_buf(),
                 canonical_root: fs::canonicalize(project_root).unwrap(),
             },
@@ -39,13 +39,6 @@ fn diagnostic_paths(path: &str) -> (PathBuf, PathBuf, PathBuf) {
     let relative = PathBuf::from(path);
     let absolute = PathBuf::from(format!("/tmp/{path}"));
     (display, relative, absolute)
-}
-
-pub(super) fn match_paths(canonical: &Path, resolved: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![canonical.to_path_buf(), normalize_path(resolved)];
-    paths.sort();
-    paths.dedup();
-    paths
 }
 
 pub(super) fn watch_paths(canonical: &Path, resolved: &Path) -> Vec<PathBuf> {

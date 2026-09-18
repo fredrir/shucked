@@ -32,33 +32,17 @@ pub const SUPPORTED_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DEFAULT_LIBRARY,
 ];
 
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_KEYWORD: u32 = 0;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_FUNCTION: u32 = 1;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_VARIABLE: u32 = 2;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_PARAMETER: u32 = 3;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_STRING: u32 = 4;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_NUMBER: u32 = 5;
-#[allow(dead_code)]
-pub(crate) const TOKEN_TYPE_OPERATOR: u32 = 6;
-#[allow(dead_code)]
 pub(crate) const TOKEN_TYPE_COMMENT: u32 = 7;
-#[allow(dead_code)]
-pub(crate) const TOKEN_TYPE_TYPE: u32 = 8;
 
-#[allow(dead_code)]
 pub(crate) const MODIFIER_DECLARATION: u32 = 1 << 0;
-#[allow(dead_code)]
 pub(crate) const MODIFIER_DEFINITION: u32 = 1 << 1;
-#[allow(dead_code)]
 pub(crate) const MODIFIER_READONLY: u32 = 1 << 2;
-#[allow(dead_code)]
-pub(crate) const MODIFIER_DEFAULT_LIBRARY: u32 = 1 << 3;
 
 /// Returns the server's semantic tokens legend.
 pub fn semantic_tokens_legend() -> SemanticTokensLegend {

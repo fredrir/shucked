@@ -7,13 +7,11 @@ type LocalFn = Box<dyn FnOnce(&mut Session, &Client)>;
 type BackgroundFn = Box<dyn FnOnce(&Client) + Send + 'static>;
 type BackgroundFnBuilder = Box<dyn FnOnce(&Session) -> BackgroundFn>;
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(in crate::server) enum BackgroundSchedule {
     Fmt,
     #[default]
     Worker,
-    LatencySensitive,
 }
 
 #[must_use]

@@ -6,7 +6,7 @@ use shucked_semantic::{
     BindingAttributes, EditorHover, EditorSymbolKind, ScopeKind, SemanticModel,
 };
 
-use crate::edit::RangeExt;
+use crate::edit::PositionExt;
 use crate::handlers::zsh;
 use crate::session::{Client, DocumentSnapshot};
 
@@ -23,14 +23,7 @@ pub(crate) fn hover(
     let source = analysis.source();
     let shellcheck_map = ShellCheckCodeMap::default();
     let position = params.text_document_position_params.position;
-    let offset = usize::from(
-        types::Range {
-            start: position,
-            end: position,
-        }
-        .to_text_range(source, query.document().index(), snapshot.encoding())
-        .start(),
-    );
+    let offset = position.to_offset(source, query.document().index(), snapshot.encoding());
 
     if let Some(hover) = directive_hover(
         &snapshot,

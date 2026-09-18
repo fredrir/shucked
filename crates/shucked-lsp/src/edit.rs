@@ -1,6 +1,4 @@
-//! Document representations, keys, and text editing structures.
-
-#![allow(dead_code)]
+//! Document editing, position conversions, and text transformations.
 
 mod range;
 mod text_document;
@@ -8,7 +6,7 @@ mod text_document;
 use lsp_types::{PositionEncodingKind, Url};
 use shucked_ast::TextRange;
 
-pub(crate) use range::RangeExt;
+pub(crate) use range::{PositionExt, RangeExt};
 pub(crate) use text_document::DocumentVersion;
 pub(crate) use text_document::LanguageId;
 pub use text_document::TextDocument;
@@ -104,7 +102,7 @@ pub(crate) fn offset_to_position(
     }
 }
 
-fn position_to_offset(
+pub(crate) fn position_to_offset(
     text: &str,
     index: &shucked_indexer::LineIndex,
     position: lsp_types::Position,
@@ -194,27 +192,13 @@ pub(crate) fn single_replacement_edit(
     index: &shucked_indexer::LineIndex,
     encoding: PositionEncoding,
 ) -> Option<lsp_types::TextEdit> {
-    if text == replacement {
-        return None;
-    }
-
-    let prefix_len = common_prefix_len(text, replacement);
-    let suffix_len = common_suffix_len(&text[prefix_len..], &replacement[prefix_len..]);
-    let original_end = text.len().saturating_sub(suffix_len);
-    let replacement_end = replacement.len().saturating_sub(suffix_len);
-
-    Some(lsp_types::TextEdit {
-        range: to_lsp_range(
-            TextRange::new(
-                shucked_ast::TextSize::new(prefix_len as u32),
-                shucked_ast::TextSize::new(original_end as u32),
-            ),
-            text,
-            index,
-            encoding,
-        ),
-        new_text: replacement[prefix_len..replacement_end].to_owned(),
-    })
+    single_replacement_edit_in_range(
+        text,
+        TextRange::new(0.into(), (text.len() as u32).into()),
+        replacement,
+        index,
+        encoding,
+    )
 }
 
 pub(crate) fn single_replacement_edit_in_range(

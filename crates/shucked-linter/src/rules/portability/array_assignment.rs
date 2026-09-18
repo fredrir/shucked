@@ -1,4 +1,4 @@
-use shucked_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
+use shucked_ast::{Assignment, AssignmentValue, Command, DeclOperand, Span};
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -33,39 +33,20 @@ fn command_array_assignment_spans(
     command: crate::CommandFactRef<'_, '_>,
     source: &str,
 ) -> Vec<Span> {
-    match command.command() {
-        Command::Simple(command) => command
-            .assignments
-            .iter()
-            .filter_map(|assignment| array_assignment_span(assignment, source))
-            .collect(),
-        Command::Builtin(command) => builtin_assignments(command)
-            .iter()
-            .filter_map(|assignment| array_assignment_span(assignment, source))
-            .collect(),
-        Command::Decl(command) => command
-            .assignments
-            .iter()
-            .chain(command.operands.iter().filter_map(|operand| match operand {
-                DeclOperand::Assignment(assignment) => Some(assignment),
-                DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
-            }))
-            .filter_map(|assignment| array_assignment_span(assignment, source))
-            .collect(),
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => Vec::new(),
-    }
-}
+    let mut spans = command
+        .assignments()
+        .iter()
+        .filter_map(|assignment| array_assignment_span(assignment, source))
+        .collect::<Vec<_>>();
 
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
-    match command {
-        BuiltinCommand::Break(command) => &command.assignments,
-        BuiltinCommand::Continue(command) => &command.assignments,
-        BuiltinCommand::Return(command) => &command.assignments,
-        BuiltinCommand::Exit(command) => &command.assignments,
+    if let Command::Decl(command) = command.command() {
+        spans.extend(command.operands.iter().filter_map(|operand| match operand {
+            DeclOperand::Assignment(assignment) => array_assignment_span(assignment, source),
+            DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
+        }));
     }
+
+    spans
 }
 
 fn array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> {

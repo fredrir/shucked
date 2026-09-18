@@ -134,7 +134,7 @@ impl Default for ResolvedAmbientContracts {
         Self {
             project_root: PathBuf::from("."),
             enabled_file_contract_ids: enabled_well_known_file_contract_ids(&[]),
-            enabled_request_contract_ids: enabled_well_known_request_contract_ids(&[]),
+            enabled_request_contract_ids: enabled_declarative_request_contract_ids(&[]),
             custom_contracts: Vec::new(),
         }
     }
@@ -177,7 +177,7 @@ impl ResolvedAmbientContracts {
                 Vec::new()
             },
             enabled_request_contract_ids: if config.well_known {
-                enabled_well_known_request_contract_ids(&disabled)
+                enabled_declarative_request_contract_ids(&disabled)
             } else {
                 Vec::new()
             },
@@ -261,25 +261,6 @@ impl ResolvedAmbientContracts {
         let lower_path = source_path.to_string_lossy().to_ascii_lowercase();
 
         for id in &self.enabled_request_contract_ids {
-            if let Some(contract) = well_known_request_contract_by_id(id) {
-                if request_activation_matches(contract.activation, request) {
-                    if let Some(file_match) = contract.file_match
-                        && !file_match(&lower_path)
-                    {
-                        continue;
-                    }
-                    let imported_contract = (contract.imported_contract)();
-                    if !contract_is_empty(&imported_contract) {
-                        resolved.imported_contracts.push(imported_contract);
-                    }
-                    merge_contract(
-                        &mut resolved.requesting_file_contract,
-                        (contract.requesting_file_contract)(),
-                    );
-                }
-                continue;
-            }
-
             let contract =
                 declarative_contract_by_id(id).expect("known ambient request contract id");
             if request_activation_matches_declarative(&contract.activation, request)
@@ -467,16 +448,11 @@ struct DeclarativeContractDescriptor {
     requesting_file_contract: OnceLock<FileContract>,
 }
 
-#[allow(dead_code)]
 enum DeclarativeActivationDescriptor {
     Always,
     ZshPlugin {
         framework: &'static str,
         plugin: &'static str,
-    },
-    ZshTheme {
-        framework: &'static str,
-        theme: &'static str,
     },
 }
 
@@ -526,24 +502,6 @@ struct DeclarativeFunctionDescriptor {
     name: &'static str,
     reads: &'static [&'static str],
     sets: &'static [&'static str],
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Copy)]
-enum RequestActivation {
-    ZshPlugin {
-        framework: &'static str,
-        plugin: &'static str,
-    },
-}
-
-struct WellKnownRequestContract {
-    id: &'static str,
-    groups: &'static [&'static str],
-    activation: RequestActivation,
-    file_match: Option<fn(&str) -> bool>,
-    imported_contract: fn() -> FileContract,
-    requesting_file_contract: fn() -> FileContract,
 }
 
 impl DeclarativeContractDescriptor {
@@ -698,8 +656,6 @@ impl DeclarativeContractDescriptor {
 
 include!(concat!(env!("OUT_DIR"), "/ambient_contracts_data.rs"));
 
-const WELL_KNOWN_REQUEST_CONTRACTS: &[WellKnownRequestContract] = &[];
-
 fn enabled_well_known_file_contract_ids(disabled: &[String]) -> Vec<&'static str> {
     DECLARATIVE_CONTRACTS
         .iter()
@@ -711,20 +667,14 @@ fn enabled_well_known_file_contract_ids(disabled: &[String]) -> Vec<&'static str
         .collect()
 }
 
-fn enabled_well_known_request_contract_ids(disabled: &[String]) -> Vec<&'static str> {
-    WELL_KNOWN_REQUEST_CONTRACTS
+fn enabled_declarative_request_contract_ids(disabled: &[String]) -> Vec<&'static str> {
+    DECLARATIVE_CONTRACTS
         .iter()
-        .filter(|contract| !selector_matches(disabled, contract.id, contract.groups))
+        .filter(|contract| {
+            !matches!(contract.activation, DeclarativeActivationDescriptor::Always)
+                && !selector_matches(disabled, contract.id, contract.groups)
+        })
         .map(|contract| contract.id)
-        .chain(
-            DECLARATIVE_CONTRACTS
-                .iter()
-                .filter(|contract| {
-                    !matches!(contract.activation, DeclarativeActivationDescriptor::Always)
-                        && !selector_matches(disabled, contract.id, contract.groups)
-                })
-                .map(|contract| contract.id),
-        )
         .collect()
 }
 
@@ -732,12 +682,6 @@ fn selector_matches(selectors: &[String], id: &str, groups: &[&str]) -> bool {
     selectors.iter().any(|selector| {
         selector == "*" || selector == id || groups.iter().any(|group| selector == group)
     })
-}
-
-fn well_known_request_contract_by_id(id: &str) -> Option<&'static WellKnownRequestContract> {
-    WELL_KNOWN_REQUEST_CONTRACTS
-        .iter()
-        .find(|contract| contract.id == id)
 }
 
 fn declarative_contract_by_id(id: &str) -> Option<&'static DeclarativeContractDescriptor> {
@@ -748,7 +692,11 @@ fn declarative_contract_by_id(id: &str) -> Option<&'static DeclarativeContractDe
 
 fn validate_well_known_selectors(selectors: &[String]) -> Result<()> {
     for selector in selectors {
-        if selector == "*" || well_known_selector_exists(selector) {
+        if selector == "*"
+            || DECLARATIVE_CONTRACTS.iter().any(|contract| {
+                selector == contract.id || contract.groups.contains(&selector.as_str())
+            })
+        {
             continue;
         }
         return Err(anyhow!(
@@ -756,25 +704,6 @@ fn validate_well_known_selectors(selectors: &[String]) -> Result<()> {
         ));
     }
     Ok(())
-}
-
-fn well_known_selector_exists(selector: &str) -> bool {
-    WELL_KNOWN_REQUEST_CONTRACTS
-        .iter()
-        .any(|contract| selector == contract.id || contract.groups.contains(&selector))
-        || DECLARATIVE_CONTRACTS
-            .iter()
-            .any(|contract| selector == contract.id || contract.groups.contains(&selector))
-}
-
-fn request_activation_matches(activation: RequestActivation, request: &PluginRequest) -> bool {
-    match activation {
-        RequestActivation::ZshPlugin { framework, plugin } => {
-            request.kind == PluginRequestKind::Plugin
-                && plugin_framework_name(&request.framework) == framework
-                && request.name == plugin
-        }
-    }
 }
 
 fn zsh_project_or_dotfile_path_shape(path: &Path) -> bool {
@@ -821,8 +750,7 @@ fn declarative_file_activation_matches(
 ) -> bool {
     match activation {
         DeclarativeActivationDescriptor::Always => true,
-        DeclarativeActivationDescriptor::ZshPlugin { .. }
-        | DeclarativeActivationDescriptor::ZshTheme { .. } => shell == ShellDialect::Zsh,
+        DeclarativeActivationDescriptor::ZshPlugin { .. } => shell == ShellDialect::Zsh,
     }
 }
 
@@ -836,11 +764,6 @@ fn request_activation_matches_declarative(
             request.kind == PluginRequestKind::Plugin
                 && plugin_framework_name(&request.framework) == *framework
                 && request.name == *plugin
-        }
-        DeclarativeActivationDescriptor::ZshTheme { framework, theme } => {
-            request.kind == PluginRequestKind::Theme
-                && plugin_framework_name(&request.framework) == *framework
-                && request.name == *theme
         }
     }
 }

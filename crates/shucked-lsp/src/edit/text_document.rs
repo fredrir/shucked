@@ -117,10 +117,4 @@ impl TextDocument {
         self.index = active_index;
         self.version = new_version;
     }
-
-    /// Update the document version without changing contents.
-    pub fn update_version(&mut self, new_version: DocumentVersion) {
-        debug_assert!(new_version >= self.version);
-        self.version = new_version;
-    }
 }

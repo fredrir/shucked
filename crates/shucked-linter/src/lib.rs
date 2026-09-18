@@ -127,8 +127,6 @@ pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metad
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-#[allow(unused_imports)]
-pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
 /// Linter configuration and per-file selection types.
 pub use settings::{
     AmbientShellOptions, C001RuleOptions, C063RuleOptions, C158RuleOptions, C159RuleOptions,
@@ -616,24 +614,6 @@ impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
         self.artifacts.semantic.command_context(id)
     }
 
-    /// Returns the structural semantic parent for `id`, if one exists.
-    #[allow(dead_code)]
-    pub(crate) fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
-        self.artifacts.semantic.command_parent_id(id)
-    }
-
-    /// Returns structural semantic child commands nested under `id`.
-    #[allow(dead_code)]
-    pub(crate) fn command_children(&self, id: CommandId) -> &[CommandId] {
-        self.artifacts.semantic.command_children(id)
-    }
-
-    /// Returns the syntax-backed semantic parent for `id`, if one exists.
-    #[allow(dead_code)]
-    pub(crate) fn syntax_backed_command_parent_id(&self, id: CommandId) -> Option<CommandId> {
-        self.artifacts.semantic.syntax_backed_command_parent_id(id)
-    }
-
     /// Returns syntax-backed semantic child commands nested directly under `id`.
     pub(crate) fn syntax_backed_command_children(&self, id: CommandId) -> &[CommandId] {
         self.artifacts.semantic.syntax_backed_command_children(id)
@@ -701,16 +681,6 @@ impl<'a, 'artifacts> CommandTopology<'a, 'artifacts> {
     }
 }
 
-/// Parser-backed visit paired with its semantic command id.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct BodyCommandVisit<'a> {
-    /// Semantic command id for this visit.
-    pub(crate) id: CommandId,
-    /// Parser-backed command visit recorded during semantic traversal.
-    pub(crate) visit: facts::CommandVisit<'a>,
-}
-
 /// Semantic-backed command topology scoped to one statement-sequence body.
 ///
 /// This is the command-id counterpart to the fact-layer `BodyTopology`: it preserves body
@@ -723,46 +693,6 @@ pub(crate) struct CommandBodyTopology<'a, 'artifacts> {
 }
 
 impl<'a, 'artifacts> CommandBodyTopology<'a, 'artifacts> {
-    /// Returns direct semantic command ids recorded for this body.
-    #[allow(dead_code)]
-    pub(crate) fn direct_command_ids(&self) -> &'artifacts [CommandId] {
-        self.direct_ids
-    }
-
-    /// Iterates direct command visits recorded for this body.
-    #[allow(dead_code)]
-    pub(crate) fn direct_command_visits(
-        &self,
-    ) -> impl Iterator<Item = BodyCommandVisit<'a>> + use<'a, 'artifacts, '_> {
-        self.direct_ids.iter().filter_map(|id| {
-            self.topology
-                .command_visit(*id)
-                .map(|visit| BodyCommandVisit { id: *id, visit })
-        })
-    }
-
-    /// Iterates adjacent direct command visits recorded for this body.
-    #[allow(dead_code)]
-    pub(crate) fn sibling_command_visit_pairs(
-        &self,
-    ) -> impl Iterator<Item = (BodyCommandVisit<'a>, BodyCommandVisit<'a>)> + use<'a, 'artifacts, '_>
-    {
-        self.direct_ids.windows(2).filter_map(|ids| {
-            let previous_id = ids[0];
-            let current_id = ids[1];
-            Some((
-                BodyCommandVisit {
-                    id: previous_id,
-                    visit: self.topology.command_visit(previous_id)?,
-                },
-                BodyCommandVisit {
-                    id: current_id,
-                    visit: self.topology.command_visit(current_id)?,
-                },
-            ))
-        })
-    }
-
     /// Iterates command visits below this body in semantic source order.
     pub(crate) fn for_each_command_visit(
         &self,

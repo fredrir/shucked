@@ -6,7 +6,7 @@ use anyhow::{Result, anyhow};
 use shucked_config::{
     ConfigArguments, resolve_project_root_for_file, resolve_project_root_for_input,
 };
-use shucked_linter::{Applicability, LinterSettings, ShellCheckCodeMap, ShellDialect};
+use shucked_linter::{LinterSettings, ShellCheckCodeMap, ShellDialect};
 use shucked_parser::{Error as ParseError, parser::Parser};
 
 use super::CheckReport;
@@ -17,8 +17,8 @@ use super::source_resolver::NativeSourceResolver;
 use crate::ExitStatus;
 use crate::args::{CheckCommand, CheckOutputFormatArg};
 use crate::commands::check_output::print_report_to;
-use crate::discover::{DiscoveredFile, FileKind, ProjectRoot, normalize_path};
 use crate::stdin::read_from_stdin;
+use shucked_discover::{DiscoveredFile, FileKind, ProjectRoot, normalize_path};
 
 pub(super) fn is_stdin(args: &CheckCommand) -> Result<bool> {
     if args.stdin_filename.is_some() {
@@ -89,7 +89,7 @@ pub(super) fn check_stdin(
     );
     let closure_resolver: Option<&(dyn shucked_semantic::SourcePathResolver + Send + Sync)> =
         source_resolver.has_roots().then_some(&source_resolver);
-    let applicability = requested_fix_applicability(args);
+    let applicability = args.fix_applicability();
     let include_source = matches!(args.output_format, CheckOutputFormatArg::Full);
 
     let mut checked_source = source;
@@ -171,7 +171,7 @@ pub(super) fn check_stdin(
             args.output_format,
             colored::control::SHOULD_COLORIZE.should_colorize(),
         )?;
-        if fixes_applied > 0 && is_human_readable(args.output_format) {
+        if fixes_applied > 0 && args.output_format.is_human_readable() {
             writeln!(
                 stderr,
                 "Applied {fixes_applied} fix{}.",
@@ -189,23 +189,6 @@ pub(super) fn check_stdin(
     }
 
     Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
-}
-
-fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
-    if args.unsafe_fixes {
-        Some(Applicability::Unsafe)
-    } else if args.fix {
-        Some(Applicability::Safe)
-    } else {
-        None
-    }
-}
-
-fn is_human_readable(output_format: CheckOutputFormatArg) -> bool {
-    matches!(
-        output_format,
-        CheckOutputFormatArg::Concise | CheckOutputFormatArg::Full | CheckOutputFormatArg::Grouped
-    )
 }
 
 fn stdin_file(

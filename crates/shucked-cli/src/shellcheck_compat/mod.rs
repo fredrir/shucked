@@ -1200,7 +1200,7 @@ fn is_stdin_path(path: &Path) -> bool {
     path == Path::new("-")
 }
 
-fn absolutize(cwd: &Path, path: &Path) -> PathBuf {
+pub(super) fn absolutize(cwd: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
     } else {

@@ -18,11 +18,11 @@ use super::source_resolver::{
 };
 use crate::commands::check_output::DisplayedDiagnostic;
 use crate::commands::project_runner::PendingProjectFile;
-use crate::discover::FileKind;
+use shucked_discover::{DiscoveredFile, FileKind};
 
 #[derive(Debug, Clone)]
 pub(super) struct FileCheckResult {
-    pub(super) file: crate::discover::DiscoveredFile,
+    pub(super) file: DiscoveredFile,
     pub(super) file_key: shucked_cache::FileCacheKey,
     pub(super) cache_data: CheckCacheData,
     pub(super) diagnostics: Vec<DisplayedDiagnostic>,
@@ -275,52 +275,25 @@ pub(super) fn discover_followed_paths(
 
 #[cfg(test)]
 mod tests {
-    #![allow(unused_imports)]
-
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::Arc;
-    use std::sync::mpsc::{TryRecvError, channel};
 
-    use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shucked_extract::{
-        EmbeddedFormat, EmbeddedScript, ExtractedDialect, HostLineStart, ImplicitShellFlags,
-    };
-    use shucked_linter::{
-        Category, LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect,
-    };
+    use shucked_config::ConfigArguments;
+    use shucked_linter::{LinterSettings, Rule, RuleSelector, RuleSet, ShellCheckCodeMap};
     use shucked_parser::parser::Parser;
     use tempfile::tempdir;
 
-    use super::*;
+    use super::{analyze_file, collect_lint_diagnostics, read_shared_source};
     use crate::ExitStatus;
-    use crate::args::{
-        CheckCommand, CheckOutputFormatArg, FileSelectionArgs, PatternRuleSelectorPair,
-        PatternShellPair, RuleSelectionArgs,
-    };
-    use crate::commands::check::add_ignore::run_add_ignore_with_cwd;
-    use crate::commands::check::analyze::{
-        analyze_file, collect_lint_diagnostics, read_shared_source,
-    };
+    use crate::args::RuleSelectionArgs;
     use crate::commands::check::cache::CachedDisplayedDiagnosticKind;
     use crate::commands::check::display::display_lint_diagnostics;
-    use crate::commands::check::embedded::remap_embedded_position;
     use crate::commands::check::run::run_check_with_cwd;
-    use crate::commands::check::settings::{
-        CompiledPerFileShellList, PerFileShell, parse_rule_selectors,
+    use crate::commands::check::test_support::{
+        cache_root, check_args, empty_per_file_shell, pending_project_file,
     };
-    use crate::commands::check::test_support::*;
-    use crate::commands::check::watch::{
-        WatchTarget, collect_watch_targets, drain_watch_batch, should_clear_screen,
-        watch_event_requires_rerun,
-    };
-    use crate::commands::check::{CheckReport, diagnostics_exit_status};
-    use crate::commands::check_output::{
-        DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
-    };
-    use crate::commands::project_runner::PendingProjectFile;
-    use crate::discover::{FileKind, normalize_path};
-    use shucked_config::ConfigArguments;
+    use crate::commands::check_output::DisplayedDiagnosticKind;
 
     #[test]
     fn reports_parse_errors() {

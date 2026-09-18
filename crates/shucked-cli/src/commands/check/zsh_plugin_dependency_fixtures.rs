@@ -9,7 +9,7 @@ use tempfile::tempdir;
 use super::run::run_check_with_cwd;
 use super::test_support::{cache_root, check_args};
 use super::watch::collect_watch_targets;
-use crate::discover::normalize_path;
+use shucked_discover::normalize_path;
 
 #[derive(Debug, Deserialize)]
 struct Fixture {

@@ -57,7 +57,7 @@ pub fn local_top_level(checker: &mut Checker) {
 
             (!inside_function).then_some(declaration.span)
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || LocalTopLevel);
 }

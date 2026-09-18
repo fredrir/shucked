@@ -563,7 +563,7 @@ fn loop_keyword_report_span(
                 .any(|target| target.span == definition_span)
         })
     {
-        return Some(keyword_span(header.command().span, "for"));
+        return Some(header.command().span.leading_keyword("for"));
     }
 
     checker
@@ -572,11 +572,7 @@ fn loop_keyword_report_span(
         .select_headers()
         .iter()
         .find(|header| header.command().variable_span == definition_span)
-        .map(|header| keyword_span(header.command().span, "select"))
-}
-
-fn keyword_span(command_span: shucked_ast::Span, keyword: &str) -> shucked_ast::Span {
-    shucked_ast::Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
+        .map(|header| header.command().span.leading_keyword("select"))
 }
 
 fn binding_follows_in_source(

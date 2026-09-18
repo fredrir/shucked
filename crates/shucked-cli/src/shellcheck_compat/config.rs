@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     CliConfigOverride, CompatCliError, CompatColorMode, CompatFormat, CompatSeverityThreshold,
-    parse_bool, parse_code_list, parse_optional_check_list, parse_source_path_list,
+    absolutize, parse_bool, parse_code_list, parse_optional_check_list, parse_source_path_list,
 };
 
 const CONFIG_FILENAME: &str = ".shellcheckrc";
@@ -152,14 +152,6 @@ fn find_config(cwd: &Path) -> Option<PathBuf> {
         current = dir.parent();
     }
     None
-}
-
-fn absolutize(cwd: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    }
 }
 
 #[cfg(test)]

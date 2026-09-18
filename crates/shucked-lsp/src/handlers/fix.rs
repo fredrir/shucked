@@ -616,7 +616,7 @@ fn diagnostics_for_range(
         .collect()
 }
 
-fn action_kind_matches(
+pub(crate) fn action_kind_matches(
     requested: &types::CodeActionKind,
     provided: &types::CodeActionKind,
 ) -> bool {
@@ -635,7 +635,7 @@ fn ranges_overlap(left: &types::Range, right: &types::Range) -> bool {
         return range_contains(left, right.start);
     }
 
-    position_lt(left.start, right.end) && position_lt(right.start, left.end)
+    left.start < right.end && right.start < left.end
 }
 
 fn range_contains(range: &types::Range, position: types::Position) -> bool {
@@ -643,19 +643,11 @@ fn range_contains(range: &types::Range, position: types::Position) -> bool {
         return range.start == position;
     }
 
-    position_leq(range.start, position) && position_lt(position, range.end)
+    range.start <= position && position < range.end
 }
 
 fn range_is_empty(range: &types::Range) -> bool {
     range.start == range.end
-}
-
-fn position_leq(left: types::Position, right: types::Position) -> bool {
-    (left.line, left.character) <= (right.line, right.character)
-}
-
-fn position_lt(left: types::Position, right: types::Position) -> bool {
-    (left.line, left.character) < (right.line, right.character)
 }
 
 fn command_uri(arguments: &[serde_json::Value]) -> crate::server::Result<lsp_types::Url> {

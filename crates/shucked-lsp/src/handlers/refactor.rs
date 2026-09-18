@@ -9,7 +9,7 @@ use shucked_semantic::{AssignmentValueOrigin, BindingOrigin, EditorOccurrenceKin
 
 use crate::edit::RangeExt;
 use crate::handlers::analysis::DocumentAnalysis;
-use crate::handlers::fix::workspace_edit_for_document;
+use crate::handlers::fix::{action_kind_matches, workspace_edit_for_document};
 use crate::session::DocumentSnapshot;
 
 /// Generates refactoring code actions for the given document and parameters.
@@ -69,18 +69,6 @@ pub(crate) fn refactor_code_actions(
     }
 
     actions
-}
-
-fn action_kind_matches(
-    requested: &types::CodeActionKind,
-    provided: &types::CodeActionKind,
-) -> bool {
-    let requested = requested.as_str();
-    let provided = provided.as_str();
-    provided == requested
-        || (provided
-            .strip_prefix(requested)
-            .is_some_and(|suffix| suffix.starts_with('.')))
 }
 
 // -----------------------------------------------------------------------------

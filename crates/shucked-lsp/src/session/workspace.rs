@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::ops::Deref;
 use std::path::PathBuf;
 
@@ -74,26 +72,17 @@ impl Deref for Workspaces {
 pub struct Workspace {
     url: Url,
     options: Option<ClientOptions>,
-    is_default: bool,
 }
 
 impl Workspace {
     /// Create a non-default workspace for `url`.
     pub fn new(url: Url) -> Self {
-        Self {
-            url,
-            options: None,
-            is_default: false,
-        }
+        Self { url, options: None }
     }
 
     /// Create the default workspace for clients without workspace-folder support.
     pub fn default(url: Url) -> Self {
-        Self {
-            url,
-            options: None,
-            is_default: true,
-        }
+        Self { url, options: None }
     }
 
     /// Return a copy with workspace-specific client options.
@@ -109,10 +98,6 @@ impl Workspace {
 
     pub(crate) fn options(&self) -> Option<&ClientOptions> {
         self.options.as_ref()
-    }
-
-    pub(crate) fn is_default(&self) -> bool {
-        self.is_default
     }
 }
 
@@ -134,7 +119,6 @@ mod tests {
 
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].url(), &root_uri);
-        assert!(workspaces[0].is_default());
     }
 
     #[test]
@@ -153,6 +137,5 @@ mod tests {
 
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].url(), &expected_uri);
-        assert!(workspaces[0].is_default());
     }
 }

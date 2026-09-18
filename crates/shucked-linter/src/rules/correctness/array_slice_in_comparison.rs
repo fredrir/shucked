@@ -113,15 +113,11 @@ fn pattern_span_if_risky(
 ) -> Option<(Span, Option<Fix>)> {
     let expansion_spans = risky_words
         .iter()
-        .filter(|word| span_contains(span, word.span))
+        .filter(|word| span.contains_span(word.span))
         .flat_map(|word| word.expansion_spans.iter().copied())
         .collect::<Vec<_>>();
 
     (!expansion_spans.is_empty()).then(|| (span, intentional_join_fix(&expansion_spans, source)))
-}
-
-fn span_contains(outer: Span, inner: Span) -> bool {
-    outer.start.offset() <= inner.start.offset() && outer.end.offset() >= inner.end.offset()
 }
 
 fn intentional_join_fix(expansion_spans: &[Span], source: &str) -> Option<Fix> {

@@ -33,5 +33,5 @@ pub use error::{Error, Result};
 /// Shell dialect, profile, and option types exposed by the parser.
 pub use parser::{
     OptionValue, ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState,
-    text_is_self_contained_arithmetic_expression, text_looks_like_nontrivial_arithmetic_expression,
+    text_is_self_contained_arithmetic_expression,
 };

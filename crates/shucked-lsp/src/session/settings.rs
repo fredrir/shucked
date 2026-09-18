@@ -73,8 +73,6 @@ struct ResolvedLinterSettings {
 
 pub struct GlobalClientSettings {
     options: ClientOptions,
-    #[allow(dead_code)]
-    client: crate::Client,
 }
 
 impl ClientSettings {
@@ -100,10 +98,6 @@ impl ClientSettings {
 
     pub(crate) fn disable_rule_comments(&self) -> bool {
         self.disable_rule_comments
-    }
-
-    pub(crate) fn from_options(options: &ClientOptions) -> Self {
-        Self::from_layered_options(&[options])
     }
 
     pub(crate) fn from_layered_options(option_layers: &[&ClientOptions]) -> Self {
@@ -179,7 +173,7 @@ impl ShuckSettings {
         self.fixable_rules
     }
 
-    pub(crate) fn project_root(&self) -> Option<&Path> {
+    pub fn project_root(&self) -> Option<&Path> {
         self.project_root.as_deref()
     }
 }
@@ -323,12 +317,8 @@ impl ResolvedLinterSettings {
 }
 
 impl GlobalClientSettings {
-    pub(super) fn new(options: ClientOptions, client: crate::Client) -> Self {
-        Self { options, client }
-    }
-
-    pub(super) fn to_settings_arc(&self) -> Arc<ClientSettings> {
-        Arc::new(ClientSettings::from_options(&self.options))
+    pub(super) fn new(options: ClientOptions) -> Self {
+        Self { options }
     }
 
     pub(crate) fn options(&self) -> &ClientOptions {
@@ -729,12 +719,6 @@ fn apply_per_file_ignore_layer(
     per_file_ignores
 }
 
-fn linter_rule_options_for_lint_config(lint: &LintConfig) -> LinterRuleOptions {
-    let mut rule_options = LinterRuleOptions::default();
-    apply_linter_rule_options_for_lint_config(&mut rule_options, lint);
-    rule_options
-}
-
 fn apply_linter_rule_options_for_lint_config(
     rule_options: &mut LinterRuleOptions,
     lint: &LintConfig,
@@ -814,7 +798,7 @@ mod tests {
 
     #[test]
     fn client_settings_default_to_safe_editor_behavior() {
-        let settings = ClientSettings::from_options(&ClientOptions::default());
+        let settings = ClientSettings::from_layered_options(&[&ClientOptions::default()]);
         assert!(settings.fix_all());
         assert!(!settings.unsafe_fixes());
         assert!(!settings.show_syntax_errors());
@@ -829,7 +813,7 @@ mod tests {
         }))
         .expect("rename opt-out should deserialize");
         assert!(
-            !ClientSettings::from_options(&options)
+            !ClientSettings::from_layered_options(&[&options])
                 .rename()
                 .allow_cross_file
         );

@@ -1,5 +1,3 @@
-use shucked_ast::Span;
-
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct SelectLoop;
@@ -24,14 +22,10 @@ pub fn select_loop(checker: &mut Checker) {
         .command_facts()
         .select_headers()
         .iter()
-        .map(|header| keyword_span(header.span(), "select"))
+        .map(|header| header.span().leading_keyword("select"))
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || SelectLoop);
-}
-
-fn keyword_span(span: Span, keyword: &str) -> Span {
-    Span::from_positions(span.start, span.start.advanced_by(keyword))
 }
 
 #[cfg(test)]

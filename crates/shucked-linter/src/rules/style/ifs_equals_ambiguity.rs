@@ -1,4 +1,4 @@
-use shucked_ast::{Assignment, BuiltinCommand, Command, Span};
+use shucked_ast::{Assignment, Span};
 
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
@@ -26,7 +26,11 @@ pub fn ifs_equals_ambiguity(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .flat_map(|fact| command_assignment_spans(fact.command(), source))
+        .flat_map(|fact| {
+            fact.assignments()
+                .iter()
+                .filter_map(|assignment| ifs_equals_ambiguity_span(assignment, source))
+        })
         .collect::<Vec<_>>();
 
     for span in spans {
@@ -37,34 +41,6 @@ pub fn ifs_equals_ambiguity(checker: &mut Checker) {
                 "'='",
             )),
         ));
-    }
-}
-
-fn command_assignment_spans(command: &Command, source: &str) -> Vec<Span> {
-    match command {
-        Command::Simple(command) => command
-            .assignments
-            .iter()
-            .filter_map(|assignment| ifs_equals_ambiguity_span(assignment, source))
-            .collect(),
-        Command::Builtin(command) => builtin_assignments(command)
-            .iter()
-            .filter_map(|assignment| ifs_equals_ambiguity_span(assignment, source))
-            .collect(),
-        Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => Vec::new(),
-    }
-}
-
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
-    match command {
-        BuiltinCommand::Break(command) => &command.assignments,
-        BuiltinCommand::Continue(command) => &command.assignments,
-        BuiltinCommand::Return(command) => &command.assignments,
-        BuiltinCommand::Exit(command) => &command.assignments,
     }
 }
 

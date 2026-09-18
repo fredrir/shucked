@@ -644,7 +644,7 @@ impl Drop for ShellFilesVisitor<'_> {
     }
 }
 
-pub fn add_file(
+pub(crate) fn add_file(
     path: &Path,
     cwd: &Path,
     fallback_start: &Path,
@@ -711,7 +711,7 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-pub fn is_shell_script(path: &Path) -> Result<bool> {
+pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
     if ShellDialect::infer_from_path(path) != ShellDialect::Unknown {
         return Ok(true);
     }

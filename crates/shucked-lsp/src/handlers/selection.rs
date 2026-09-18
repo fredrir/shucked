@@ -1,5 +1,6 @@
 use lsp_types as types;
 
+use crate::edit::PositionExt;
 use crate::session::{DocumentSnapshot, RequestCancellationToken};
 
 pub(crate) type SelectionRangeResponse = Option<Vec<types::SelectionRange>>;
@@ -19,18 +20,15 @@ pub(crate) fn selection_ranges(
         if cancellation.is_cancelled() {
             return None;
         }
-        let point = types::Range::new(*position, *position);
-        let offset = crate::edit::to_text_range(
-            &point,
+        let offset = position.to_offset(
             analysis.source(),
             analysis.line_index(),
             snapshot.encoding(),
-        )
-        .start();
+        );
         let chain = analysis
             .indexer()
             .selection_range_index()
-            .selection_chain(offset);
+            .selection_chain((offset as u32).into());
 
         let mut parent = None;
         for range in chain.into_iter().rev() {
