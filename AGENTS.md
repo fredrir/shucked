@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is this project?
 
-Shuck is a shell script linter/checker CLI tool, built on top of **shuck-parser** (an in-process virtual bash interpreter written in Rust). The repo is a Cargo workspace containing both shuck (the linter) and shuck-parser (the underlying library).
+Shuck is a shell script linter/checker CLI tool, built on top of **shucked-parser** (an in-process virtual bash interpreter written in Rust). The repo is a Cargo workspace containing both shucked (the linter) and shucked-parser (the underlying library).
 
 ## Clean-Room Policy
 
@@ -35,22 +35,22 @@ This project is a clean-room reimplementation of ShellCheck. To preserve the int
 
 ```bash
 # Build just the shuck crates (fast iteration)
-make build                    # cargo build -p shuck-cli -p shuck-cache
+make build                    # cargo build -p shucked-cli -p shucked-cache
 
 # Test just the shuck crates
-make test                     # cargo test -p shuck-cli -p shuck-cache
+make test                     # cargo test -p shucked-cli -p shucked-cache
 
 # Run the shuck CLI
-make run ARGS="check ."       # cargo run -p shuck-cli -- check .
+make run ARGS="check ."       # cargo run -p shucked-cli -- check .
 
-# Build/test everything (including shuck-parser)
+# Build/test everything (including shucked-parser)
 cargo build
 cargo test --features http_client
 
 # Run a single test
-cargo test -p shuck-cli -- test_name
-cargo test -p shuck-linter -- test_name
-cargo test -p shuck-parser -- test_name
+cargo test -p shucked-cli -- test_name
+cargo test -p shucked-linter -- test_name
+cargo test -p shucked-parser -- test_name
 
 # Format and lint
 cargo fmt
@@ -102,27 +102,27 @@ nix --extra-experimental-features 'nix-command flakes' develop --command shellch
 
 ### Workspace crates
 
-- **`crates/shuck-cli`** — CLI binary. Discovers files, resolves config, coordinates caching, parses shell sources, runs lint/format commands, applies fixes, and renders reports. Project roots are resolved by walking up to find `.shuck.toml` or `shuck.toml`.
-- **`crates/shuck-linter`** — Rule registry, checker dispatch, suppressions, generated rule metadata, fix application, and linter-owned facts built over parser, indexer, and semantic output.
-- **`crates/shuck-semantic`** — Semantic model for bindings, references, scopes, declarations, source closure, call graph, CFG, and dataflow.
-- **`crates/shuck-indexer`** — Positional and structural indexes over parsed scripts, including lines, comments, syntactic regions, heredocs, and continuation lines.
-- **`crates/shuck-extract`** — Embedded shell extraction for supported host files such as GitHub Actions workflows and composite actions.
-- **`crates/shuck-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
-- **`crates/shuck-parser`** — The shell parser library. Provides source-backed lexing, dialect/profile-aware parsing, AST construction, recovery diagnostics, and syntax facts.
-- **`crates/shuck-ast`** — Shared AST node types, tokens, identifiers, and source span utilities.
-- **`crates/shuck-formatter`** — Shell formatting built directly on the parser and AST.
+- **`crates/shucked-cli`** — CLI binary. Discovers files, resolves config, coordinates caching, parses shell sources, runs lint/format commands, applies fixes, and renders reports. Project roots are resolved by walking up to find `.shuck.toml` or `shuck.toml`.
+- **`crates/shucked-linter`** — Rule registry, checker dispatch, suppressions, generated rule metadata, fix application, and linter-owned facts built over parser, indexer, and semantic output.
+- **`crates/shucked-semantic`** — Semantic model for bindings, references, scopes, declarations, source closure, call graph, CFG, and dataflow.
+- **`crates/shucked-indexer`** — Positional and structural indexes over parsed scripts, including lines, comments, syntactic regions, heredocs, and continuation lines.
+- **`crates/shucked-extract`** — Embedded shell extraction for supported host files such as GitHub Actions workflows and composite actions.
+- **`crates/shucked-cache`** — File-level caching with SHA-256 keyed `PackageCache<T>`. Stores results in a shared cache root (from `--cache-dir`, `SHUCK_CACHE_DIR`, or the OS cache directory such as `~/Library/Caches/shuck` / `$XDG_CACHE_HOME/shuck`) using bincode serialization. Entries are keyed by file mtime+permissions and auto-pruned after 30 days.
+- **`crates/shucked-parser`** — The shell parser library. Provides source-backed lexing, dialect/profile-aware parsing, AST construction, recovery diagnostics, and syntax facts.
+- **`crates/shucked-ast`** — Shared AST node types, tokens, identifiers, and source span utilities.
+- **`crates/shucked-formatter`** — Shell formatting built directly on the parser and AST.
 
 ### Data flow for `shuck check`
 
 1. **Discover** (`discover.rs`) — Walk input paths, detect shell scripts by extension (`.sh`, `.bash`, `.zsh`, `.ksh`) or shebang, skip ignored dirs (`.git`, `node_modules`, etc.)
-2. **Cache lookup** (`shuck-cache`) — Check if file has a valid cached result based on mtime/permissions
-3. **Parse and index** (`shuck-parser`, `shuck-indexer`) — Infer the shell dialect, parse into an AST with recovery diagnostics, and build line/comment/region indexes
-4. **Suppressions and analysis** (`shuck-linter`) — Parse shuck and ShellCheck-style directives, build the semantic model and linter facts, dispatch enabled rules, and apply per-file ignores
+2. **Cache lookup** (`shucked-cache`) — Check if file has a valid cached result based on mtime/permissions
+3. **Parse and index** (`shucked-parser`, `shucked-indexer`) — Infer the shell dialect, parse into an AST with recovery diagnostics, and build line/comment/region indexes
+4. **Suppressions and analysis** (`shucked-linter`) — Parse shuck and ShellCheck-style directives, build the semantic model and linter facts, dispatch enabled rules, and apply per-file ignores
 5. **Fix and report** — Optionally apply requested fixes, remap embedded diagnostics back to host files, render the selected output format, cache results, and return the appropriate exit status
 
-### shuck-parser internals
+### shucked-parser internals
 
-The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser with these modules:
+The parser (`crates/shucked-parser/src/parser/`) is a recursive descent parser with these modules:
 - `lexer.rs` — Tokenizer that handles shell quoting, expansions, heredocs
 - `commands.rs` — Command and statement parsing
 - `words.rs` — Word, expansion, pattern, and substitution parsing
@@ -170,13 +170,13 @@ Release flow: release-please watches `main` and opens/maintains a release PR tha
 
 ## Linter Rule Authoring
 
-When working on `crates/shuck-linter`, treat `facts.rs` and `Checker::facts()` as the
+When working on `crates/shucked-linter`, treat `facts.rs` and `Checker::facts()` as the
 required extension point for rule logic.
 
-- New rules in `crates/shuck-linter/src/rules/style/` and
-  `crates/shuck-linter/src/rules/correctness/` **must not** add direct AST walks.
+- New rules in `crates/shucked-linter/src/rules/style/` and
+  `crates/shucked-linter/src/rules/correctness/` **must not** add direct AST walks.
 - Do not call traversal/query helpers from rule files. If a rule needs new structural data,
-  add it to `LinterFacts` in `crates/shuck-linter/src/facts.rs` and consume it from there.
+  add it to `LinterFacts` in `crates/shucked-linter/src/facts.rs` and consume it from there.
 - Do not import from `crate::rules::common::*` inside rule files. Rule-facing shared types and
   helpers should come from the crate root or from rule-local helper modules.
 - Keep repeated structural discovery in `facts.rs`, not in per-rule helper code.

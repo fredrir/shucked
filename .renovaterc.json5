@@ -1,20 +1,17 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "security:only-security-updates",
-    "helpers:pinGitHubActionDigests"
-  ],
-  "dependencyDashboard": false,
-  "packageRules": [
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["security:only-security-updates", "helpers:pinGitHubActionDigests"],
+  dependencyDashboard: false,
+  packageRules: [
     {
-      "description": "Keep GitHub Action updates together so digest refreshes stay readable.",
-      "matchManagers": ["github-actions"],
-      "groupName": "github actions"
+      description: "Keep GitHub Action updates together so digest refreshes stay readable.",
+      matchManagers: ["github-actions"],
+      groupName: "github actions",
     },
     {
-      "description": "Wait 3 days before adopting new dependency versions to reduce supply-chain risk.",
-      "matchManagers": ["cargo"],
-      "minimumReleaseAge": "3 days"
-    }
-  ]
+      description: "Wait 3 days before adopting new dependency versions to reduce supply-chain risk.",
+      matchManagers: ["cargo"],
+      minimumReleaseAge: "3 days",
+    },
+  ],
 }

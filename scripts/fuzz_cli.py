@@ -74,7 +74,12 @@ class FailureReport:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--shuck-bin", default="target/debug/shuck")
+    parser.add_argument(
+        "--shucked-bin",
+        "--shuck-bin",
+        dest="shuck_bin",
+        default="target/debug/shucked" if os.path.exists("target/debug/shucked") else "target/debug/shuck",
+    )
     parser.add_argument("--dialect", choices=("sh", "bash"), required=True)
     parser.add_argument("--profile", choices=("smoke", "full"), default="full")
     parser.add_argument("--count", type=int, default=1)

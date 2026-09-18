@@ -2,8 +2,8 @@
 
 ARGS ?= --help
 WASM_PACK ?= wasm-pack
-WASM_NPM_DIR ?= target/npm/shuck-wasm
-WASM_TEST_DIR ?= target/wasm-test/shuck-wasm
+WASM_NPM_DIR ?= target/npm/shucked-wasm
+WASM_TEST_DIR ?= target/wasm-test/shucked-wasm
 BENCH_FILE ?=
 NIX_DEVELOP ?= nix --extra-experimental-features 'nix-command flakes' develop --command
 HAWK_RUST_VERSION ?= 1.97.0
@@ -16,7 +16,7 @@ FUZZ_ARGS ?= -max_total_time=60
 FUZZ_CLI_ARGS ?= --dialect sh --profile smoke --count 1 --seed 0
 FUZZ_CARGO_ENV ?= export PATH="$$HOME/.cargo/bin:$$PATH"; . "$$HOME/.cargo/env" >/dev/null 2>&1 || true;
 PROFILE_CASE ?= nvm
-PROFILE_FILE ?= crates/shuck-benchmark/resources/files/$(PROFILE_CASE).sh
+PROFILE_FILE ?= crates/shucked-benchmark/resources/files/$(PROFILE_CASE).sh
 PROFILE_DIR ?= .cache/profiles
 PROFILE_RATE ?= 1000
 PROFILE_ITERATIONS ?= 1
@@ -46,11 +46,11 @@ test:
 	cargo test
 
 build-wasm:
-	$(WASM_PACK) build crates/shuck-wasm --target bundler --out-dir ../../$(WASM_NPM_DIR) --out-name shuck
+	$(WASM_PACK) build crates/shucked-wasm --target bundler --out-dir ../../$(WASM_NPM_DIR) --out-name shuck
 
 test-wasm:
-	cargo test -p shuck-wasm
-	$(WASM_PACK) build crates/shuck-wasm --target nodejs --out-dir ../../$(WASM_TEST_DIR) --out-name shuck
+	cargo test -p shucked-wasm
+	$(WASM_PACK) build crates/shucked-wasm --target nodejs --out-dir ../../$(WASM_TEST_DIR) --out-name shuck
 	node scripts/ci/smoke-wasm-package.mjs $(WASM_TEST_DIR)
 
 setup-large-corpus:
@@ -79,8 +79,8 @@ fuzz-run:
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) "$(FUZZ_TARGET)" -- $(FUZZ_ARGS)'
 
 fuzz-cli:
-	cargo build -p shuck-cli
-	python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck $(FUZZ_CLI_ARGS)
+	cargo build -p shucked-cli
+	python3 ./scripts/fuzz_cli.py --shucked-bin ./target/debug/shucked $(FUZZ_CLI_ARGS)
 
 ensure-cache:
 	@if [ ! -e .cache ]; then \
@@ -105,7 +105,7 @@ test-large-corpus: ensure-cache
 			SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 			SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 			SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
-			$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus large_corpus_conforms_with_shellcheck -- --ignored --exact --nocapture ;; \
+			$(NIX_DEVELOP) cargo test -p shucked-cli --test large_corpus large_corpus_conforms_with_shellcheck -- --ignored --exact --nocapture ;; \
 		*) \
 			SHUCK_TEST_LARGE_CORPUS=1 \
 			SHUCK_LARGE_CORPUS_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_TIMEOUT_SECS) \
@@ -115,7 +115,7 @@ test-large-corpus: ensure-cache
 			SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 			SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 			SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
-			$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus -- --ignored --nocapture ;; \
+			$(NIX_DEVELOP) cargo test -p shucked-cli --test large_corpus -- --ignored --nocapture ;; \
 	esac
 
 test-large-corpus-zsh: ensure-cache
@@ -124,7 +124,7 @@ test-large-corpus-zsh: ensure-cache
 	$(LARGE_CORPUS_SHUCK_TIMEOUT_ENV) \
 	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
-	$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus large_corpus_zsh_fixtures_parse -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-cli --test large_corpus large_corpus_zsh_fixtures_parse -- --ignored --exact --nocapture
 
 large-corpus-report-from-log:
 	test -f "$(LARGE_CORPUS_REPORT_LOG)"
@@ -155,11 +155,11 @@ test-oracle-shfmt: test-oracle-shfmt-fixtures test-oracle-shfmt-benchmark
 
 test-oracle-shfmt-fixtures:
 	SHUCK_RUN_SHFMT_ORACLE=1 \
-	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt selected_fixtures_match_shfmt -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-formatter --test oracle_shfmt selected_fixtures_match_shfmt -- --ignored --exact --nocapture
 
 test-oracle-shfmt-benchmark:
 	SHUCK_RUN_SHFMT_ORACLE=1 \
-	$(NIX_DEVELOP) cargo test -p shuck-benchmark --test formatter_corpus formatter_benchmark_corpus_matches_shfmt_baseline -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-benchmark --test formatter_corpus formatter_benchmark_corpus_matches_shfmt_baseline -- --ignored --exact --nocapture
 
 test-oracle-shfmt-large-corpus: ensure-cache
 	SHUCK_RUN_SHFMT_ORACLE=1 \
@@ -167,7 +167,7 @@ test-oracle-shfmt-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
 	TEST_SHARD_INDEX=$(TEST_SHARD_INDEX) \
 	TEST_TOTAL_SHARDS=$(TEST_TOTAL_SHARDS) \
-	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt large_corpus_matches_shfmt -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-formatter --test oracle_shfmt large_corpus_matches_shfmt -- --ignored --exact --nocapture
 
 update-oracle-shfmt-large-corpus-allowlist: ensure-cache
 	SHUCK_UPDATE_SHFMT_LARGE_CORPUS_ALLOWLIST=1 \
@@ -176,16 +176,16 @@ update-oracle-shfmt-large-corpus-allowlist: ensure-cache
 	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=100 \
 	TEST_SHARD_INDEX=0 \
 	TEST_TOTAL_SHARDS=1 \
-	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt large_corpus_matches_shfmt -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-formatter --test oracle_shfmt large_corpus_matches_shfmt -- --ignored --exact --nocapture
 
 test-oracle-shellcheck-cli:
-	$(NIX_DEVELOP) cargo test -p shuck-cli --test oracle_shellcheck_cli -- --ignored --nocapture
+	$(NIX_DEVELOP) cargo test -p shucked-cli --test oracle_shellcheck_cli -- --ignored --nocapture
 
 run:
-	cargo run -p shuck-cli -- $(ARGS)
+	cargo run -p shucked-cli -- $(ARGS)
 
 bench:
-	cargo bench -p shuck-benchmark
+	cargo bench -p shucked-benchmark
 
 bench-save:
 	python3 scripts/benchmarks/run_criterion.py --repo-root . --save-baseline main
@@ -200,28 +200,28 @@ bench-memory-compare:
 	python3 scripts/benchmarks/run_parser_memory.py --repo-root . --baseline main --release
 
 bench-parser:
-	cargo bench -p shuck-benchmark --bench parser
+	cargo bench -p shucked-benchmark --bench parser
 
 bench-arithmetic:
-	cargo bench -p shuck-benchmark --bench arithmetic
+	cargo bench -p shucked-benchmark --bench arithmetic
 
 bench-lexer:
-	cargo bench -p shuck-benchmark --bench lexer
+	cargo bench -p shucked-benchmark --bench lexer
 
 bench-semantic:
-	cargo bench -p shuck-benchmark --bench semantic
+	cargo bench -p shucked-benchmark --bench semantic
 
 bench-linter:
-	cargo bench -p shuck-benchmark --bench linter
+	cargo bench -p shucked-benchmark --bench linter
 
 bench-formatter:
-	cargo bench -p shuck-benchmark --bench formatter
+	cargo bench -p shucked-benchmark --bench formatter
 
 bench-lsp:
-	cargo bench -p shuck-benchmark --bench lsp
+	cargo bench -p shucked-benchmark --bench lsp
 
 bench-large-corpus-hotspots: ensure-cache
-	cargo bench -p shuck-benchmark --features large-corpus-hotspots --bench large_corpus_hotspots
+	cargo bench -p shucked-benchmark --features large-corpus-hotspots --bench large_corpus_hotspots
 
 bench-macro:
 	$(NIX_DEVELOP) ./scripts/benchmarks/setup.sh hyperfine shellcheck
@@ -231,7 +231,7 @@ bench-macro-site-local: bench-macro
 	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir "$(BENCHMARK_WEBSITE_BENCH_DIR)" --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
 
 bench-repo-corpus: ensure-cache
-	cargo build --release -p shuck-cli
+	cargo build --release -p shucked-cli
 	$(NIX_DEVELOP) ./scripts/benchmarks/run_repo_corpus.sh
 	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_repo_corpus.py \
 		--repo-root . \
@@ -300,27 +300,27 @@ profile-large-corpus-view: ensure-cache
 
 flame-parser:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench parser -o $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shucked-benchmark --bench parser -o $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-parser-$(PROFILE_CASE).svg
 
 flame-arithmetic:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench arithmetic -o $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shucked-benchmark --bench arithmetic -o $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-arithmetic-$(PROFILE_CASE).svg
 
 flame-formatter:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench formatter -o $(PROFILE_DIR)/flame-formatter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shucked-benchmark --bench formatter -o $(PROFILE_DIR)/flame-formatter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-formatter-$(PROFILE_CASE).svg
 
 flame-linter:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-benchmark --bench linter -o $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
+	cargo flamegraph --profile profiling -p shucked-benchmark --bench linter -o $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg -- --bench $(PROFILE_CASE) --noplot
 	open $(PROFILE_DIR)/flame-linter-$(PROFILE_CASE).svg
 
 flame-cli:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck-cli -o $(PROFILE_DIR)/flame-cli.svg -- check --no-cache "$(PROFILE_FILE)"
+	cargo flamegraph --profile profiling -p shucked-cli -o $(PROFILE_DIR)/flame-cli.svg -- check --no-cache "$(PROFILE_FILE)"
 	open $(PROFILE_DIR)/flame-cli.svg
 
 harden-release:
@@ -330,7 +330,7 @@ check-release-security:
 	python3 scripts/check-release-security.py check
 
 check-scripts:
-	cargo run -q -p shuck-cli -- check --no-cache scripts
+	cargo run -q -p shucked-cli -- check --no-cache scripts
 check:
 	cargo fmt -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -342,6 +342,6 @@ hawk:
 		PATH="$$hawk_toolchain_bin:$$PATH" cargo hawk check \
 			--manifest-path Cargo.toml \
 			--target-dir $(HAWK_TARGET_DIR) \
-			--exclude-crate shuck-wasm \
+			--exclude-crate shucked-wasm \
 			-A warnings \
 			-D hawk::dead_public

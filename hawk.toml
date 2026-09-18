@@ -1,9 +1,9 @@
 [[production]]
-package = "shuck-cli"
-bin = "shuck"
-reason = "shipped Shuck command-line application"
+package = "shucked-cli"
+bin = "shucked"
+reason = "shipped Shucked command-line application"
 
 [[exclude]]
-crate = "shuck_server"
+crate = "shucked_lsp"
 module = "fuzzing"
 reason = "public boundary consumed by the separately managed fuzz workspace"
