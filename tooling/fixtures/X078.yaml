@@ -1,5 +1,3 @@
-legacy_code: SH-299
-legacy_name: zsh-array-subscript-in-case
 new_category: Portability
 new_code: X078
 runtime_kind: ast

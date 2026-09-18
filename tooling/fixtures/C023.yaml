@@ -1,5 +1,3 @@
-legacy_code: SH-078
-legacy_name: leading-zero-arithmetic
 new_category: Correctness
 new_code: C023
 runtime_kind: ast

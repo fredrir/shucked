@@ -42,8 +42,6 @@ pub const DIAGNOSTIC_NAME: &str = "shucked";
 
 /// CodeActionKind for fixing all auto-fixable issues.
 pub const SOURCE_FIX_ALL_SHUCKED: CodeActionKind = CodeActionKind::new("source.fixAll.shucked");
-/// Legacy CodeActionKind for fixing all auto-fixable issues.
-pub const SOURCE_FIX_ALL_SHUCK: CodeActionKind = CodeActionKind::new("source.fixAll.shuck");
 
 pub(crate) type Result<T> = anyhow::Result<T>;
 

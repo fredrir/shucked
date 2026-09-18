@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: function-name-case
 new_category: Style
 new_code: S089
 runtime_kind: ast

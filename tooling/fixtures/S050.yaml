@@ -1,5 +1,3 @@
-legacy_code: SH-205
-legacy_name: unquoted-word-between-quotes
 new_category: Style
 new_code: S050
 runtime_kind: ast

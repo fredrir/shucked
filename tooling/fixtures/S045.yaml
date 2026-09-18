@@ -1,5 +1,3 @@
-legacy_code: SH-197
-legacy_name: dollar-in-arithmetic
 new_category: Style
 new_code: S045
 runtime_kind: ast

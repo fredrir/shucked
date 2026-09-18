@@ -1,5 +1,3 @@
-legacy_code: SH-050
-legacy_name: export-command-substitution
 new_category: Style
 new_code: S010
 runtime_kind: ast

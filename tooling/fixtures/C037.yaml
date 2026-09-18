@@ -1,5 +1,3 @@
-legacy_code: SH-110
-legacy_name: broken-test-parse
 new_category: Correctness
 new_code: C037
 runtime_kind: ast

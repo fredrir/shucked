@@ -1,5 +1,3 @@
-legacy_code: SH-267
-legacy_name: v-test-in-sh
 new_category: Portability
 new_code: X060
 runtime_kind: ast

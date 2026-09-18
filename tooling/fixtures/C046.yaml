@@ -1,5 +1,3 @@
-legacy_code: SH-134
-legacy_name: pipe-to-kill
 new_category: Correctness
 new_code: C046
 runtime_kind: ast

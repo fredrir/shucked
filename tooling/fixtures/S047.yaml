@@ -1,5 +1,3 @@
-legacy_code: SH-199
-legacy_name: ls-in-substitution
 new_category: Style
 new_code: S047
 runtime_kind: ast

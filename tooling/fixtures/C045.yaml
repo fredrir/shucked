@@ -1,5 +1,3 @@
-legacy_code: SH-133
-legacy_name: diff-marker-line
 new_category: Correctness
 new_code: C045
 runtime_kind: ast

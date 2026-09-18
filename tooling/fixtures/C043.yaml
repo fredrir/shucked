@@ -1,5 +1,3 @@
-legacy_code: SH-129
-legacy_name: bad-redirection-fd-order
 new_category: Correctness
 new_code: C043
 runtime_kind: ast

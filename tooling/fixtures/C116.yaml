@@ -1,5 +1,3 @@
-legacy_code: SH-258
-legacy_name: assignment-to-numeric-variable
 new_category: Correctness
 new_code: C116
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-039
-legacy_name: unassigned-variable-reference
 new_category: Correctness
 new_code: C006
 runtime_kind: ast

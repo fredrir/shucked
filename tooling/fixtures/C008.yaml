@@ -1,5 +1,3 @@
-legacy_code: SH-042
-legacy_name: trap-string-expansion
 new_category: Correctness
 new_code: C008
 runtime_kind: ast

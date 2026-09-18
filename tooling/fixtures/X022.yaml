@@ -1,5 +1,3 @@
-legacy_code: SH-030
-legacy_name: wait-option
 new_category: Portability
 new_code: X022
 runtime_kind: ast

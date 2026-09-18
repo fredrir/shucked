@@ -1,5 +1,3 @@
-legacy_code: SH-204
-legacy_name: glob-in-grep-pattern
 new_category: Correctness
 new_code: C080
 runtime_kind: ast

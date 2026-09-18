@@ -1,5 +1,3 @@
-legacy_code: SH-326
-legacy_name: fork-bomb-pattern
 new_category: Security
 new_code: K008
 runtime_kind: ast

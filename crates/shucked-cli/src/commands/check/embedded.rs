@@ -579,7 +579,7 @@ jobs:
         let workflows = tempdir.path().join(".github/workflows");
         fs::create_dir_all(&workflows).unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[check]\nembedded = false\n",
         )
         .unwrap();

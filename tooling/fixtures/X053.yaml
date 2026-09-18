@@ -1,5 +1,3 @@
-legacy_code: SH-260
-legacy_name: zsh-assignment-to-zero
 new_category: Portability
 new_code: X053
 runtime_kind: ast

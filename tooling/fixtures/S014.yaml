@@ -1,5 +1,3 @@
-legacy_code: SH-062
-legacy_name: unquoted-dollar-star
 new_category: Style
 new_code: S014
 runtime_kind: ast

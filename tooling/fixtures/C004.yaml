@@ -1,5 +1,3 @@
-legacy_code: SH-027
-legacy_name: unchecked-directory-change
 new_category: Correctness
 new_code: C004
 runtime_kind: ast

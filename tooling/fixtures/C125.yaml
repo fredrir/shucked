@@ -1,5 +1,3 @@
-legacy_code: SH-295
-legacy_name: cd-without-error-check-in-func
 new_category: Correctness
 new_code: C125
 runtime_kind: ast

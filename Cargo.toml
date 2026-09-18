@@ -5,7 +5,7 @@ resolver = "2"
 members  = ["crates/*", "tooling"]
 
 [workspace.metadata.cargo-shear]
-ignored = ["shucked-benchmark"]
+ignored = ["shucked-benchmark", "shucked-wasm"]
 
 [workspace.package]
 version      = "0.2.2"

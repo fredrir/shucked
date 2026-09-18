@@ -1,5 +1,3 @@
-legacy_code: SH-193
-legacy_name: shebang-not-on-first-line
 new_category: Correctness
 new_code: C075
 runtime_kind: ast

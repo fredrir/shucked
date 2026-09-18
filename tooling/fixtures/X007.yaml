@@ -1,5 +1,3 @@
-legacy_code: SH-012
-legacy_name: ansi-c-quoting
 new_category: Portability
 new_code: X007
 runtime_kind: ast

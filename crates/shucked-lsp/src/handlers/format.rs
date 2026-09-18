@@ -272,7 +272,7 @@ mod tests {
     fn document_formatting_uses_shared_per_file_shell_config() {
         let tempdir = tempfile::tempdir().expect("workspace should be created");
         std::fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[per-file-shell]\n'dot_z*' = 'zsh'\n",
         )
         .expect("config should be written");
@@ -324,7 +324,7 @@ mod tests {
     fn formatting_returns_none_for_config_excluded_document() {
         let tempdir = tempfile::tempdir().expect("workspace should be created");
         std::fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[format]\nexclude = ['**/*p10k.zsh']\n",
         )
         .expect("config should be written");

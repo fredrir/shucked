@@ -1,5 +1,3 @@
-legacy_code: SH-237
-legacy_name: find-or-without-grouping
 new_category: Correctness
 new_code: C103
 runtime_kind: ast

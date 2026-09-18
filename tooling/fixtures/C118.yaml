@@ -1,5 +1,3 @@
-legacy_code: SH-284
-legacy_name: malformed-arithmetic-in-condition
 new_category: Correctness
 new_code: C118
 runtime_kind: ast

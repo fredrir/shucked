@@ -1,5 +1,3 @@
-legacy_code: SH-140
-legacy_name: sourced-with-args
 new_category: Portability
 new_code: X042
 runtime_kind: ast

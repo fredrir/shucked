@@ -1,5 +1,3 @@
-legacy_code: SH-165
-legacy_name: redirect-to-command-name
 new_category: Correctness
 new_code: C059
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-128
-legacy_name: bare-command-name-assignment
 new_category: Style
 new_code: S032
 runtime_kind: ast

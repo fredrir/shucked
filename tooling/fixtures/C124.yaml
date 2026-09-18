@@ -1,5 +1,3 @@
-legacy_code: SH-293
-legacy_name: unreachable-after-exit
 new_category: Correctness
 new_code: C124
 runtime_kind: ast

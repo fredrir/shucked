@@ -1,5 +1,3 @@
-legacy_code: SH-292
-legacy_name: function-references-unset-param
 new_category: Correctness
 new_code: C123
 runtime_kind: ast

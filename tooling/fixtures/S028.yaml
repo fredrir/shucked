@@ -1,5 +1,3 @@
-legacy_code: SH-114
-legacy_name: suspect-closing-quote
 new_category: Style
 new_code: S028
 runtime_kind: ast

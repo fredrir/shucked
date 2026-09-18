@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: top-level-code-not-minimal
 new_category: Style
 new_code: S086
 runtime_kind: ast

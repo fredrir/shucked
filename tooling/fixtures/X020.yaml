@@ -1,5 +1,3 @@
-legacy_code: SH-028
-legacy_name: brace-fd-redirection
 new_category: Portability
 new_code: X020
 runtime_kind: ast

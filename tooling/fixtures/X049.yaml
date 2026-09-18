@@ -1,5 +1,3 @@
-legacy_code: SH-183
-legacy_name: zsh-prompt-bracket
 new_category: Portability
 new_code: X049
 runtime_kind: ast

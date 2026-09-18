@@ -1,5 +1,3 @@
-legacy_code: SH-104
-legacy_name: indented-here-doc-end
 new_category: Correctness
 new_code: C033
 runtime_kind: ast

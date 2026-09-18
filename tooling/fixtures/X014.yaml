@@ -1,5 +1,3 @@
-legacy_code: SH-019
-legacy_name: coproc
 new_category: Portability
 new_code: X014
 runtime_kind: ast

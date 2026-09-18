@@ -1,5 +1,3 @@
-legacy_code: SH-313
-legacy_name: case-arm-not-in-getopts
 new_category: Correctness
 new_code: C135
 runtime_kind: ast

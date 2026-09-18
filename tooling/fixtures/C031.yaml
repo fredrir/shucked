@@ -1,5 +1,3 @@
-legacy_code: SH-100
-legacy_name: missing-space-before-bracket-close
 new_category: Correctness
 new_code: C031
 runtime_kind: ast

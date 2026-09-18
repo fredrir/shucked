@@ -1,5 +1,3 @@
-legacy_code: SH-228
-legacy_name: function-called-without-args
 new_category: Correctness
 new_code: C097
 runtime_kind: ast

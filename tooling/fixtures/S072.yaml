@@ -1,5 +1,3 @@
-legacy_code: SH-329
-legacy_name: linebreak-before-and
 new_category: Style
 new_code: S072
 runtime_kind: ast

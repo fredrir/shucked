@@ -1,5 +1,3 @@
-legacy_code: SH-266
-legacy_name: regex-match-in-sh
 new_category: Portability
 new_code: X059
 runtime_kind: ast

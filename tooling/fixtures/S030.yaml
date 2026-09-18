@@ -1,5 +1,3 @@
-legacy_code: SH-119
-legacy_name: heredoc-end-space
 new_category: Style
 new_code: S030
 runtime_kind: ast

@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: shebang-not-bash
 new_category: Style
 new_code: S078
 runtime_kind: ast

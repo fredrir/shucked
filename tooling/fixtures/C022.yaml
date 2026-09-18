@@ -1,5 +1,3 @@
-legacy_code: SH-075
-legacy_name: empty-test
 new_category: Correctness
 new_code: C022
 runtime_kind: ast

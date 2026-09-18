@@ -1,5 +1,3 @@
-legacy_code: SH-037
-legacy_name: printf-format-variable
 new_category: Style
 new_code: S007
 runtime_kind: ast

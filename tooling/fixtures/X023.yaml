@@ -1,5 +1,3 @@
-legacy_code: SH-031
-legacy_name: substring-expansion
 new_category: Portability
 new_code: X023
 runtime_kind: ast

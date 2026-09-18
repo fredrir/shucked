@@ -1,5 +1,3 @@
-legacy_code: SH-145
-legacy_name: duplicate-redirect
 new_category: Correctness
 new_code: C051
 runtime_kind: ast

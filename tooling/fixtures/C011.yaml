@@ -1,5 +1,3 @@
-legacy_code: SH-046
-legacy_name: line-oriented-input
 new_category: Correctness
 new_code: C011
 runtime_kind: ast

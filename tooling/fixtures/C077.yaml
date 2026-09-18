@@ -1,5 +1,3 @@
-legacy_code: SH-195
-legacy_name: subshell-in-arithmetic
 new_category: Correctness
 new_code: C077
 runtime_kind: ast

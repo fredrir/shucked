@@ -1,5 +1,3 @@
-legacy_code: SH-235
-legacy_name: function-in-alias
 new_category: Style
 new_code: S057
 runtime_kind: ast

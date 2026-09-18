@@ -1,5 +1,3 @@
-legacy_code: SH-106
-legacy_name: missing-fi
 new_category: Correctness
 new_code: C035
 runtime_kind: ast

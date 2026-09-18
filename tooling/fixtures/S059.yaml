@@ -1,5 +1,3 @@
-legacy_code: SH-245
-legacy_name: deprecated-tempfile-command
 new_category: Style
 new_code: S059
 runtime_kind: ast

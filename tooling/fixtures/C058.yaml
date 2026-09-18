@@ -1,5 +1,3 @@
-legacy_code: SH-160
-legacy_name: subst-with-redirect-err
 new_category: Correctness
 new_code: C058
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-298
-legacy_name: unused-heredoc
 new_category: Correctness
 new_code: C127
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-084
-legacy_name: assignment-spacing
 new_category: Correctness
 new_code: C024
 runtime_kind: ast

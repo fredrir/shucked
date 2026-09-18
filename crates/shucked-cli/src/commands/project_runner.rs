@@ -216,8 +216,8 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let nested = tempdir.path().join("nested");
         fs::create_dir_all(&nested).unwrap();
-        fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
-        fs::write(nested.join("shuck.toml"), "[format]\n").unwrap();
+        fs::write(tempdir.path().join("shucked.toml"), "[format]\n").unwrap();
+        fs::write(nested.join("shucked.toml"), "[format]\n").unwrap();
         fs::write(tempdir.path().join("root.sh"), "#!/bin/bash\necho root\n").unwrap();
         fs::write(nested.join("nested.sh"), "#!/bin/bash\necho nested\n").unwrap();
 

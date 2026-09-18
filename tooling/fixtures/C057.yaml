@@ -1,5 +1,3 @@
-legacy_code: SH-159
-legacy_name: subst-with-redirect
 new_category: Correctness
 new_code: C057
 runtime_kind: ast

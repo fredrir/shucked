@@ -11,6 +11,9 @@ keywords = ["benchmark"]
 categories = ["development-tools::profiling"]
 publish = false
 
+[package.metadata.cargo-shear]
+ignored = ["dhat"]
+
 [features]
 large-corpus-hotspots = []
 parser-benchmarking = ["shucked-parser/benchmarking"]
@@ -33,7 +36,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 shucked-cli = { workspace = true }
 shucked-indexer = { workspace = true }
-shucked-server = { workspace = true }
 shucked-lsp = { workspace = true }
 shucked-semantic = { workspace = true }
 similar = { workspace = true }

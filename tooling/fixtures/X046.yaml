@@ -1,5 +1,3 @@
-legacy_code: SH-174
-legacy_name: extglob-in-test
 new_category: Portability
 new_code: X046
 runtime_kind: ast

@@ -22,18 +22,14 @@ use serde::Deserialize;
 use shucked_formatter::{IndentStyle, ShellDialect};
 use shucked_run::RunConfig;
 
-const CONFIG_FILENAMES: [&str; 4] = [".shucked.toml", "shucked.toml", ".shuck.toml", "shuck.toml"];
+const CONFIG_FILENAMES: [&str; 2] = [".shucked.toml", "shucked.toml"];
 /// Environment variable that overrides the directory searched for the global
 /// (user-level) shucked config file. When set, only this directory is consulted
 /// for global configuration.
 const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCKED_CONFIG_HOME";
-const LEGACY_GLOBAL_CONFIG_DIR_ENV: &str = "SHUCK_CONFIG_HOME";
-/// Error shown when users try to set formatter dialect in a config file.
-pub const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; use `[per-file-shell]` for project mappings or `--dialect` for a per-run override";
 const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell", "run"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
-    "dialect",
     "exclude",
     "indent-style",
     "indent-width",
@@ -137,8 +133,6 @@ pub struct CheckConfig {
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct FormatConfig {
-    /// Deprecated formatter dialect value retained only to reject config-file use clearly.
-    pub dialect: Option<toml::Value>,
     /// Project-relative glob patterns for files that should not be formatted.
     pub exclude: Option<Vec<String>>,
     /// Requested indentation style, such as `tab` or `space`.
@@ -1757,10 +1751,6 @@ pub fn apply_config_overrides(config: &mut ShuckConfig, overrides: ShuckConfig) 
 impl FormatConfig {
     /// Convert formatter config-file values into a formatter settings patch.
     pub fn to_patch(&self) -> Result<FormatSettingsPatch> {
-        if self.dialect.is_some() {
-            return Err(anyhow!(CONFIG_DIALECT_UNSUPPORTED_ERROR));
-        }
-
         Ok(FormatSettingsPatch {
             dialect: None,
             indent_style: self
@@ -1808,9 +1798,6 @@ impl CheckConfig {
 
 impl FormatConfig {
     fn apply_overrides(&mut self, overrides: FormatConfig) {
-        if overrides.dialect.is_some() {
-            self.dialect = overrides.dialect;
-        }
         if overrides.exclude.is_some() {
             self.exclude = overrides.exclude;
         }
@@ -2543,7 +2530,6 @@ pub fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf
 /// GUI-app conventions.
 fn global_config_search_dirs() -> Vec<PathBuf> {
     if let Some(explicit) = std::env::var_os(GLOBAL_CONFIG_DIR_ENV)
-        .or_else(|| std::env::var_os(LEGACY_GLOBAL_CONFIG_DIR_ENV))
         && !explicit.is_empty()
     {
         return vec![PathBuf::from(explicit)];
@@ -3686,7 +3672,7 @@ mod tests {
     #[test]
     fn isolated_rejects_explicit_config_files() {
         let tempdir = tempdir().unwrap();
-        let config_path = tempdir.path().join("shuck.toml");
+        let config_path = tempdir.path().join("shucked.toml");
         fs::write(&config_path, "[format]\n").unwrap();
 
         let err =
@@ -3700,7 +3686,7 @@ mod tests {
     fn explicit_config_file_replaces_discovered_project_config() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[format]\nfunction-next-line = false\n",
         )
         .unwrap();
@@ -3719,7 +3705,7 @@ mod tests {
     #[test]
     fn config_file_rejects_unknown_nested_rule_option_fields() {
         let tempdir = tempdir().unwrap();
-        let config_path = tempdir.path().join("shuck.toml");
+        let config_path = tempdir.path().join("shucked.toml");
         fs::write(&config_path, "[lint.rule-options.c001]\npreview = true\n").unwrap();
 
         let err = load_project_config(
@@ -3735,7 +3721,7 @@ mod tests {
     #[test]
     fn config_file_rejects_unknown_nested_zsh_plugin_fields() {
         let tempdir = tempdir().unwrap();
-        let config_path = tempdir.path().join("shuck.toml");
+        let config_path = tempdir.path().join("shucked.toml");
         fs::write(&config_path, "[lint.zsh.plugins]\npreview = true\n").unwrap();
 
         let err = load_project_config(
@@ -3752,7 +3738,7 @@ mod tests {
     fn isolated_only_uses_inline_overrides() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[format]\nfunction-next-line = true\n",
         )
         .unwrap();
@@ -3775,7 +3761,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let nested = tempdir.path().join("nested");
         fs::create_dir_all(&nested).unwrap();
-        fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+        fs::write(tempdir.path().join("shucked.toml"), "[format]\n").unwrap();
 
         assert_eq!(
             resolve_project_root_for_input(&nested, true).unwrap(),
@@ -3808,7 +3794,7 @@ mod tests {
 
     /// Writes a `shucked.toml` into `dir` and returns its path.
     fn write_global_config(dir: &Path, body: &str) -> PathBuf {
-        let path = dir.join("shuck.toml");
+        let path = dir.join("shucked.toml");
         fs::write(&path, body).unwrap();
         path
     }
@@ -3838,7 +3824,7 @@ mod tests {
 
         let project = tempdir().unwrap();
         fs::write(
-            project.path().join(".shuck.toml"),
+            project.path().join(".shucked.toml"),
             "[format]\nfunction-next-line = false\n",
         )
         .unwrap();
@@ -3923,7 +3909,7 @@ mod tests {
     #[test]
     fn global_config_lookup_is_skipped_when_a_higher_precedence_source_applies() {
         let project = tempdir().unwrap();
-        fs::write(project.path().join(".shuck.toml"), "[format]\n").unwrap();
+        fs::write(project.path().join(".shucked.toml"), "[format]\n").unwrap();
         load_project_config_with_global(
             project.path(),
             &ConfigArguments::default(),
@@ -3950,7 +3936,7 @@ mod tests {
         let present = tempdir().unwrap();
         let later = tempdir().unwrap();
         write_global_config(present.path(), "[format]\n");
-        fs::write(later.path().join(".shuck.toml"), "[format]\n").unwrap();
+        fs::write(later.path().join(".shucked.toml"), "[format]\n").unwrap();
 
         // An empty directory alone yields nothing.
         assert!(
@@ -3966,6 +3952,6 @@ mod tests {
             later.path().to_path_buf(),
         ])
         .unwrap();
-        assert_eq!(found, Some(present.path().join("shuck.toml")));
+        assert_eq!(found, Some(present.path().join("shucked.toml")));
     }
 }

@@ -1,5 +1,3 @@
-legacy_code: SH-055
-legacy_name: expr-arithmetic
 new_category: Performance
 new_code: P001
 runtime_kind: ast

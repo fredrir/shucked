@@ -1,9 +1,9 @@
 use std::fs;
 
 use shucked_config::{
-    CONFIG_DIALECT_UNSUPPORTED_ERROR, ConfigArguments, FormatConfig, ShuckConfig,
-    SingleConfigArgument, discovered_config_path_for_root, load_project_config,
-    resolve_project_root_for_file, resolve_project_root_for_input,
+    ConfigArguments, FormatConfig, ShuckConfig, SingleConfigArgument,
+    discovered_config_path_for_root, load_project_config, resolve_project_root_for_file,
+    resolve_project_root_for_input,
 };
 use tempfile::tempdir;
 
@@ -11,7 +11,7 @@ use tempfile::tempdir;
 fn public_api_layers_discovered_config_and_inline_overrides() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = true\n",
     )
     .unwrap();
@@ -41,7 +41,7 @@ fn public_api_layers_discovered_config_and_inline_overrides() {
 fn public_api_loads_shared_per_file_shell_config() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[per-file-shell]\n'dot_z*' = 'zsh'\n",
     )
     .unwrap();
@@ -62,7 +62,7 @@ fn public_api_loads_shared_per_file_shell_config() {
 fn public_api_prefers_explicit_config_file_over_discovered_file() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = false\n",
     )
     .unwrap();
@@ -84,7 +84,7 @@ fn public_api_resolves_project_roots_and_discovered_config_paths() {
     let file = nested.join("script.sh");
 
     fs::create_dir_all(&nested).unwrap();
-    fs::write(tempdir.path().join(".shuck.toml"), "[format]\n").unwrap();
+    fs::write(tempdir.path().join(".shucked.toml"), "[format]\n").unwrap();
     fs::write(&file, "#!/bin/sh\necho hi\n").unwrap();
 
     assert_eq!(
@@ -97,17 +97,6 @@ fn public_api_resolves_project_roots_and_discovered_config_paths() {
     );
     assert_eq!(
         discovered_config_path_for_root(tempdir.path()).unwrap(),
-        Some(tempdir.path().join(".shuck.toml"))
+        Some(tempdir.path().join(".shucked.toml"))
     );
-}
-
-#[test]
-fn public_api_rejects_format_dialect_in_config_patch() {
-    let config = FormatConfig {
-        dialect: Some(toml::Value::String("zsh".to_owned())),
-        ..FormatConfig::default()
-    };
-
-    let err = config.to_patch().unwrap_err();
-    assert_eq!(err.to_string(), CONFIG_DIALECT_UNSUPPORTED_ERROR);
 }

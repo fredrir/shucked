@@ -1,5 +1,3 @@
-legacy_code: SH-259
-legacy_name: plus-prefix-in-assignment
 new_category: Correctness
 new_code: C117
 runtime_kind: ast

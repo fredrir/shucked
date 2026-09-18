@@ -1,5 +1,3 @@
-legacy_code: SH-178
-legacy_name: empty-function-body
 new_category: Correctness
 new_code: C067
 runtime_kind: ast

@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: package-function-namespace
 new_category: Style
 new_code: S090
 runtime_kind: ast

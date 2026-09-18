@@ -1,5 +1,3 @@
-legacy_code: SH-300
-legacy_name: getopts-invalid-flag-handler
 new_category: Style
 new_code: S069
 runtime_kind: ast

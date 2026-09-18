@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: alias-definition
 new_category: Style
 new_code: S093
 runtime_kind: ast

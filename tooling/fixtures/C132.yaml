@@ -1,5 +1,3 @@
-legacy_code: SH-310
-legacy_name: env-prefix-expansion-only
 new_category: Correctness
 new_code: C132
 runtime_kind: ast

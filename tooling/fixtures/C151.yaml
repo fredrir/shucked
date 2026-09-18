@@ -1,5 +1,3 @@
-legacy_code: SH-340
-legacy_name: comma-array-elements
 new_category: Correctness
 new_code: C151
 runtime_kind: ast

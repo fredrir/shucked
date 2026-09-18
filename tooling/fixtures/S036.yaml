@@ -1,5 +1,3 @@
-legacy_code: SH-163
-legacy_name: bare-read
 new_category: Style
 new_code: S036
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-130
-legacy_name: bare-glob-path
 new_category: Correctness
 new_code: C044
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-309
-legacy_name: env-prefix-command-only
 new_category: Style
 new_code: S071
 runtime_kind: ast

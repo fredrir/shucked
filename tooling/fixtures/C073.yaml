@@ -1,5 +1,3 @@
-legacy_code: SH-191
-legacy_name: indented-shebang
 new_category: Correctness
 new_code: C073
 runtime_kind: ast

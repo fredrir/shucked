@@ -1,5 +1,3 @@
-legacy_code: SH-265
-legacy_name: greater-than-in-double-bracket
 new_category: Portability
 new_code: X058
 runtime_kind: ast

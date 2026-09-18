@@ -494,8 +494,6 @@ struct InitializationOptions {
     #[serde(default)]
     shucked: Option<GlobalOptions>,
     #[serde(default)]
-    shuck: Option<GlobalOptions>,
-    #[serde(default)]
     workspace: Option<WorkspaceOptionsMap>,
 }
 
@@ -503,12 +501,12 @@ impl AllOptions {
     pub(crate) fn from_value(value: serde_json::Value) -> Self {
         if value
             .as_object()
-            .is_some_and(|object| object.contains_key("shucked") || object.contains_key("shuck"))
+            .is_some_and(|object| object.contains_key("shucked"))
         {
             let options =
                 serde_json::from_value::<InitializationOptions>(value).unwrap_or_default();
             return Self {
-                global: options.shucked.or(options.shuck).unwrap_or_default(),
+                global: options.shucked.unwrap_or_default(),
                 workspace: options.workspace,
             };
         }
@@ -553,17 +551,6 @@ mod tests {
             }
         }));
         assert!(!disabled.workspace_diagnostics_enabled());
-
-        let disabled_legacy = AllOptions::from_value(serde_json::json!({
-            "shuck": {
-                "server": {
-                    "workspaceDiagnostics": {
-                        "enabled": false
-                    }
-                }
-            }
-        }));
-        assert!(!disabled_legacy.workspace_diagnostics_enabled());
     }
 
     #[test]

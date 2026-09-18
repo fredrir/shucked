@@ -1,5 +1,3 @@
-legacy_code: SH-280
-legacy_name: option-test-in-sh
 new_category: Portability
 new_code: X073
 runtime_kind: ast

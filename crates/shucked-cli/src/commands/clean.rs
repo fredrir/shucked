@@ -5,7 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use shucked_cache::{legacy_cache_dir, read_project_root_from_cache_file};
+use shucked_cache::read_project_root_from_cache_file;
 use shucked_config::{ConfigArguments, resolve_project_root_for_input};
 
 use crate::ExitStatus;
@@ -34,25 +34,15 @@ pub(crate) fn clean(
             .collect::<Vec<PathBuf>>()
     };
 
-    let mut roots = BTreeSet::new();
     let mut canonical_roots = BTreeSet::new();
     for input in inputs {
         let root = resolve_project_root_for_input(&input, config_arguments.use_config_roots())?;
         let canonical_root =
             fs::canonicalize(&root).with_context(|| format!("canonicalize {}", root.display()))?;
         canonical_roots.insert(canonical_root);
-        roots.insert(root);
     }
 
     remove_shared_cache_entries(&cache_root, &canonical_roots)?;
-
-    for root in roots {
-        match fs::remove_dir_all(legacy_cache_dir(&root)) {
-            Ok(_) => {}
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        }
-    }
 
     let mut stdout = BufWriter::new(io::stdout().lock());
     writeln!(stdout, "cache cleared")?;

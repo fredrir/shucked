@@ -1,5 +1,3 @@
-legacy_code: SH-144
-legacy_name: arith-redirection-target
 new_category: Correctness
 new_code: C050
 runtime_kind: ast

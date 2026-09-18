@@ -1,5 +1,3 @@
-legacy_code: SH-226
-legacy_name: function-keyword-in-sh
 new_category: Portability
 new_code: X052
 runtime_kind: ast

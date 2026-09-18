@@ -17,8 +17,7 @@ pub(crate) fn code_actions(
     let mut actions = Vec::new();
     let only = params.context.only.as_ref();
     let include_quickfix = wants_kind(only, &types::CodeActionKind::QUICKFIX);
-    let include_fix_all = wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCKED)
-        || wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCKED);
+    let include_fix_all = wants_kind(only, &crate::SOURCE_FIX_ALL_SHUCKED);
     let include_refactor = only.is_none_or(|kinds| {
         kinds.iter().any(|kind| {
             let s = kind.as_str();
@@ -151,7 +150,7 @@ pub(crate) fn execute_command(
     params: types::ExecuteCommandParams,
 ) -> crate::server::Result<Option<serde_json::Value>> {
     match params.command.as_str() {
-        "shucked.applyAutofix" | "shuck.applyAutofix" => {
+        "shucked.applyAutofix" => {
             let uri = command_uri(&params.arguments)?;
             let Some(snapshot) = session.take_snapshot(uri) else {
                 return Ok(None);
@@ -167,7 +166,7 @@ pub(crate) fn execute_command(
             apply_workspace_edit(session, client, "Shucked: apply autofix", &snapshot, edits)?;
             Ok(None)
         }
-        "shucked.applyDirective" | "shuck.applyDirective" => {
+        "shucked.applyDirective" => {
             let args: ApplyDirectiveCommand = command_args(&params.arguments)?;
             let Some(snapshot) = session.take_snapshot(args.uri.clone()) else {
                 return Ok(None);
@@ -184,7 +183,7 @@ pub(crate) fn execute_command(
             )?;
             Ok(None)
         }
-        "shucked.applyFormat" | "shuck.applyFormat" => {
+        "shucked.applyFormat" => {
             let uri = command_uri(&params.arguments)?;
             let Some(snapshot) = session.take_snapshot(uri) else {
                 return Ok(None);
@@ -208,7 +207,7 @@ pub(crate) fn execute_command(
             apply_workspace_edit(session, client, "Shucked: apply format", &snapshot, edits)?;
             Ok(None)
         }
-        "shucked.printDebugInformation" | "shuck.printDebugInformation" => {
+        "shucked.printDebugInformation" => {
             tracing::info!(
                 "shucked server state: open_documents={} workspace_roots={:?}",
                 session.open_document_count(),
@@ -996,7 +995,7 @@ mod tests {
         let capabilities = deferred_capabilities();
         let workspace_root = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            workspace_root.path().join(".shuck.toml"),
+            workspace_root.path().join(".shucked.toml"),
             "[lint]\nunfixable = ['C001']\n",
         )
         .expect("config should be written");

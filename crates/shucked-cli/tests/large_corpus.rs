@@ -81,7 +81,6 @@ const LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES: &[&str] = &[
     "rvm__rvm__scripts__functions__rvmrc",
 ];
 const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
-const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 const ZSH_DIAGNOSTIC_CORPUS_BASELINE: &str = include_str!("testdata/zsh-diagnostic-corpus.yaml");
 const ZSH_DIAGNOSTIC_OH_MY_ZSH_REPO: &str = "ohmyzsh";
 const ZSH_DIAGNOSTIC_ZINIT_REPO: &str = "zinit";
@@ -769,7 +768,6 @@ struct ShellCheckCacheEntry {
 struct ShellCheckCache {
     dir: PathBuf,
     version_text: String,
-    legacy_invocation_hash: String,
 }
 
 impl ShellCheckCache {
@@ -777,52 +775,15 @@ impl ShellCheckCache {
         Self {
             dir: cache_root.join("shellcheck"),
             version_text: probe.version_text.clone(),
-            legacy_invocation_hash: legacy_shellcheck_invocation_hash(&probe.command),
         }
     }
 
-    fn prepare(&self, fixtures: &[LargeCorpusFixture], worktree_roots: &[PathBuf]) {
+    fn prepare(&self, fixtures: &[LargeCorpusFixture], _worktree_roots: &[PathBuf]) {
         if fixtures.is_empty() {
             return;
         }
 
         let _ = fs::create_dir_all(&self.dir);
-
-        let sentinel = self.migration_sentinel_path(fixtures);
-        if sentinel.is_file() {
-            return;
-        }
-
-        for fixture in fixtures {
-            let stable_path = self.cache_path(fixture);
-            let mut stable_exists = stable_path.is_file();
-
-            for legacy_path in self.legacy_cache_paths(fixture, worktree_roots) {
-                if !legacy_path.is_file() {
-                    continue;
-                }
-
-                if stable_exists {
-                    let _ = fs::remove_file(&legacy_path);
-                    continue;
-                }
-
-                if let Some(parent) = stable_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-
-                match fs::rename(&legacy_path, &stable_path) {
-                    Ok(()) => stable_exists = true,
-                    Err(_) if stable_path.is_file() => {
-                        stable_exists = true;
-                        let _ = fs::remove_file(&legacy_path);
-                    }
-                    Err(_) => {}
-                }
-            }
-        }
-
-        let _ = fs::write(&sentinel, shellcheck_cache_migration_fingerprint(fixtures));
     }
 
     fn run_fixture(
@@ -850,54 +811,6 @@ impl ShellCheckCache {
         });
         let key = hash_bytes(key_data.to_string().as_bytes());
         self.dir.join(format!("{key}.json"))
-    }
-
-    fn legacy_cache_paths(
-        &self,
-        fixture: &LargeCorpusFixture,
-        worktree_roots: &[PathBuf],
-    ) -> Vec<PathBuf> {
-        let mut legacy_paths = Vec::new();
-        let mut seen = HashSet::new();
-
-        let direct = self.legacy_cache_path_for_absolute_path(fixture, &fixture.path);
-        if seen.insert(direct.clone()) {
-            legacy_paths.push(direct);
-        }
-
-        for absolute_path in
-            projected_worktree_fixture_paths(&fixture.cache_rel_path, worktree_roots)
-        {
-            let legacy = self.legacy_cache_path_for_absolute_path(fixture, &absolute_path);
-            if seen.insert(legacy.clone()) {
-                legacy_paths.push(legacy);
-            }
-        }
-
-        legacy_paths
-    }
-
-    fn legacy_cache_path_for_absolute_path(
-        &self,
-        fixture: &LargeCorpusFixture,
-        absolute_path: &Path,
-    ) -> PathBuf {
-        let key_data = serde_json::json!({
-            "schema": SHELLCHECK_CACHE_SCHEMA,
-            "path": absolute_path.to_string_lossy(),
-            "shell": fixture.shell,
-            "sourceHash": fixture.source_hash,
-            "invocationHash": self.legacy_invocation_hash,
-        });
-        let key = hash_bytes(key_data.to_string().as_bytes());
-        self.dir.join(format!("{key}.json"))
-    }
-
-    fn migration_sentinel_path(&self, fixtures: &[LargeCorpusFixture]) -> PathBuf {
-        let fingerprint = shellcheck_cache_migration_fingerprint(fixtures);
-        self.dir.join(format!(
-            ".migration-v{SHELLCHECK_CACHE_MIGRATION_VERSION}-{fingerprint}.done"
-        ))
     }
 
     fn read_cache(&self, fixture: &LargeCorpusFixture) -> Option<ShellCheckRun> {
@@ -2870,45 +2783,6 @@ fn normalize_cache_rel_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
-fn projected_worktree_fixture_paths(
-    cache_rel_path: &Path,
-    worktree_roots: &[PathBuf],
-) -> Vec<PathBuf> {
-    let mut absolute_paths = Vec::new();
-    let mut seen = HashSet::new();
-
-    for root in worktree_roots {
-        let corpus_base = root.join(".cache").join("large-corpus");
-        for projected in [
-            corpus_base.join("scripts").join(cache_rel_path),
-            corpus_base
-                .join("corpus")
-                .join("scripts")
-                .join(cache_rel_path),
-        ] {
-            if seen.insert(projected.clone()) {
-                absolute_paths.push(projected);
-            }
-        }
-    }
-
-    absolute_paths
-}
-
-fn shellcheck_cache_migration_fingerprint(fixtures: &[LargeCorpusFixture]) -> String {
-    let mut hasher = Sha256::new();
-    update_hash_component(&mut hasher, &SHELLCHECK_CACHE_MIGRATION_VERSION.to_string());
-
-    for fixture in fixtures {
-        update_hash_component(&mut hasher, &fixture.cache_rel_path_key());
-        update_hash_component(&mut hasher, &fixture.shell);
-        update_hash_component(&mut hasher, &fixture.source_hash);
-    }
-
-    let result = hasher.finalize();
-    result.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 fn update_hash_component(hasher: &mut Sha256, value: &str) {
     hasher.update((value.len() as u64).to_le_bytes());
     hasher.update(value.as_bytes());
@@ -3351,14 +3225,6 @@ fn validate_selected_rules_for_large_corpus(
     // Selected large-corpus runs may target rules without an active ShellCheck comparison code.
     // Those runs simply execute with an empty ShellCheck filter and compare no records.
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-fn legacy_shellcheck_invocation_hash(shellcheck_path: &str) -> String {
-    let meta = fs::metadata(shellcheck_path).ok();
-    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-    let key = format!("{}:{}:shellcheck", shellcheck_path, size);
-    hash_bytes(key.as_bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -5092,7 +4958,7 @@ mod tests {
     }
 
     #[test]
-    fn shellcheck_cache_prepare_renames_legacy_current_worktree_files() {
+    fn shellcheck_cache_prepare_creates_directory() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path().join("worktree");
         let fixture = fixture_at(
@@ -5100,104 +4966,8 @@ mod tests {
             Path::new("example.sh"),
         );
         let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
-        let stable_path = cache.cache_path(&fixture);
-        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
-
-        write_cache_file(&legacy_path, "legacy-current");
-
         cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
-
-        assert!(stable_path.is_file());
-        assert!(!legacy_path.exists());
-        assert_eq!(
-            fs::read_to_string(&stable_path).unwrap(),
-            cache_file_data("legacy-current")
-        );
-    }
-
-    #[test]
-    fn shellcheck_cache_prepare_renames_legacy_alternate_worktree_files() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let current_root = tempdir.path().join("current");
-        let alternate_root = tempdir.path().join("alternate");
-        let fixture = fixture_at(
-            &current_root.join(".cache/large-corpus/scripts/example.sh"),
-            Path::new("example.sh"),
-        );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
-        let stable_path = cache.cache_path(&fixture);
-        let alternate_legacy_path = cache.legacy_cache_path_for_absolute_path(
-            &fixture,
-            &alternate_root
-                .join(".cache")
-                .join("large-corpus")
-                .join("corpus")
-                .join("scripts")
-                .join("example.sh"),
-        );
-
-        write_cache_file(&alternate_legacy_path, "legacy-alternate");
-
-        cache.prepare(
-            std::slice::from_ref(&fixture),
-            &[current_root.clone(), alternate_root.clone()],
-        );
-
-        assert!(stable_path.is_file());
-        assert!(!alternate_legacy_path.exists());
-        assert_eq!(
-            fs::read_to_string(&stable_path).unwrap(),
-            cache_file_data("legacy-alternate")
-        );
-    }
-
-    #[test]
-    fn shellcheck_cache_prepare_is_idempotent() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path().join("worktree");
-        let fixture = fixture_at(
-            &root.join(".cache/large-corpus/scripts/example.sh"),
-            Path::new("example.sh"),
-        );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
-        let stable_path = cache.cache_path(&fixture);
-        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
-
-        write_cache_file(&legacy_path, "legacy-current");
-        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
-        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
-
-        assert!(stable_path.is_file());
-        assert!(!legacy_path.exists());
-        assert_eq!(
-            fs::read_to_string(&stable_path).unwrap(),
-            cache_file_data("legacy-current")
-        );
-    }
-
-    #[test]
-    fn shellcheck_cache_prepare_keeps_existing_stable_file() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path().join("worktree");
-        let fixture = fixture_at(
-            &root.join(".cache/large-corpus/scripts/example.sh"),
-            Path::new("example.sh"),
-        );
-        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
-        let stable_path = cache.cache_path(&fixture);
-        let legacy_path = cache.legacy_cache_path_for_absolute_path(&fixture, &fixture.path);
-
-        write_cache_file(&stable_path, "stable");
-        write_cache_file(&legacy_path, "legacy-current");
-
-        cache.prepare(std::slice::from_ref(&fixture), std::slice::from_ref(&root));
-
-        assert!(stable_path.is_file());
-        assert!(!legacy_path.exists());
-        assert_eq!(
-            fs::read_to_string(&stable_path).unwrap(),
-            cache_file_data("stable")
-        );
+        assert!(cache.dir.is_dir());
     }
 
     #[test]
@@ -5783,37 +5553,11 @@ repos:
         }
     }
 
-    fn write_cache_file(path: &Path, label: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, cache_file_data(label)).unwrap();
-    }
-
     fn write_file(path: impl AsRef<Path>, contents: &str) {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, contents).unwrap();
-    }
-
-    fn cache_file_data(label: &str) -> String {
-        serde_json::to_string(&ShellCheckCacheEntry {
-            schema: SHELLCHECK_CACHE_SCHEMA,
-            diagnostics: vec![ShellCheckDiagnostic {
-                file: String::new(),
-                code: 2034,
-                line: 1,
-                end_line: 1,
-                column: 1,
-                end_column: 1,
-                level: "warning".into(),
-                message: label.into(),
-                fix: None,
-            }],
-            parse_aborted: false,
-        })
-        .unwrap()
     }
 }

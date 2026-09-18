@@ -1,5 +1,3 @@
-legacy_code: SH-273
-legacy_name: pipe-stderr-in-sh
 new_category: Portability
 new_code: X066
 runtime_kind: ast

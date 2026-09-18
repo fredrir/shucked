@@ -1,5 +1,3 @@
-legacy_code: SH-324
-legacy_name: rm-rootish-target
 new_category: Security
 new_code: K006
 runtime_kind: ast

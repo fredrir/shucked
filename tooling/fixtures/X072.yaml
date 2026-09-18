@@ -1,5 +1,3 @@
-legacy_code: SH-279
-legacy_name: unset-pattern-in-sh
 new_category: Portability
 new_code: X072
 runtime_kind: ast

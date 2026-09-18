@@ -1,5 +1,3 @@
-legacy_code: SH-319
-legacy_name: spaced-assignment
 new_category: Correctness
 new_code: C139
 runtime_kind: ast

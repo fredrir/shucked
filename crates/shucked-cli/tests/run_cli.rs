@@ -172,7 +172,7 @@ fn run_dry_run_uses_project_config_and_registry() {
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bash", "5.2.21");
     let registry = registry_path(tempdir.path(), "bash", &[("5.2.21", &archive, &sha256)]);
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[run.shells]\nbash = '5.2'\n",
     )
     .unwrap();
@@ -284,7 +284,7 @@ fn run_dry_run_supports_bashkit_shebang_and_config() {
     let (archive, sha256) = fake_shell_archive(tempdir.path(), "bashkit", "0.2.1");
     let registry = registry_path(tempdir.path(), "bashkit", &[("0.2.1", &archive, &sha256)]);
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[run.shells]\nbashkit = '0.2'\n",
     )
     .unwrap();

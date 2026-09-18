@@ -1,5 +1,3 @@
-legacy_code: SH-206
-legacy_name: glob-in-string-comparison
 new_category: Correctness
 new_code: C081
 runtime_kind: ast

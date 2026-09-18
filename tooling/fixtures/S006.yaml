@@ -1,5 +1,3 @@
-legacy_code: SH-035
-legacy_name: legacy-arithmetic-expansion
 new_category: Style
 new_code: S006
 runtime_kind: ast

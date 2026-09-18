@@ -1,5 +1,3 @@
-legacy_code: SH-282
-legacy_name: ownership-test-in-sh
 new_category: Portability
 new_code: X075
 runtime_kind: ast

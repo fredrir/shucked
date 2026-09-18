@@ -1,5 +1,3 @@
-legacy_code: SH-277
-legacy_name: base-prefix-in-arithmetic
 new_category: Portability
 new_code: X070
 runtime_kind: ast

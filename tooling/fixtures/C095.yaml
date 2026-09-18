@@ -1,5 +1,3 @@
-legacy_code: SH-224
-legacy_name: assignment-looks-like-comparison
 new_category: Correctness
 new_code: C095
 runtime_kind: ast

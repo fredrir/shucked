@@ -1,5 +1,3 @@
-legacy_code: SH-081
-legacy_name: printf-q-format-in-sh
 new_category: Portability
 new_code: X032
 runtime_kind: ast

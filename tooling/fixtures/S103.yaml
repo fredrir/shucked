@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: avoid-nullary-conditions
 new_category: Style
 new_code: S103
 runtime_kind: ast

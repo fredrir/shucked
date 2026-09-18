@@ -1,5 +1,3 @@
-legacy_code: SH-223
-legacy_name: duplicate-shebang-flag
 new_category: Style
 new_code: S053
 runtime_kind: ast

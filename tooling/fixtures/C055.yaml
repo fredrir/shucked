@@ -1,5 +1,3 @@
-legacy_code: SH-152
-legacy_name: pattern-with-variable
 new_category: Correctness
 new_code: C055
 runtime_kind: ast

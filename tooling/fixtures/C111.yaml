@@ -1,5 +1,3 @@
-legacy_code: SH-249
-legacy_name: at-sign-in-string-compare
 new_category: Correctness
 new_code: C111
 runtime_kind: ast

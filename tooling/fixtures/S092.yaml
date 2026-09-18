@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: constant-name-case
 new_category: Style
 new_code: S092
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-303
-legacy_name: zsh-parameter-index-flag
 new_category: Portability
 new_code: X079
 runtime_kind: ast

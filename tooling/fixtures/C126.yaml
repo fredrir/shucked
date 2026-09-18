@@ -1,5 +1,3 @@
-legacy_code: SH-296
-legacy_name: continue-outside-loop-in-func
 new_category: Correctness
 new_code: C126
 runtime_kind: ast

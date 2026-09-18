@@ -1,5 +1,3 @@
-legacy_code: SH-070
-legacy_name: loop-control-outside-loop
 new_category: Correctness
 new_code: C018
 runtime_kind: ast

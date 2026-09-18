@@ -1,5 +1,3 @@
-legacy_code: SH-079
-legacy_name: avoid-let-builtin
 new_category: Style
 new_code: S022
 runtime_kind: ast

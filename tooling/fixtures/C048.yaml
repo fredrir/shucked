@@ -1,5 +1,3 @@
-legacy_code: SH-142
-legacy_name: case-pattern-var
 new_category: Correctness
 new_code: C048
 runtime_kind: ast

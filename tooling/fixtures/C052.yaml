@@ -1,5 +1,3 @@
-legacy_code: SH-146
-legacy_name: assign-special-zero
 new_category: Correctness
 new_code: C052
 runtime_kind: ast

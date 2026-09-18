@@ -1,5 +1,3 @@
-legacy_code: SH-113
-legacy_name: open-double-quote
 new_category: Correctness
 new_code: C039
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-143
-legacy_name: tautology-chain
 new_category: Correctness
 new_code: C049
 runtime_kind: ast

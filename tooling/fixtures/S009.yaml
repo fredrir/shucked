@@ -1,5 +1,3 @@
-legacy_code: SH-040
-legacy_name: echoed-command-substitution
 new_category: Style
 new_code: S009
 runtime_kind: ast

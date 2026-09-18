@@ -1,5 +1,3 @@
-legacy_code: SH-200
-legacy_name: unquoted-globs-in-find
 new_category: Correctness
 new_code: C078
 runtime_kind: ast

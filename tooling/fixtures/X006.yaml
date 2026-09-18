@@ -1,5 +1,3 @@
-legacy_code: SH-011
-legacy_name: process-substitution
 new_category: Portability
 new_code: X006
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-060
-legacy_name: sudo-redirection-order
 new_category: Correctness
 new_code: C015
 runtime_kind: ast

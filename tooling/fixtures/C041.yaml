@@ -1,5 +1,3 @@
-legacy_code: SH-121
-legacy_name: c-style-comment
 new_category: Correctness
 new_code: C041
 runtime_kind: ast

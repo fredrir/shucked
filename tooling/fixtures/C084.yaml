@@ -1,5 +1,3 @@
-legacy_code: SH-210
-legacy_name: unquoted-grep-regex
 new_category: Correctness
 new_code: C084
 runtime_kind: ast

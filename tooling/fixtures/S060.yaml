@@ -1,5 +1,3 @@
-legacy_code: SH-247
-legacy_name: egrep-deprecated
 new_category: Style
 new_code: S060
 runtime_kind: ast

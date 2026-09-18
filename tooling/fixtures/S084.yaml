@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: function-doc-content
 new_category: Style
 new_code: S084
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-015
-legacy_name: brace-expansion
 new_category: Portability
 new_code: X010
 runtime_kind: ast

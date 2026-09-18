@@ -1,5 +1,3 @@
-legacy_code: SH-043
-legacy_name: quoted-bash-regex
 new_category: Correctness
 new_code: C009
 runtime_kind: ast

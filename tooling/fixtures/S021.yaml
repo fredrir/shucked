@@ -1,5 +1,3 @@
-legacy_code: SH-077
-legacy_name: positional-args-in-string
 new_category: Style
 new_code: S021
 runtime_kind: ast

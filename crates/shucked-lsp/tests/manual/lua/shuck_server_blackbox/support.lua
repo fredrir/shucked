@@ -43,7 +43,7 @@ function M.fixture_path(relative_path)
 end
 
 local function find_project_root(path)
-  local markers = { ".git", ".shuck.toml", "shuck.toml" }
+  local markers = { ".git", ".shucked.toml", "shucked.toml" }
   local current = vim.fs.dirname(path)
   while current and current ~= "" do
     for _, marker in ipairs(markers) do

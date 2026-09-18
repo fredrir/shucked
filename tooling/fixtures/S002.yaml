@@ -1,5 +1,3 @@
-legacy_code: SH-002
-legacy_name: raw-input-backslash-preservation
 new_category: Style
 new_code: S002
 runtime_kind: ast

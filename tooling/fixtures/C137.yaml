@@ -1,5 +1,3 @@
-legacy_code: SH-315
-legacy_name: unicode-single-quote-in-single-quotes
 new_category: Correctness
 new_code: C137
 runtime_kind: ast

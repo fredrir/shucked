@@ -1,5 +1,3 @@
-legacy_code: SH-107
-legacy_name: function-params-in-sh
 new_category: Portability
 new_code: X035
 runtime_kind: ast

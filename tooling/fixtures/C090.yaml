@@ -1,5 +1,3 @@
-legacy_code: SH-217
-legacy_name: glob-in-test-comparison
 new_category: Correctness
 new_code: C090
 runtime_kind: ast

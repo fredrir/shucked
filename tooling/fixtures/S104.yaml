@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: missing-case-default
 new_category: Style
 new_code: S104
 runtime_kind: ast

@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: undocumented-globals
 new_category: Style
 new_code: S094
 runtime_kind: ast

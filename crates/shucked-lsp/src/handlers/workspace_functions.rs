@@ -1233,7 +1233,7 @@ mod tests {
     fn malformed_project_config_marks_the_index_incomplete() {
         let tempdir = tempfile::tempdir().unwrap();
         let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
-        std::fs::write(workspace.join(".shuck.toml"), "[lint\n").unwrap();
+        std::fs::write(workspace.join(".shucked.toml"), "[lint\n").unwrap();
         std::fs::write(workspace.join("main.sh"), "main() { :; }\n").unwrap();
         let context = WorkspaceFunctionContext {
             workspace_roots: vec![workspace.clone()],
@@ -1261,7 +1261,7 @@ mod tests {
 
         let tempdir = tempfile::tempdir().unwrap();
         let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
-        std::fs::write(workspace.join(".shuck.toml"), "").unwrap();
+        std::fs::write(workspace.join(".shucked.toml"), "").unwrap();
         let loop_path = workspace.join("loop");
         symlink("loop", &loop_path).unwrap();
         let context = WorkspaceFunctionContext {

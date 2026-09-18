@@ -1,5 +1,3 @@
-legacy_code: SH-264
-legacy_name: legacy-arithmetic-in-sh
 new_category: Portability
 new_code: X057
 runtime_kind: ast

@@ -1890,7 +1890,7 @@ mod tests {
     fn extend_select_adds_on_top_of_config_selection() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['C001']\n",
         )
         .unwrap();
@@ -1929,7 +1929,7 @@ mod tests {
     fn config_select_accepts_named_groups() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['google']\n",
         )
         .unwrap();
@@ -1955,7 +1955,7 @@ mod tests {
     fn config_extend_select_accepts_named_groups() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nextend-select = ['google']\n",
         )
         .unwrap();
@@ -1981,7 +1981,7 @@ mod tests {
     fn config_rejects_unknown_s080_count_modes() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint.rule-options.s080]\ncount = 'non-comment-nonblank'\n",
         )
         .unwrap();
@@ -2104,7 +2104,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join("bashy.sh"), "source helper.sh\n").unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['X031']\nper-file-shell = { 'bashy.sh' = 'bash' }\n",
         )
         .unwrap();
@@ -2812,7 +2812,7 @@ mod tests {
     fn select_google_matches_config_extend_select_on_google_only_fixture() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nextend-select = ['google']\n",
         )
         .unwrap();

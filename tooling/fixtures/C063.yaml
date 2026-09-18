@@ -1,5 +1,3 @@
-legacy_code: SH-171
-legacy_name: overwritten-function
 new_category: Correctness
 new_code: C063
 runtime_kind: ast

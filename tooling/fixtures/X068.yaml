@@ -1,5 +1,3 @@
-legacy_code: SH-275
-legacy_name: errexit-trap-in-sh
 new_category: Portability
 new_code: X068
 runtime_kind: ast

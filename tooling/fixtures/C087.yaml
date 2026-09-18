@@ -1,5 +1,3 @@
-legacy_code: SH-214
-legacy_name: string-comparison-for-version
 new_category: Correctness
 new_code: C087
 runtime_kind: ast

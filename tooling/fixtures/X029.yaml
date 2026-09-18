@@ -1,5 +1,3 @@
-legacy_code: SH-059
-legacy_name: tr-upper-range
 new_category: Portability
 new_code: X029
 runtime_kind: ast

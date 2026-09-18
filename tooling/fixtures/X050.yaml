@@ -1,5 +1,3 @@
-legacy_code: SH-184
-legacy_name: csh-syntax-in-sh
 new_category: Portability
 new_code: X050
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-127
-legacy_name: array-subscript-condition
 new_category: Portability
 new_code: X041
 runtime_kind: ast

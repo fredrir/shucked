@@ -1,5 +1,3 @@
-legacy_code: SH-312
-legacy_name: getopts-option-not-in-case
 new_category: Correctness
 new_code: C134
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-182
-legacy_name: extglob-in-case-pattern
 new_category: Portability
 new_code: X048
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-221
-legacy_name: backtick-in-command-position
 new_category: Correctness
 new_code: C093
 runtime_kind: ast

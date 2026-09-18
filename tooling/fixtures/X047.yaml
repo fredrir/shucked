@@ -1,5 +1,3 @@
-legacy_code: SH-180
-legacy_name: multi-var-for-loop
 new_category: Portability
 new_code: X047
 runtime_kind: ast

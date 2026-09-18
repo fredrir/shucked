@@ -1,5 +1,3 @@
-legacy_code: SH-029
-legacy_name: pipefail-option
 new_category: Portability
 new_code: X021
 runtime_kind: ast

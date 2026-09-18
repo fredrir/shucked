@@ -1,5 +1,3 @@
-legacy_code: SH-169
-legacy_name: nested-parameter-expansion
 new_category: Correctness
 new_code: C062
 runtime_kind: ast

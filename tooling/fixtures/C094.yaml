@@ -1,5 +1,3 @@
-legacy_code: SH-222
-legacy_name: redirect-clobbers-input
 new_category: Correctness
 new_code: C094
 runtime_kind: ast

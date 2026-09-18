@@ -739,7 +739,7 @@ mod tests {
     fn update_client_options_invalidates_cached_project_settings() {
         let workspace = tempfile::tempdir().expect("workspace should be created");
         std::fs::write(
-            workspace.path().join(".shuck.toml"),
+            workspace.path().join(".shucked.toml"),
             "[lint]\nselect = ['C001']\n",
         )
         .expect("config should be written");
@@ -804,7 +804,7 @@ mod tests {
     fn nested_config_creation_switches_to_a_new_cache_key() {
         let workspace = tempfile::tempdir().expect("workspace should be created");
         std::fs::write(
-            workspace.path().join(".shuck.toml"),
+            workspace.path().join(".shucked.toml"),
             "[lint]\nselect = ['C001']\n",
         )
         .expect("config should be written");
@@ -849,7 +849,7 @@ mod tests {
                 .contains(shucked_linter::Rule::UnusedAssignment)
         );
 
-        std::fs::write(nested.join(".shuck.toml"), "[lint]\nselect = ['C006']\n")
+        std::fs::write(nested.join(".shucked.toml"), "[lint]\nselect = ['C006']\n")
             .expect("nested config should be written");
 
         let after = session

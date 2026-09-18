@@ -1,5 +1,3 @@
-legacy_code: SH-010
-legacy_name: bash-case-fallthrough
 new_category: Portability
 new_code: X005
 runtime_kind: ast

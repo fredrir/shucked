@@ -1,5 +1,3 @@
-legacy_code: SH-161
-legacy_name: arithmetic-score-line
 new_category: Style
 new_code: S035
 runtime_kind: ast

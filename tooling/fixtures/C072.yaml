@@ -1,5 +1,3 @@
-legacy_code: SH-189
-legacy_name: unicode-quote-in-string
 new_category: Correctness
 new_code: C072
 runtime_kind: ast

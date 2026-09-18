@@ -1,5 +1,3 @@
-legacy_code: SH-124
-legacy_name: zsh-brace-if
 new_category: Portability
 new_code: X038
 runtime_kind: ast

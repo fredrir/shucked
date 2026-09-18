@@ -1,5 +1,3 @@
-legacy_code: SH-238
-legacy_name: non-shell-syntax-in-script
 new_category: Correctness
 new_code: C104
 runtime_kind: ast

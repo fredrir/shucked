@@ -319,10 +319,10 @@ echo $foo
     }
 
     #[test]
-    fn applies_dead_code_alias_suppressions() {
+    fn applies_dead_code_suppressions() {
         let source = "\
 exit 0
-# shuck: disable=SH-293
+# shuck: disable=C124
 echo dead
 echo still_dead
 ";

@@ -1,5 +1,3 @@
-legacy_code: SH-347
-legacy_name: subshell-side-effect
 new_category: Correctness
 new_code: C155
 runtime_kind: ast

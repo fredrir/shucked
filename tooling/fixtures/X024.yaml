@@ -1,5 +1,3 @@
-legacy_code: SH-032
-legacy_name: uppercase-expansion
 new_category: Portability
 new_code: X024
 runtime_kind: ast

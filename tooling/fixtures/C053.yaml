@@ -1,5 +1,3 @@
-legacy_code: SH-147
-legacy_name: spacey-assign
 new_category: Correctness
 new_code: C053
 runtime_kind: ast

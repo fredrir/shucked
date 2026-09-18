@@ -1,5 +1,3 @@
-legacy_code: SH-004
-legacy_name: loop-from-command-output
 new_category: Style
 new_code: S003
 runtime_kind: ast

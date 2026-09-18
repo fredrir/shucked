@@ -1,5 +1,3 @@
-legacy_code: SH-209
-legacy_name: glob-in-find-substitution
 new_category: Correctness
 new_code: C083
 runtime_kind: ast

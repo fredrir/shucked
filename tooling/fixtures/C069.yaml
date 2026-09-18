@@ -1,5 +1,3 @@
-legacy_code: SH-186
-legacy_name: backslash-before-closing-backtick
 new_category: Correctness
 new_code: C069
 runtime_kind: ast

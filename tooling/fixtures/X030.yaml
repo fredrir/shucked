@@ -1,5 +1,3 @@
-legacy_code: SH-061
-legacy_name: echo-backslash-escapes
 new_category: Portability
 new_code: X030
 runtime_kind: ast

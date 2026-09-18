@@ -1,5 +1,3 @@
-legacy_code: SH-192
-legacy_name: space-after-hash-bang
 new_category: Correctness
 new_code: C074
 runtime_kind: ast

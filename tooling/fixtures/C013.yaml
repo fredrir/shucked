@@ -1,5 +1,3 @@
-legacy_code: SH-049
-legacy_name: find-output-loop
 new_category: Correctness
 new_code: C013
 runtime_kind: ast

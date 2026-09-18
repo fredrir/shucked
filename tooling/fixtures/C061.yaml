@@ -1,5 +1,3 @@
-legacy_code: SH-167
-legacy_name: template-brace-in-command
 new_category: Correctness
 new_code: C061
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-232
-legacy_name: quoted-bash-source
 new_category: Correctness
 new_code: C100
 runtime_kind: ast

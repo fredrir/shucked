@@ -1,5 +1,3 @@
-legacy_code: SH-154
-legacy_name: nested-zsh-substitution
 new_category: Portability
 new_code: X044
 runtime_kind: ast

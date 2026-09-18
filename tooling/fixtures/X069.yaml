@@ -1,5 +1,3 @@
-legacy_code: SH-276
-legacy_name: signal-name-in-trap
 new_category: Portability
 new_code: X069
 runtime_kind: ast

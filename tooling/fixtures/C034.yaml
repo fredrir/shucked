@@ -1,5 +1,3 @@
-legacy_code: SH-105
-legacy_name: unterminated-if
 new_category: Correctness
 new_code: C034
 runtime_kind: ast

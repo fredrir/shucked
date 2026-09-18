@@ -1,5 +1,3 @@
-legacy_code: SH-287
-legacy_name: expr-substr-in-test
 new_category: Correctness
 new_code: C120
 runtime_kind: ast

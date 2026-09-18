@@ -1,5 +1,3 @@
-legacy_code: SH-335
-legacy_name: ampersand-semicolon
 new_category: Style
 new_code: S074
 runtime_kind: ast

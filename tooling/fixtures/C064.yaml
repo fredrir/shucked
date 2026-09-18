@@ -1,5 +1,3 @@
-legacy_code: SH-175
-legacy_name: test-missing-then
 new_category: Correctness
 new_code: C064
 runtime_kind: ast

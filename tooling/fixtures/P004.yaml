@@ -1,5 +1,3 @@
-legacy_code: SH-164
-legacy_name: subshell-test-group
 new_category: Performance
 new_code: P004
 runtime_kind: ast

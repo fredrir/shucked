@@ -1,5 +1,3 @@
-legacy_code: SH-255
-legacy_name: xargs-with-inline-replace
 new_category: Style
 new_code: S064
 runtime_kind: ast

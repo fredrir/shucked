@@ -6,7 +6,7 @@ function M.run(t)
 
   t.wait_for_pull_diagnostic_codes(bufnr, { "C001" })
 
-  local config_path = t.fixture_path("shuck.toml")
+  local config_path = t.fixture_path("shucked.toml")
   t.write_file(config_path, "[lint]\nselect = [\"C006\"]\n")
   t.notify(client, "workspace/didChangeWatchedFiles", {
     changes = {

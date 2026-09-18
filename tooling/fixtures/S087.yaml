@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: constants-not-at-top
 new_category: Style
 new_code: S087
 runtime_kind: ast

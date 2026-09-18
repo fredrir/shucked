@@ -1,5 +1,3 @@
-legacy_code: SH-048
-legacy_name: glob-as-argument
 new_category: Correctness
 new_code: C012
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-056
-legacy_name: ps-grep-pipeline
 new_category: Style
 new_code: S012
 runtime_kind: ast

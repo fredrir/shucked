@@ -809,17 +809,15 @@ mod tests {
     }
 
     #[test]
-    fn parses_dead_code_rule_aliases() {
+    fn parses_dead_code_rule_directives() {
         let directives = directives(
             "\
 # shuck: disable=C124
-# shuck: disable=SH-293
 ",
         );
 
-        assert_eq!(directives.len(), 2);
+        assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].codes, vec![Rule::UnreachableAfterExit]);
-        assert_eq!(directives[1].codes, vec![Rule::UnreachableAfterExit]);
     }
 
     #[test]
@@ -870,7 +868,7 @@ esac
 
     #[test]
     fn parses_shuck_codes_in_shellcheck_directives() {
-        let directives = directives("# shellcheck disable=S001,SH-039,C124\n");
+        let directives = directives("# shellcheck disable=S001,C006,C124\n");
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
@@ -1144,8 +1142,8 @@ foreach item (1 2) { # shellcheck disable=SC2086
 # shuck: ignore=
 # shuck: foobar=C001
 # shuck disable=C001
-# shuck: enable=SH-039
-# shuck: disable=SH-039
+# shuck: enable=C006
+# shuck: disable=C006
 ";
         let directives = directives(source);
 

@@ -1,5 +1,3 @@
-legacy_code: SH-291
-legacy_name: nested-default-expansion
 new_category: Portability
 new_code: X077
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-176
-legacy_name: else-without-then
 new_category: Correctness
 new_code: C065
 runtime_kind: ast

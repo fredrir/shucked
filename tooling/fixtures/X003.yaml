@@ -1,5 +1,3 @@
-legacy_code: SH-008
-legacy_name: local-variable-in-sh
 new_category: Portability
 new_code: X003
 runtime_kind: ast

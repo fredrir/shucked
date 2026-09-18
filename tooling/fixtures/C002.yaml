@@ -1,5 +1,3 @@
-legacy_code: SH-025
-legacy_name: dynamic-source-path
 new_category: Correctness
 new_code: C002
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-196
-legacy_name: echo-to-sed-substitution
 new_category: Style
 new_code: S044
 runtime_kind: ast

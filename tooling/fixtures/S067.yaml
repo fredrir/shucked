@@ -1,5 +1,3 @@
-legacy_code: SH-294
-legacy_name: leading-glob-in-grep-pattern
 new_category: Style
 new_code: S067
 runtime_kind: ast

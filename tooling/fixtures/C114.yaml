@@ -1,5 +1,3 @@
-legacy_code: SH-254
-legacy_name: glob-with-expansion-in-loop
 new_category: Correctness
 new_code: C114
 runtime_kind: ast

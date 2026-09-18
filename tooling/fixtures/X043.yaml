@@ -1,5 +1,3 @@
-legacy_code: SH-153
-legacy_name: zsh-flag-expansion
 new_category: Portability
 new_code: X043
 runtime_kind: ast

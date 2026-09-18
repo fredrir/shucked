@@ -1,5 +1,3 @@
-legacy_code: SH-014
-legacy_name: select-loop
 new_category: Portability
 new_code: X009
 runtime_kind: ast

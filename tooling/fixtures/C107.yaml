@@ -1,5 +1,3 @@
-legacy_code: SH-242
-legacy_name: dollar-question-after-command
 new_category: Correctness
 new_code: C107
 runtime_kind: ast

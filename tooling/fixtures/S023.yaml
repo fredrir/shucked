@@ -1,5 +1,3 @@
-legacy_code: SH-082
-legacy_name: escaped-underscore
 new_category: Style
 new_code: S023
 runtime_kind: ast

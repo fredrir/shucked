@@ -1,5 +1,3 @@
-legacy_code: SH-320
-legacy_name: bad-var-name
 new_category: Correctness
 new_code: C140
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-091
-legacy_name: bare-done-word
 new_category: Correctness
 new_code: C027
 runtime_kind: ast

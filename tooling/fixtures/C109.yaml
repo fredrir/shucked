@@ -1,5 +1,3 @@
-legacy_code: SH-244
-legacy_name: mapfile-process-substitution
 new_category: Correctness
 new_code: C109
 runtime_kind: ast

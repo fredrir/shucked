@@ -1,5 +1,3 @@
-legacy_code: SH-102
-legacy_name: jammed-test-bracket
 new_category: Correctness
 new_code: C032
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-318
-legacy_name: heredoc-missing-end
 new_category: Correctness
 new_code: C138
 runtime_kind: ast

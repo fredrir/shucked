@@ -1,5 +1,3 @@
-legacy_code: SH-227
-legacy_name: su-without-flag
 new_category: Style
 new_code: S054
 runtime_kind: ast

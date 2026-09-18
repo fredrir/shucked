@@ -1,5 +1,3 @@
-legacy_code: SH-108
-legacy_name: zsh-redir-pipe
 new_category: Portability
 new_code: X036
 runtime_kind: ast

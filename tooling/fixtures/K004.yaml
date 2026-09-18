@@ -1,5 +1,3 @@
-legacy_code: SH-283
-legacy_name: find-execdir-with-shell
 new_category: Security
 new_code: K004
 runtime_kind: ast

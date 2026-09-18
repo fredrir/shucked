@@ -1,5 +1,3 @@
-legacy_code: SH-281
-legacy_name: sticky-bit-test-in-sh
 new_category: Portability
 new_code: X074
 runtime_kind: ast

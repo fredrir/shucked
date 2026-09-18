@@ -1,5 +1,3 @@
-legacy_code: SH-285
-legacy_name: redirect-before-pipe
 new_category: Correctness
 new_code: C119
 runtime_kind: ast

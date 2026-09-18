@@ -1,5 +1,3 @@
-legacy_code: SH-044
-legacy_name: rm-glob-on-variable-path
 new_category: Security
 new_code: K001
 runtime_kind: ast

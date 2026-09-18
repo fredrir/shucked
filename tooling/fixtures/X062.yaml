@@ -1,5 +1,3 @@
-legacy_code: SH-269
-legacy_name: c-style-for-arithmetic-in-sh
 new_category: Portability
 new_code: X062
 runtime_kind: ast

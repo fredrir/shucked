@@ -1,5 +1,3 @@
-legacy_code: SH-218
-legacy_name: zsh-nested-expansion
 new_category: Portability
 new_code: X051
 runtime_kind: ast

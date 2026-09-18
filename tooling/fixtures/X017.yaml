@@ -1,5 +1,3 @@
-legacy_code: SH-022
-legacy_name: trap-err
 new_category: Portability
 new_code: X017
 runtime_kind: ast

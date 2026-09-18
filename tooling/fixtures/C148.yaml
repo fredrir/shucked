@@ -1,5 +1,3 @@
-legacy_code: SH-337
-legacy_name: broken-assoc-key
 new_category: Correctness
 new_code: C148
 runtime_kind: ast

@@ -186,7 +186,7 @@ impl Index {
             .filter(|path| {
                 matches!(
                     path.file_name().and_then(|name| name.to_str()),
-                    Some(".shucked.toml" | "shucked.toml" | ".shuck.toml" | "shuck.toml")
+                    Some(".shucked.toml" | "shucked.toml")
                 )
             })
             .collect::<Vec<_>>();

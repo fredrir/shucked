@@ -1,5 +1,3 @@
-legacy_code: SH-351
-legacy_name: possible-variable-misspelling
 new_category: Correctness
 new_code: C156
 runtime_kind: ast

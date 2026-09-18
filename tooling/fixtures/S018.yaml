@@ -1,5 +1,3 @@
-legacy_code: SH-068
-legacy_name: command-output-array-split
 new_category: Style
 new_code: S018
 runtime_kind: ast

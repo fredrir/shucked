@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn config_changes_are_reflected_on_the_next_snapshot() {
         let workspace_root = tempfile::tempdir().expect("tempdir should be created");
-        let config_path = workspace_root.path().join(".shuck.toml");
+        let config_path = workspace_root.path().join(".shucked.toml");
         std::fs::write(&config_path, "[lint]\nselect = ['C001']\n")
             .expect("config should be written");
         let file_path = workspace_root.path().join("script.sh");
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn config_changes_refresh_without_dynamic_file_watch_support() {
         let workspace_root = tempfile::tempdir().expect("tempdir should be created");
-        let config_path = workspace_root.path().join(".shuck.toml");
+        let config_path = workspace_root.path().join(".shucked.toml");
         std::fs::write(&config_path, "[lint]\nselect = ['C001']\n")
             .expect("config should be written");
         let file_path = workspace_root.path().join("script.sh");

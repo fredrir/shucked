@@ -1,5 +1,3 @@
-legacy_code: SH-270
-legacy_name: ampersand-redirect-in-sh
 new_category: Portability
 new_code: X063
 runtime_kind: ast

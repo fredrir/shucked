@@ -1,5 +1,3 @@
-legacy_code: SH-172
-legacy_name: literal-backslash-in-single-quotes
 new_category: Style
 new_code: S039
 runtime_kind: ast

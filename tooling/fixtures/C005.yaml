@@ -1,5 +1,3 @@
-legacy_code: SH-036
-legacy_name: single-quoted-literal
 new_category: Correctness
 new_code: C005
 runtime_kind: ast

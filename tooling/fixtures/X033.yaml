@@ -1,5 +1,3 @@
-legacy_code: SH-093
-legacy_name: if-elif-bash-test
 new_category: Portability
 new_code: X033
 runtime_kind: ast

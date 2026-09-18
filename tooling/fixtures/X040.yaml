@@ -1,5 +1,3 @@
-legacy_code: SH-126
-legacy_name: array-subscript-test
 new_category: Portability
 new_code: X040
 runtime_kind: ast

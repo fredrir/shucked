@@ -1,5 +1,3 @@
-legacy_code: SH-137
-legacy_name: single-test-subshell
 new_category: Performance
 new_code: P003
 runtime_kind: ast

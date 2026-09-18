@@ -1,5 +1,3 @@
-legacy_code: SH-026
-legacy_name: untracked-source-file
 new_category: Correctness
 new_code: C003
 runtime_kind: ast

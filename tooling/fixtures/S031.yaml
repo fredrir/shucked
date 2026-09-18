@@ -1,5 +1,3 @@
-legacy_code: SH-120
-legacy_name: trailing-directive
 new_category: Style
 new_code: S031
 runtime_kind: ast

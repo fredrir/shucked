@@ -18,7 +18,6 @@ fn cache_dir(root: &Path) -> PathBuf {
 
 fn configure_env_cache(cmd: &mut Command, root: &Path) {
     cmd.env("SHUCKED_CACHE_DIR", cache_dir(root));
-    cmd.env("SHUCK_CACHE_DIR", cache_dir(root));
 }
 
 fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
@@ -28,7 +27,6 @@ fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
     let local_appdata = root.join("appdata").join("Local");
 
     cmd.env_remove("SHUCKED_CACHE_DIR");
-    cmd.env_remove("SHUCK_CACHE_DIR");
     cmd.env("HOME", &home);
     cmd.env("USERPROFILE", &home);
     cmd.env("XDG_CACHE_HOME", xdg_cache);
@@ -264,13 +262,13 @@ fn check_help_includes_add_ignore_flag() {
 #[test]
 fn config_file_and_isolated_conflict() {
     let tempdir = tempdir().unwrap();
-    fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+    fs::write(tempdir.path().join("shucked.toml"), "[format]\n").unwrap();
 
     let mut cmd = Command::cargo_bin("shucked").unwrap();
     cmd.current_dir(tempdir.path())
         .arg("--isolated")
         .arg("--config")
-        .arg("shuck.toml")
+        .arg("shucked.toml")
         .arg("check");
     cmd.assert()
         .code(2)
@@ -335,7 +333,7 @@ fn check_stdin_filename_is_optional_and_controls_per_file_settings() {
 fn check_stdin_loads_project_configuration() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join(".shuck.toml"),
+        tempdir.path().join(".shucked.toml"),
         "[lint]\nignore = ['C006']\n",
     )
     .unwrap();
@@ -618,7 +616,7 @@ fn check_unsafe_fixes_applies_s061_fix() {
 fn check_cli_select_replaces_config_selection() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[lint]\nselect = ['C001']\n",
     )
     .unwrap();
@@ -647,7 +645,7 @@ fn check_cli_select_replaces_config_selection() {
 fn check_c001_flags_indirect_only_targets_by_default() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "\
 [lint]
 select = ['C001']
@@ -674,7 +672,7 @@ select = ['C001']
 fn check_config_rule_option_can_keep_indirect_c001_targets_live() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "\
 [lint]
 select = ['C001']
@@ -703,7 +701,7 @@ treat-indirect-expansion-targets-as-used = true
 fn check_c001_flags_declaration_only_targets_by_default() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "\
 [lint]
 select = ['C001']
@@ -1843,7 +1841,7 @@ fn format_stdin_filename_reports_parse_errors() {
 fn format_stdin_uses_current_project_config() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = true\n",
     )
     .unwrap();
@@ -1861,7 +1859,7 @@ fn format_stdin_filename_respects_project_config_exclude() {
     let generated = tempdir.path().join("generated");
     fs::create_dir_all(&generated).unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nexclude = ['generated/**']\n",
     )
     .unwrap();
@@ -1930,7 +1928,7 @@ fn format_stdin_filename_infers_zsh_dialect() {
 fn format_stdin_filename_uses_shared_per_file_shell_config() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[per-file-shell]\n'dot_z*' = 'zsh'\n",
     )
     .unwrap();
@@ -1941,25 +1939,6 @@ fn format_stdin_filename_uses_shared_per_file_shell_config() {
         .args(["format", "--stdin-filename", "dot_zshenv", "-"])
         .write_stdin(source);
     cmd.assert().success().stdout(source).stderr("");
-}
-
-#[test]
-fn format_stdin_rejects_configured_dialect() {
-    let tempdir = tempdir().unwrap();
-    fs::write(
-        tempdir.path().join("shuck.toml"),
-        "[format]\ndialect = \"zsh\"\n",
-    )
-    .unwrap();
-
-    let mut cmd = Command::cargo_bin("shucked").unwrap();
-    cmd.current_dir(tempdir.path())
-        .args(["format", "-"])
-        .write_stdin("print ${(m)foo}\n");
-    cmd.assert()
-        .code(2)
-        .stderr(predicate::str::contains("[format].dialect"))
-        .stderr(predicate::str::contains("--dialect"));
 }
 
 #[test]
@@ -2113,7 +2092,7 @@ fn check_per_file_shell_reaches_explicit_extensionless_file() {
 fn check_uses_shared_per_file_shell_config() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[per-file-shell]\n'dot_z*' = 'zsh'\n",
     )
     .unwrap();
@@ -2283,7 +2262,6 @@ fn check_watch_reruns_when_files_change() {
     let mut child = ProcessCommand::new(assert_cmd::cargo::cargo_bin("shucked"));
     child
         .env("SHUCKED_CACHE_DIR", cache_dir(tempdir.path()))
-        .env("SHUCK_CACHE_DIR", cache_dir(tempdir.path()))
         .current_dir(tempdir.path())
         .args(["check", "--watch", "--output-format", "concise"])
         .stdout(Stdio::piped())
@@ -2374,9 +2352,9 @@ fn format_config_exclude_skips_walked_and_explicit_files_per_project() {
     let tempdir = tempdir().unwrap();
     let nested = tempdir.path().join("nested");
     fs::create_dir_all(&nested).unwrap();
-    fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+    fs::write(tempdir.path().join("shucked.toml"), "[format]\n").unwrap();
     fs::write(
-        nested.join("shuck.toml"),
+        nested.join("shucked.toml"),
         "[format]\nexclude = ['**/*p10k.zsh']\n",
     )
     .unwrap();
@@ -2460,7 +2438,7 @@ fn format_gitignore_and_force_exclude_flags_control_explicit_files() {
 fn format_honors_project_config_and_cli_overrides_it() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = false\n",
     )
     .unwrap();
@@ -2483,7 +2461,7 @@ fn format_honors_project_config_and_cli_overrides_it() {
 fn format_uses_shared_per_file_shell_for_extensionless_zsh_file() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[per-file-shell]\n'dot_z*' = 'zsh'\n",
     )
     .unwrap();
@@ -2504,7 +2482,7 @@ fn format_uses_shared_per_file_shell_for_extensionless_zsh_file() {
 fn format_rejects_conflicting_per_file_shell_mappings() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
     )
     .unwrap();
@@ -2569,7 +2547,7 @@ fn format_inline_global_config_override_beats_global_config_file() {
 fn format_isolated_ignores_discovered_project_config() {
     let tempdir = tempdir().unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = true\n",
     )
     .unwrap();
@@ -2595,12 +2573,12 @@ fn format_prefers_nested_project_config_for_explicit_files() {
     let nested = tempdir.path().join("nested");
     fs::create_dir_all(&nested).unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[format]\nfunction-next-line = false\n",
     )
     .unwrap();
     fs::write(
-        nested.join("shuck.toml"),
+        nested.join("shucked.toml"),
         "[format]\nfunction-next-line = true\n",
     )
     .unwrap();
@@ -2640,7 +2618,7 @@ fn format_cache_invalidates_when_formatter_options_change() {
 #[test]
 fn format_cache_invalidates_when_per_file_shell_changes() {
     let tempdir = tempdir().unwrap();
-    let config = tempdir.path().join("shuck.toml");
+    let config = tempdir.path().join("shucked.toml");
     fs::write(&config, "[per-file-shell]\n'dot_z*' = 'zsh'\n").unwrap();
     let script = tempdir.path().join("dot_zshenv");
     fs::write(&script, "(($+commands[vivid]))\n").unwrap();
@@ -2696,19 +2674,6 @@ fn clean_succeeds_when_cache_tree_is_absent() {
         .assert()
         .success()
         .stdout(predicate::str::contains("cache cleared"));
-}
-
-#[test]
-fn clean_removes_legacy_local_cache_directory_during_transition() {
-    let tempdir = tempdir().unwrap();
-    fs::create_dir_all(tempdir.path().join(".shucked_cache").join("stale")).unwrap();
-
-    let mut clean = Command::cargo_bin("shucked").unwrap();
-    configure_env_cache(&mut clean, tempdir.path());
-    clean.current_dir(tempdir.path()).arg("clean");
-    clean.assert().success();
-
-    assert!(!tempdir.path().join(".shucked_cache").exists());
 }
 
 #[test]
@@ -2769,7 +2734,7 @@ fn check_and_clean_share_config_root_mode_for_explicit_config_files() {
     fs::create_dir_all(&nested).unwrap();
     fs::write(&override_config, "[format]\n").unwrap();
     fs::write(
-        nested.join("shuck.toml"),
+        nested.join("shucked.toml"),
         "[format]\nfunction-next-line = true\n",
     )
     .unwrap();
@@ -2905,7 +2870,7 @@ fn lint_sources_config_false_downgrades_lint_true() {
     )
     .unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[lint]\nlint-sources = false\n",
     )
     .unwrap();
@@ -2938,7 +2903,7 @@ fn source_paths_config_resolves_directive_targets_against_roots() {
     )
     .unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -2988,7 +2953,7 @@ fn directive_target_next_to_script_shadows_configured_root_match() {
     )
     .unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -3026,7 +2991,7 @@ fn cached_directive_resolution_invalidates_when_nearer_target_appears() {
     )
     .unwrap();
     fs::write(
-        tempdir.path().join("shuck.toml"),
+        tempdir.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();

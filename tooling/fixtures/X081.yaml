@@ -1,5 +1,3 @@
-legacy_code: SH-305
-legacy_name: star-glob-removal-in-sh
 new_category: Portability
 new_code: X081
 runtime_kind: ast

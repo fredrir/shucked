@@ -1,5 +1,3 @@
-legacy_code: SH-086
-legacy_name: positional-ten-braces
 new_category: Correctness
 new_code: C025
 runtime_kind: ast

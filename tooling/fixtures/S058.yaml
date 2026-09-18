@@ -1,5 +1,3 @@
-legacy_code: SH-240
-legacy_name: unquoted-path-in-mkdir
 new_category: Style
 new_code: S058
 runtime_kind: ast

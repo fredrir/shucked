@@ -485,7 +485,7 @@ mod tests {
         let cache_root = Path::new("/tmp/shuck-cache");
         let watch_targets = vec![
             WatchTarget::recursive(PathBuf::from("/workspace/project")),
-            WatchTarget::file(PathBuf::from("/workspace/config/shuck.toml")),
+            WatchTarget::file(PathBuf::from("/workspace/config/shucked.toml")),
         ];
 
         assert!(!watch_event_requires_rerun(
@@ -544,7 +544,7 @@ mod tests {
         let cache_root = Path::new("/tmp/shuck-cache");
         let watch_targets = vec![
             WatchTarget::recursive(PathBuf::from("/workspace/project")),
-            WatchTarget::file(PathBuf::from("/workspace/config/shuck.toml")),
+            WatchTarget::file(PathBuf::from("/workspace/config/shucked.toml")),
         ];
 
         assert!(watch_event_requires_rerun(
@@ -561,7 +561,7 @@ mod tests {
                 kind: notify::EventKind::Modify(ModifyKind::Data(
                     notify::event::DataChange::Content,
                 )),
-                paths: vec![PathBuf::from("/workspace/config/shuck.toml")],
+                paths: vec![PathBuf::from("/workspace/config/shucked.toml")],
                 attrs: EventAttributes::default(),
             },
             cache_root,
@@ -581,7 +581,7 @@ mod tests {
                 kind: notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
                 paths: vec![
                     PathBuf::from("/tmp/tempfile"),
-                    PathBuf::from("/workspace/config/shuck.toml"),
+                    PathBuf::from("/workspace/config/shucked.toml"),
                 ],
                 attrs: EventAttributes::default(),
             },
@@ -614,7 +614,7 @@ mod tests {
         let nested = tempdir.path().join("nested");
         let deeper = nested.join("deeper");
         fs::create_dir_all(&deeper).unwrap();
-        fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+        fs::write(tempdir.path().join("shucked.toml"), "[format]\n").unwrap();
         let file = nested.join("script.sh");
         fs::write(&file, "#!/bin/bash\necho ok\n").unwrap();
 
@@ -654,8 +654,8 @@ mod tests {
                     ),
                     recursive: false,
                     match_paths: match_paths(
-                        &fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
-                        &tempdir.path().join("shuck.toml"),
+                        &fs::canonicalize(tempdir.path().join("shucked.toml")).unwrap(),
+                        &tempdir.path().join("shucked.toml"),
                     ),
                 },
                 WatchTarget {
@@ -685,8 +685,8 @@ mod tests {
                     ),
                     recursive: false,
                     match_paths: match_paths(
-                        &fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
-                        &tempdir.path().join("shuck.toml"),
+                        &fs::canonicalize(tempdir.path().join("shucked.toml")).unwrap(),
+                        &tempdir.path().join("shucked.toml"),
                     ),
                 },
                 WatchTarget {

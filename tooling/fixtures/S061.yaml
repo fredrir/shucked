@@ -1,5 +1,3 @@
-legacy_code: SH-248
-legacy_name: fgrep-deprecated
 new_category: Style
 new_code: S061
 runtime_kind: ast

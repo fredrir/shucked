@@ -44,7 +44,6 @@ shucked-linter = { workspace = true }
 shucked-parser = { workspace = true }
 shucked-run = { workspace = true }
 shucked-server = { workspace = true }
-shucked-lsp = { workspace = true }
 shucked-semantic = { workspace = true }
 similar = { workspace = true }
 tempfile = { workspace = true }

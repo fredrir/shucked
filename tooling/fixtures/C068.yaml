@@ -1,5 +1,3 @@
-legacy_code: SH-179
-legacy_name: bare-closing-brace
 new_category: Correctness
 new_code: C068
 runtime_kind: ast

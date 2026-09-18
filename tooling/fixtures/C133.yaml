@@ -1,5 +1,3 @@
-legacy_code: SH-311
-legacy_name: array-to-string-conversion
 new_category: Correctness
 new_code: C133
 runtime_kind: ast

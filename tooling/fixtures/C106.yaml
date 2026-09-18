@@ -1,5 +1,3 @@
-legacy_code: SH-241
-legacy_name: append-to-array-as-string
 new_category: Correctness
 new_code: C106
 runtime_kind: ast

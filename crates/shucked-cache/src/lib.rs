@@ -16,15 +16,7 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-/// Per-project cache directory name used by shucked.
-pub const CACHE_DIR_NAME: &str = ".shucked_cache";
-
 const MAX_LAST_SEEN_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
-
-/// Returns the cache directory that lives under a project root.
-pub fn legacy_cache_dir(project_root: &Path) -> PathBuf {
-    project_root.join(CACHE_DIR_NAME)
-}
 
 /// Reads the cached project root marker stored in a cache file.
 pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathBuf>> {

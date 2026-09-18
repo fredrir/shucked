@@ -1,5 +1,3 @@
-legacy_code: SH-017
-legacy_name: ampersand-redirection
 new_category: Portability
 new_code: X012
 runtime_kind: ast

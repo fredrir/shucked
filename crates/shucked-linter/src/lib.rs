@@ -6310,10 +6310,10 @@ foo=2
     }
 
     #[test]
-    fn redundant_return_status_suppressed_by_legacy_shuck_directive() {
+    fn redundant_return_status_suppressed_by_shuck_directive() {
         let source = "\
 #!/bin/sh
-# shuck: disable=SH-170
+# shuck: disable=S038
 f() {
   false
   return $?

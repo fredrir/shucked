@@ -576,7 +576,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['C001']\n",
         )
         .unwrap();
@@ -594,7 +594,7 @@ mod tests {
         assert!(first.diagnostics[0].message.contains("target"));
 
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['C001']\n\n[lint.rule-options.c001]\ntreat-indirect-expansion-targets-as-used = true\n",
         )
         .unwrap();
@@ -617,7 +617,7 @@ mod tests {
         let script = tempdir.path().join("script.sh");
         fs::write(&script, "#!/bin/bash\nouter() {\n  inner() { :; }\n}\n").unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['C063']\n",
         )
         .unwrap();
@@ -634,7 +634,7 @@ mod tests {
         assert!(first.diagnostics.is_empty());
 
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['C063']\n\n[lint.rule-options.c063]\nreport-unreached-nested-definitions = true\n",
         )
         .unwrap();
@@ -661,7 +661,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['S085']\n",
         )
         .unwrap();
@@ -678,7 +678,7 @@ mod tests {
         assert!(first.diagnostics.is_empty());
 
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nselect = ['S085']\n\n[lint.rule-options.s085]\nnon-trivial-line-threshold = 1\n",
         )
         .unwrap();
@@ -757,7 +757,7 @@ mod tests {
         let tempdir = tempdir().unwrap();
         fs::write(tempdir.path().join(".zshrc"), "echo ok\n").unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint.zsh.plugins]\nentrypoints = [{ pattern = '.zshrc', paths = ['./vendor/prompt.plugin.zsh'] }]\n",
         )
         .unwrap();
@@ -818,7 +818,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             format!(
                 "[lint.zsh.plugins.roots]\noh-my-zsh = '{}'\n\n[[lint.zsh.plugins.plugin-loads]]\npattern = '.zshrc'\nframework = 'oh-my-zsh'\nname = 'git'\n",
                 omz_root.display()

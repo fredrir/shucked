@@ -1,5 +1,3 @@
-legacy_code: SH-007
-legacy_name: test-equality-operator
 new_category: Portability
 new_code: X002
 runtime_kind: ast

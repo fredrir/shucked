@@ -1,5 +1,3 @@
-legacy_code: SH-219
-legacy_name: tilde-in-string-comparison
 new_category: Correctness
 new_code: C091
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-208
-legacy_name: unquoted-tr-class
 new_category: Style
 new_code: S051
 runtime_kind: ast

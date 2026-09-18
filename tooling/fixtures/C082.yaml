@@ -1,5 +1,3 @@
-legacy_code: SH-207
-legacy_name: escaped-negation-in-test
 new_category: Correctness
 new_code: C082
 runtime_kind: ast

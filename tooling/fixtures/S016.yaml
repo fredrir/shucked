@@ -1,5 +1,3 @@
-legacy_code: SH-066
-legacy_name: echo-inside-command-substitution
 new_category: Style
 new_code: S016
 runtime_kind: ast

@@ -15,8 +15,7 @@ pub(crate) fn resolve_cache_root(cwd: &Path, override_path: Option<&Path>) -> Re
         return Ok(normalize_path(&resolved));
     }
 
-    if let Some(explicit) =
-        std::env::var_os("SHUCKED_CACHE_DIR").or_else(|| std::env::var_os("SHUCK_CACHE_DIR"))
+    if let Some(explicit) = std::env::var_os("SHUCKED_CACHE_DIR")
         && !explicit.is_empty()
     {
         let path = PathBuf::from(explicit);

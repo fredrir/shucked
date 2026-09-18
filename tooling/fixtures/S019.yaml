@@ -1,5 +1,3 @@
-legacy_code: SH-071
-legacy_name: grep-output-in-test
 new_category: Style
 new_code: S019
 runtime_kind: ast

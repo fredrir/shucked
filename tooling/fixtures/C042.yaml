@@ -1,5 +1,3 @@
-legacy_code: SH-123
-legacy_name: c-prototype-fragment
 new_category: Correctness
 new_code: C042
 runtime_kind: ast

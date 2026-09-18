@@ -1,5 +1,3 @@
-legacy_code: SH-321
-legacy_name: loop-without-end
 new_category: Correctness
 new_code: C141
 runtime_kind: ast

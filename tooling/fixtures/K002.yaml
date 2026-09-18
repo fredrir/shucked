@@ -1,5 +1,3 @@
-legacy_code: SH-047
-legacy_name: ssh-local-expansion
 new_category: Security
 new_code: K002
 runtime_kind: ast

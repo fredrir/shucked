@@ -1,5 +1,3 @@
-legacy_code: SH-003
-legacy_name: unused-assignment
 new_category: Correctness
 new_code: C001
 runtime_kind: ast

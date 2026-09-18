@@ -1,5 +1,3 @@
-legacy_code: SH-054
-legacy_name: echo-flags
 new_category: Portability
 new_code: X027
 runtime_kind: ast

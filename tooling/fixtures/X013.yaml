@@ -1,5 +1,3 @@
-legacy_code: SH-018
-legacy_name: array-assignment
 new_category: Portability
 new_code: X013
 runtime_kind: ast

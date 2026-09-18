@@ -1,5 +1,3 @@
-legacy_code: SH-194
-legacy_name: commented-continuation-line
 new_category: Correctness
 new_code: C076
 runtime_kind: ast

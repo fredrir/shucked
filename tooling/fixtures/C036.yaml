@@ -1,5 +1,3 @@
-legacy_code: SH-109
-legacy_name: broken-test-end
 new_category: Correctness
 new_code: C036
 runtime_kind: ast

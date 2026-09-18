@@ -840,7 +840,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nselect = ['C001']\n",
         )
         .expect("config should be written");
@@ -869,7 +869,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nper-file-ignores = { '*.sh' = ['C001'] }\nextend-per-file-ignores = { '*.sh' = ['C006'] }\n",
         )
         .expect("config should be written");
@@ -893,7 +893,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nper-file-shell = { '*.sh' = 'zsh' }\n",
         )
         .expect("config should be written");
@@ -915,7 +915,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[per-file-shell]\n'dot_z*' = 'zsh'\n",
         )
         .expect("config should be written");
@@ -939,7 +939,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
         )
         .expect("config should be written");
@@ -965,7 +965,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint.rule-options.s085]\nnon-trivial-line-threshold = 20\nnon-trivial-function-count = 3\nmain-name = 'run'\n",
         )
         .expect("config should be written");
@@ -1003,7 +1003,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nunfixable = ['C001']\n",
         )
         .expect("config should be written");
@@ -1059,7 +1059,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nselect = ['C001', 'oops']\n",
         )
         .expect("config should be written");
@@ -1081,7 +1081,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nselect = ['C001']\nignore = ['oops']\n",
         )
         .expect("config should be written");
@@ -1109,7 +1109,7 @@ mod tests {
         let options = ClientOptions::default();
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nfixable = ['oops']\n",
         )
         .expect("config should be written");
@@ -1137,7 +1137,7 @@ mod tests {
         };
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nextend-select = ['C006']\n",
         )
         .expect("config should be written");
@@ -1177,7 +1177,7 @@ mod tests {
         };
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nextend-fixable = ['C006']\n",
         )
         .expect("config should be written");
@@ -1217,7 +1217,7 @@ mod tests {
         };
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nextend-per-file-shell = { '*.sh' = 'bash' }\n",
         )
         .expect("config should be written");
@@ -1256,7 +1256,7 @@ mod tests {
         };
         let tempdir = tempfile::tempdir().expect("tempdir should be created");
         std::fs::write(
-            tempdir.path().join(".shuck.toml"),
+            tempdir.path().join(".shucked.toml"),
             "[lint]\nextend-per-file-ignores = { '*.sh' = ['C001'] }\n",
         )
         .expect("config should be written");

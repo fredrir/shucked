@@ -1,5 +1,3 @@
-legacy_code: SH-190
-legacy_name: missing-shebang-line
 new_category: Style
 new_code: S043
 runtime_kind: ast

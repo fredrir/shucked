@@ -1,5 +1,3 @@
-legacy_code: SH-020
-legacy_name: let-command
 new_category: Portability
 new_code: X015
 runtime_kind: ast

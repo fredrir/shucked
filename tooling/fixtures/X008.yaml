@@ -1,5 +1,3 @@
-legacy_code: SH-013
-legacy_name: standalone-arithmetic
 new_category: Portability
 new_code: X008
 runtime_kind: ast

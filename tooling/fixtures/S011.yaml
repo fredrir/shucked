@@ -1,5 +1,3 @@
-legacy_code: SH-051
-legacy_name: compound-test-operator
 new_category: Style
 new_code: S011
 runtime_kind: ast

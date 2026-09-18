@@ -1,5 +1,3 @@
-legacy_code: SH-064
-legacy_name: grep-count-pipeline
 new_category: Performance
 new_code: P002
 runtime_kind: ast

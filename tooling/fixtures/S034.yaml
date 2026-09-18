@@ -1,5 +1,3 @@
-legacy_code: SH-157
-legacy_name: array-index-arithmetic
 new_category: Style
 new_code: S034
 runtime_kind: ast

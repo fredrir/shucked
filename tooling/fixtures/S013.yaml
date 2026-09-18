@@ -1,5 +1,3 @@
-legacy_code: SH-057
-legacy_name: ls-grep-pipeline
 new_category: Style
 new_code: S013
 runtime_kind: ast

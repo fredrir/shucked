@@ -1,5 +1,3 @@
-legacy_code: SH-274
-legacy_name: hyphenated-function-name
 new_category: Portability
 new_code: X067
 runtime_kind: ast

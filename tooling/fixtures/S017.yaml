@@ -1,5 +1,3 @@
-legacy_code: SH-067
-legacy_name: unquoted-array-split
 new_category: Style
 new_code: S017
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-334
-legacy_name: until-missing-do
 new_category: Correctness
 new_code: C146
 runtime_kind: ast

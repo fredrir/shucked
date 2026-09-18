@@ -1,5 +1,3 @@
-legacy_code: SH-166
-legacy_name: non-absolute-shebang
 new_category: Correctness
 new_code: C060
 runtime_kind: ast

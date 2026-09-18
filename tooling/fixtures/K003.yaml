@@ -1,5 +1,3 @@
-legacy_code: SH-151
-legacy_name: eval-on-array
 new_category: Security
 new_code: K003
 runtime_kind: ast

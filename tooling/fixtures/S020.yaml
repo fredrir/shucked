@@ -1,5 +1,3 @@
-legacy_code: SH-076
-legacy_name: single-iteration-loop
 new_category: Style
 new_code: S020
 runtime_kind: ast

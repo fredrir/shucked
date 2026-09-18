@@ -1,5 +1,3 @@
-legacy_code: SH-188
-legacy_name: double-paren-grouping
 new_category: Correctness
 new_code: C071
 runtime_kind: ast

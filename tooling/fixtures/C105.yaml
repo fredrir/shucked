@@ -1,5 +1,3 @@
-legacy_code: SH-239
-legacy_name: export-with-positional-params
 new_category: Correctness
 new_code: C105
 runtime_kind: ast

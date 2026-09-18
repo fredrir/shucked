@@ -1,5 +1,3 @@
-legacy_code: SH-203
-legacy_name: unquoted-tr-range
 new_category: Style
 new_code: S049
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-353
-legacy_name: if-bracket-glued
 new_category: Correctness
 new_code: C157
 runtime_kind: ast

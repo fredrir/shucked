@@ -1,5 +1,3 @@
-legacy_code: SH-125
-legacy_name: zsh-always-block
 new_category: Portability
 new_code: X039
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-088
-legacy_name: literal-backslash
 new_category: Style
 new_code: S025
 runtime_kind: ast

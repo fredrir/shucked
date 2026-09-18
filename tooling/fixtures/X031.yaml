@@ -1,5 +1,3 @@
-legacy_code: SH-080
-legacy_name: source-builtin-in-sh
 new_category: Portability
 new_code: X031
 runtime_kind: ast

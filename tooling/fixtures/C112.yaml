@@ -1,5 +1,3 @@
-legacy_code: SH-250
-legacy_name: array-slice-in-comparison
 new_category: Correctness
 new_code: C112
 runtime_kind: ast

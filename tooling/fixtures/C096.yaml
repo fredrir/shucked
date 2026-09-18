@@ -1,5 +1,3 @@
-legacy_code: SH-225
-legacy_name: suspicious-bracket-glob
 new_category: Correctness
 new_code: C096
 runtime_kind: ast

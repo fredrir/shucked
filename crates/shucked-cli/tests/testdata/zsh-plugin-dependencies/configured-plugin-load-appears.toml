@@ -18,7 +18,7 @@ contents = '''
 '''
 
 [[files]]
-path = "shuck.toml"
+path = "shucked.toml"
 contents = '''
 [lint.zsh.plugins]
 resolution = true

@@ -1,5 +1,3 @@
-legacy_code: SH-236
-legacy_name: glob-in-test-directory
 new_category: Correctness
 new_code: C102
 runtime_kind: ast

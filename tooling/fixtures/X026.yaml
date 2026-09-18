@@ -1,5 +1,3 @@
-legacy_code: SH-053
-legacy_name: bash-file-slurp
 new_category: Portability
 new_code: X026
 runtime_kind: ast

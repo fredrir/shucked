@@ -1,5 +1,3 @@
-legacy_code: SH-023
-legacy_name: indirect-expansion
 new_category: Portability
 new_code: X018
 runtime_kind: ast

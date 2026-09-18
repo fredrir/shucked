@@ -1,5 +1,3 @@
-legacy_code: SH-141
-legacy_name: invalid-exit-status
 new_category: Correctness
 new_code: C047
 runtime_kind: ast

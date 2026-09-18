@@ -1,5 +1,3 @@
-legacy_code: SH-330
-legacy_name: spaced-tabstrip-close
 new_category: Style
 new_code: S073
 runtime_kind: ast

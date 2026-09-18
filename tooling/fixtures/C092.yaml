@@ -1,5 +1,3 @@
-legacy_code: SH-220
-legacy_name: if-dollar-command
 new_category: Correctness
 new_code: C092
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-302
-legacy_name: case-default-before-glob
 new_category: Correctness
 new_code: C129
 runtime_kind: ast

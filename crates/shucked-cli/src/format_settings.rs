@@ -237,7 +237,7 @@ mod tests {
 
     use super::*;
     use crate::args::{FileSelectionArgs, FormatCommand, FormatDialectArg};
-    use shucked_config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
+    use shucked_config::FormatConfig;
     fn format_args() -> FormatCommand {
         FormatCommand {
             files: vec![PathBuf::from(".")],
@@ -310,7 +310,7 @@ mod tests {
     fn cli_patch_overrides_config_patch() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[format]\nfunction-next-line = false\nindent-width = 2\n",
         )
         .unwrap();
@@ -332,21 +332,10 @@ mod tests {
     }
 
     #[test]
-    fn configured_dialect_errors_with_migration_hint() {
-        let config = FormatConfig {
-            dialect: Some(toml::Value::String("zsh".to_owned())),
-            ..FormatConfig::default()
-        };
-
-        let err = config.to_patch().unwrap_err();
-        assert_eq!(err.to_string(), CONFIG_DIALECT_UNSUPPORTED_ERROR);
-    }
-
-    #[test]
     fn top_level_per_file_shell_selects_formatter_dialect() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[per-file-shell]\n'dot_z*' = 'zsh'\n",
         )
         .unwrap();
@@ -378,7 +367,7 @@ mod tests {
     fn lint_per_file_shell_remains_a_formatter_compatibility_alias() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[lint]\nper-file-shell = { 'dot_z*' = 'zsh' }\n",
         )
         .unwrap();
@@ -403,7 +392,7 @@ mod tests {
     fn cli_dialect_overrides_per_file_shell() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[per-file-shell]\n'dot_z*' = 'zsh'\n",
         )
         .unwrap();
@@ -430,7 +419,7 @@ mod tests {
     fn conflicting_per_file_shell_mappings_error_for_matching_path() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[per-file-shell]\n'*' = 'bash'\n'dot_z*' = 'zsh'\n",
         )
         .unwrap();
@@ -456,7 +445,7 @@ mod tests {
     fn generic_ksh_mapping_is_rejected_for_formatting() {
         let tempdir = tempdir().unwrap();
         fs::write(
-            tempdir.path().join("shuck.toml"),
+            tempdir.path().join("shucked.toml"),
             "[per-file-shell]\n'*.ksh' = 'ksh'\n",
         )
         .unwrap();

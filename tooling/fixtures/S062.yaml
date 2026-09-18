@@ -1,5 +1,3 @@
-legacy_code: SH-251
-legacy_name: default-value-in-colon-assign
 new_category: Style
 new_code: S062
 runtime_kind: ast

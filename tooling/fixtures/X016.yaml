@@ -1,5 +1,3 @@
-legacy_code: SH-021
-legacy_name: declare-command
 new_category: Portability
 new_code: X016
 runtime_kind: ast

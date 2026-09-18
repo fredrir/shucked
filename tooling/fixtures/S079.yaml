@@ -1,5 +1,4 @@
 origin: novel
-legacy_name: shebang-form-mismatch
 new_category: Style
 new_code: S079
 runtime_kind: ast

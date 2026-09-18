@@ -1,5 +1,3 @@
-legacy_code: SH-256
-legacy_name: x-prefix-in-test
 new_category: Style
 new_code: S065
 runtime_kind: ast

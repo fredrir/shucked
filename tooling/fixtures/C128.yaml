@@ -1,5 +1,3 @@
-legacy_code: SH-301
-legacy_name: case-glob-reachability
 new_category: Correctness
 new_code: C128
 runtime_kind: ast

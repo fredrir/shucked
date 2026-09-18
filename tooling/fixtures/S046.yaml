@@ -1,5 +1,3 @@
-legacy_code: SH-198
-legacy_name: ls-piped-to-xargs
 new_category: Style
 new_code: S046
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-289
-legacy_name: local-declare-combined
 new_category: Style
 new_code: S066
 runtime_kind: ast

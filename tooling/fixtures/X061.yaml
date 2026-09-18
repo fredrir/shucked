@@ -1,5 +1,3 @@
-legacy_code: SH-268
-legacy_name: a-test-in-sh
 new_category: Portability
 new_code: X061
 runtime_kind: ast

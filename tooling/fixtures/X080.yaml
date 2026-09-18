@@ -1,5 +1,3 @@
-legacy_code: SH-304
-legacy_name: source-inside-function-in-sh
 new_category: Portability
 new_code: X080
 runtime_kind: ast

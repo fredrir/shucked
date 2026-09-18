@@ -1,5 +1,3 @@
-legacy_code: SH-006
-legacy_name: double-bracket-in-sh
 new_category: Portability
 new_code: X001
 runtime_kind: ast

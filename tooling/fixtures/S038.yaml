@@ -1,5 +1,3 @@
-legacy_code: SH-170
-legacy_name: redundant-return-status
 new_category: Style
 new_code: S038
 runtime_kind: ast

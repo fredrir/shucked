@@ -1,5 +1,3 @@
-legacy_code: SH-112
-legacy_name: else-if
 new_category: Correctness
 new_code: C038
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-297
-legacy_name: trap-signal-numbers
 new_category: Style
 new_code: S068
 runtime_kind: ast

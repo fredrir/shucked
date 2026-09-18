@@ -1,5 +1,3 @@
-legacy_code: SH-288
-legacy_name: string-compared-with-eq
 new_category: Correctness
 new_code: C121
 runtime_kind: ast

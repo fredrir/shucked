@@ -1,5 +1,3 @@
-legacy_code: SH-229
-legacy_name: set-flags-without-dashes
 new_category: Correctness
 new_code: C098
 runtime_kind: ast

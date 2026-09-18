@@ -1,5 +1,3 @@
-legacy_code: SH-278
-legacy_name: array-keys-in-sh
 new_category: Portability
 new_code: X071
 runtime_kind: ast

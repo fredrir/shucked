@@ -1,5 +1,3 @@
-legacy_code: SH-231
-legacy_name: glob-assigned-to-variable
 new_category: Style
 new_code: S055
 runtime_kind: ast

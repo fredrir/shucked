@@ -1,5 +1,3 @@
-legacy_code: SH-327
-legacy_name: dangling-else
 new_category: Correctness
 new_code: C143
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-234
-legacy_name: ifs-set-to-literal-backslash-n
 new_category: Correctness
 new_code: C101
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-074
-legacy_name: constant-case-subject
 new_category: Correctness
 new_code: C021
 runtime_kind: ast

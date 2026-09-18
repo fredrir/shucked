@@ -1,5 +1,3 @@
-legacy_code: SH-230
-legacy_name: quoted-array-slice
 new_category: Correctness
 new_code: C099
 runtime_kind: ast

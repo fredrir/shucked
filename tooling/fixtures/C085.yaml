@@ -1,5 +1,3 @@
-legacy_code: SH-211
-legacy_name: stderr-before-stdout-redirect
 new_category: Correctness
 new_code: C085
 runtime_kind: ast

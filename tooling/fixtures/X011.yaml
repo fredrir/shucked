@@ -1,5 +1,3 @@
-legacy_code: SH-016
-legacy_name: here-string
 new_category: Portability
 new_code: X011
 runtime_kind: ast

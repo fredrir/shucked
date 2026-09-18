@@ -1,5 +1,3 @@
-legacy_code: SH-354
-legacy_name: brace-variable-before-bracket
 new_category: Style
 new_code: S077
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-038
-legacy_name: unquoted-array-expansion
 new_category: Style
 new_code: S008
 runtime_kind: ast

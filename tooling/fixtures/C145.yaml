@@ -1,5 +1,3 @@
-legacy_code: SH-333
-legacy_name: misquoted-heredoc-close
 new_category: Correctness
 new_code: C145
 runtime_kind: ast

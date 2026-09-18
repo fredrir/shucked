@@ -1,5 +1,3 @@
-legacy_code: SH-187
-legacy_name: positional-param-as-operator
 new_category: Correctness
 new_code: C070
 runtime_kind: ast

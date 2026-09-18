@@ -1,5 +1,3 @@
-legacy_code: SH-177
-legacy_name: missing-semicolon-before-brace
 new_category: Correctness
 new_code: C066
 runtime_kind: ast

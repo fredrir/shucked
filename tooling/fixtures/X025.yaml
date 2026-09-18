@@ -1,5 +1,3 @@
-legacy_code: SH-033
-legacy_name: replacement-expansion
 new_category: Portability
 new_code: X025
 runtime_kind: ast

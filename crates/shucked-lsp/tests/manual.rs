@@ -134,7 +134,7 @@ fn replays_a_small_lsp_session() {
             "capabilities": replay_capabilities(),
             "rootUri": Url::from_file_path(workspace_root.path())
                 .expect("workspace path should convert to a URL"),
-            "initializationOptions": { "shuck": { "fixAll": true, "unsafeFixes": true } }
+            "initializationOptions": { "shucked": { "fixAll": true, "unsafeFixes": true } }
         }),
     );
     let initialize = recv_response(&client_connection, 1);
@@ -557,7 +557,7 @@ fn cross_file_rename_for_encoding(
     let lib = workspace.path().join("lib");
     std::fs::create_dir(&lib).unwrap();
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -817,7 +817,7 @@ fn document_links_follow_sources_for_encoding(
     std::fs::create_dir_all(&scripts).unwrap();
     std::fs::create_dir(&lib).unwrap();
     std::fs::write(
-        workspace.join("shuck.toml"),
+        workspace.join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -1034,7 +1034,7 @@ fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -1165,7 +1165,7 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"vendor\"]\n",
     )
     .unwrap();
@@ -1378,7 +1378,7 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -1519,7 +1519,7 @@ fn cross_file_references_preserve_binding_identity_and_open_buffers() {
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -2309,7 +2309,7 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
     // The helper lives under lib/, reachable from scripts/main.sh ONLY via the
     // configured [lint] source-paths root — not relative to the annotating file.
     std::fs::write(
-        workspace.path().join("shuck.toml"),
+        workspace.path().join("shucked.toml"),
         "[lint]\nsource-paths = [\"lib\"]\n",
     )
     .unwrap();
@@ -2528,7 +2528,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
                 { "uri": second_uri, "name": "second" },
             ],
             "initializationOptions": {
-                "shuck": {
+                "shucked": {
                     "server": {
                         "workspaceDiagnostics": {
                             "maxFiles": 10,
@@ -2558,7 +2558,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
         2,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": [],
             "workDoneToken": "work",
             "partialResultToken": "partial",
@@ -2629,7 +2629,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
         3,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": previous.clone(),
         }),
     );
@@ -2648,7 +2648,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
             "workspace/didChangeConfiguration".to_owned(),
             serde_json::json!({
                 "settings": {
-                    "shuck": {
+                    "shucked": {
                         "showSyntaxErrors": true,
                         "server": {
                             "workspaceDiagnostics": {
@@ -2667,7 +2667,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
         4,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": previous.clone(),
         }),
     );
@@ -2696,7 +2696,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
         5,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": previous,
         }),
     );
@@ -2743,7 +2743,7 @@ fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
             "capabilities": replay_capabilities(),
             "rootUri": Url::from_file_path(workspace.path()).unwrap(),
             "initializationOptions": {
-                "shuck": {
+                "shucked": {
                     "server": {
                         "workspaceDiagnostics": {
                             "enabled": true,
@@ -2769,7 +2769,7 @@ fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
         2,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": [{
                 "uri": Url::from_file_path(
                     std::fs::canonicalize(workspace.path().join("script-099.sh")).unwrap()
@@ -2794,7 +2794,7 @@ fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
             "workspace/didChangeConfiguration".to_owned(),
             serde_json::json!({
                 "settings": {
-                    "shuck": {
+                    "shucked": {
                         "server": {
                             "workspaceDiagnostics": {
                                 "enabled": true,
@@ -2813,7 +2813,7 @@ fn workspace_diagnostics_enforce_the_synthetic_workspace_limit() {
         3,
         "workspace/diagnostic",
         serde_json::json!({
-            "identifier": "shuck",
+            "identifier": "shucked",
             "previousResultIds": [],
         }),
     );

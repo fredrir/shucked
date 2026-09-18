@@ -1,5 +1,3 @@
-legacy_code: SH-263
-legacy_name: c-style-for-in-sh
 new_category: Portability
 new_code: X056
 runtime_kind: ast

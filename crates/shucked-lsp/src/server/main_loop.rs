@@ -179,14 +179,6 @@ fn watched_files() -> Vec<FileSystemWatcher> {
             glob_pattern: types::GlobPattern::String("**/shucked.toml".into()),
             kind: None,
         },
-        FileSystemWatcher {
-            glob_pattern: types::GlobPattern::String("**/.shuck.toml".into()),
-            kind: None,
-        },
-        FileSystemWatcher {
-            glob_pattern: types::GlobPattern::String("**/shuck.toml".into()),
-            kind: None,
-        },
     ];
     // The user-level global config lives outside the workspace, so the
     // relative globs above never cover it; watch its candidate paths
@@ -225,7 +217,5 @@ mod tests {
         assert!(patterns.iter().any(|pattern| pattern == "**/*"));
         assert!(patterns.iter().any(|pattern| pattern == "**/.shucked.toml"));
         assert!(patterns.iter().any(|pattern| pattern == "**/shucked.toml"));
-        assert!(patterns.iter().any(|pattern| pattern == "**/.shuck.toml"));
-        assert!(patterns.iter().any(|pattern| pattern == "**/shuck.toml"));
     }
 }

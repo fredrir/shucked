@@ -1,5 +1,3 @@
-legacy_code: SH-052
-legacy_name: local-top-level
 new_category: Correctness
 new_code: C014
 runtime_kind: ast

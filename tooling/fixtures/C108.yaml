@@ -1,5 +1,3 @@
-legacy_code: SH-243
-legacy_name: unset-associative-array-element
 new_category: Correctness
 new_code: C108
 runtime_kind: ast

@@ -7,7 +7,7 @@ function M.run(t)
 
   local diagnostics = vim.diagnostic.get(bufnr)
   assert(#diagnostics == 1, "expected one diagnostic after opening the fixture")
-  assert(diagnostics[1].source == "shuck", "expected the diagnostic source to be shuck")
+  assert(diagnostics[1].source == "shucked", "expected the diagnostic source to be shucked")
 
   t.set_buffer_contents(bufnr, {
     "#!/bin/sh",

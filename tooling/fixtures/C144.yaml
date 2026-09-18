@@ -1,5 +1,3 @@
-legacy_code: SH-332
-legacy_name: heredoc-closer-not-alone
 new_category: Correctness
 new_code: C144
 runtime_kind: ast

@@ -1,5 +1,3 @@
-legacy_code: SH-041
-legacy_name: find-output-to-xargs
 new_category: Correctness
 new_code: C007
 runtime_kind: ast
