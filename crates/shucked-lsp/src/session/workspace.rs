@@ -69,7 +69,7 @@ impl Deref for Workspaces {
     }
 }
 
-/// One LSP workspace folder plus optional Shuck settings.
+/// One LSP workspace folder plus optional Shucked settings.
 #[derive(Debug)]
 pub struct Workspace {
     url: Url,
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn uses_root_uri_when_workspace_folders_are_missing() {
-        let root_uri = Url::parse("file:///tmp/shuck-root").expect("test URI should parse");
+        let root_uri = Url::parse("file:///tmp/shucked-root").expect("test URI should parse");
 
         let workspaces = Workspaces::from_workspace_folders(
             None,

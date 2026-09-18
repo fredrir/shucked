@@ -10,7 +10,7 @@ use crate::{Client, logging};
 
 pub(crate) type WorkspaceOptionsMap = FxHashMap<Url, ClientOptions>;
 
-/// Global initialization options accepted by the Shuck LSP server.
+/// Global initialization options accepted by the Shucked LSP server.
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalOptions {
@@ -27,7 +27,7 @@ impl GlobalOptions {
     }
 }
 
-/// Per-client or per-workspace Shuck options supplied through LSP settings.
+/// Per-client or per-workspace Shucked options supplied through LSP settings.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientOptions {
@@ -50,8 +50,29 @@ pub struct ClientOptions {
     /// Whether parser diagnostics should be shown.
     pub show_syntax_errors: Option<bool>,
     #[serde(default)]
+    /// Code action options.
+    pub code_action: Option<CodeActionOptions>,
+    #[serde(default)]
     /// Server-only editor feature options.
     pub server: ServerOptions,
+}
+
+/// Options for code actions.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionOptions {
+    #[serde(default)]
+    /// Options for suppression comment actions.
+    pub disable_rule_comment: Option<DisableRuleCommentOptions>,
+}
+
+/// Options for suppression comment actions.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisableRuleCommentOptions {
+    #[serde(default)]
+    /// Whether suppression comment actions are enabled.
+    pub enable: Option<bool>,
 }
 
 impl ClientOptions {

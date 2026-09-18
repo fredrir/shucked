@@ -88,6 +88,16 @@ pub fn server_capabilities(
         })),
         selection_range_provider: Some(types::SelectionRangeProviderCapability::Simple(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
+        semantic_tokens_provider: Some(
+            types::SemanticTokensServerCapabilities::SemanticTokensOptions(
+                types::SemanticTokensOptions {
+                    work_done_progress_options: types::WorkDoneProgressOptions::default(),
+                    legend: crate::handlers::semantic_tokens::semantic_tokens_legend(),
+                    range: Some(false),
+                    full: Some(types::SemanticTokensFullOptions::Bool(true)),
+                },
+            ),
+        ),
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {
                 open_close: Some(true),
@@ -277,5 +287,21 @@ mod tests {
     fn advertises_inlay_hint_capability() {
         let capabilities = server_capabilities(PositionEncoding::UTF16, false);
         assert_eq!(capabilities.inlay_hint_provider, Some(OneOf::Left(true)));
+    }
+
+    #[test]
+    fn advertises_semantic_tokens_capability() {
+        let capabilities = server_capabilities(PositionEncoding::UTF16, false);
+        let Some(types::SemanticTokensServerCapabilities::SemanticTokensOptions(options)) =
+            capabilities.semantic_tokens_provider
+        else {
+            panic!("expected semantic tokens provider options");
+        };
+        assert_eq!(
+            options.full,
+            Some(types::SemanticTokensFullOptions::Bool(true))
+        );
+        assert_eq!(options.legend.token_types.len(), 9);
+        assert_eq!(options.legend.token_modifiers.len(), 4);
     }
 }

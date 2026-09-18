@@ -25,7 +25,7 @@ pub struct RequestSurfaceInput<'a> {
     pub encoding: PositionEncoding,
     /// Client capabilities used to resolve response shapes.
     pub capabilities: types::ClientCapabilities,
-    /// Client options layered over default Shuck settings.
+    /// Client options layered over default Shucked settings.
     pub client_options: ClientOptions,
     /// Position used by hover, completion, navigation, and rename requests.
     pub position: types::Position,

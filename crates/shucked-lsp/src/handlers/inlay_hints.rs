@@ -282,35 +282,33 @@ impl<'a> InlayHintCollector<'a> {
         let mut removes_readonly_flag = false;
 
         for operand in &clause.operands {
-            if let DeclOperand::Flag(word) = operand {
-                if let Some(text) = shucked_ast::static_word_text(word, self.source) {
-                    if text.starts_with('-') {
-                        for ch in text.chars().skip(1) {
-                            if ch == 'x' {
-                                has_export_flag = true;
-                            }
-                            if ch == 'r' {
-                                has_readonly_flag = true;
-                            }
+            if let DeclOperand::Flag(word) = operand
+                && let Some(text) = shucked_ast::static_word_text(word, self.source)
+            {
+                if text.starts_with('-') {
+                    for ch in text.chars().skip(1) {
+                        if ch == 'x' {
+                            has_export_flag = true;
                         }
-                    } else if text.starts_with('+') {
-                        for ch in text.chars().skip(1) {
-                            if ch == 'x' {
-                                removes_export_flag = true;
-                            }
-                            if ch == 'r' {
-                                removes_readonly_flag = true;
-                            }
+                        if ch == 'r' {
+                            has_readonly_flag = true;
+                        }
+                    }
+                } else if text.starts_with('+') {
+                    for ch in text.chars().skip(1) {
+                        if ch == 'x' {
+                            removes_export_flag = true;
+                        }
+                        if ch == 'r' {
+                            removes_readonly_flag = true;
                         }
                     }
                 }
             }
         }
 
-        let is_exported =
-            (is_export_cmd && !removes_export_flag) || (has_export_flag && !removes_export_flag);
-        let is_readonly = (is_readonly_cmd && !removes_readonly_flag)
-            || (has_readonly_flag && !removes_readonly_flag);
+        let is_exported = (has_export_flag || is_export_cmd) && !removes_export_flag;
+        let is_readonly = (has_readonly_flag || is_readonly_cmd) && !removes_readonly_flag;
 
         let attribute_hint = match (is_exported, is_readonly) {
             (true, true) => Some((": readonly, export", "Readonly exported variable")),
@@ -323,8 +321,12 @@ impl<'a> InlayHintCollector<'a> {
             match operand {
                 DeclOperand::Name(var_ref) => {
                     if let Some((label, tooltip)) = attribute_hint {
+                        let offset = var_ref
+                            .subscript
+                            .as_deref()
+                            .map_or(var_ref.name_span.end.offset(), |s| s.span().end.offset());
                         self.add_hint_at_offset(
-                            var_ref.span.end.offset(),
+                            offset,
                             label,
                             Some(types::InlayHintKind::TYPE),
                             Some(tooltip),
@@ -338,8 +340,15 @@ impl<'a> InlayHintCollector<'a> {
                 }
                 DeclOperand::Assignment(assignment) => {
                     if let Some((label, tooltip)) = attribute_hint {
+                        let offset = assignment
+                            .target
+                            .subscript
+                            .as_deref()
+                            .map_or(assignment.target.name_span.end.offset(), |s| {
+                                s.span().end.offset()
+                            });
                         self.add_hint_at_offset(
-                            assignment.target.span.end.offset(),
+                            offset,
                             label,
                             Some(types::InlayHintKind::TYPE),
                             Some(tooltip),
@@ -816,30 +825,40 @@ impl<'a> InlayHintCollector<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use lsp_types as types;
+    use crossbeam::channel;
+    use lsp_types::{self as types, ClientCapabilities, Url};
 
     use super::*;
-    use crate::PositionEncoding;
-    use crate::edit::TextDocument;
-    use crate::session::DocumentSnapshot;
+    use crate::session::{Client, GlobalOptions, Session, Workspace, Workspaces};
+    use crate::{PositionEncoding, TextDocument};
 
     fn test_snapshot(content: &str) -> DocumentSnapshot {
-        let uri = types::Url::parse("file:///test.sh").unwrap();
-        let document = Arc::new(TextDocument::new(
-            uri.clone(),
-            "shellscript".to_string(),
-            1,
-            content.to_string(),
-        ));
-        DocumentSnapshot::new(
-            uri,
-            None,
-            document,
+        let (main_loop_sender, _main_loop_receiver) = channel::unbounded();
+        let (client_sender, _client_receiver) = channel::unbounded();
+        let client = Client::new(main_loop_sender, client_sender);
+        let workspaces = Workspaces::new(vec![Workspace::default(
+            Url::from_file_path(std::env::temp_dir())
+                .expect("temporary directory should convert to a file URL"),
+        )]);
+        let global = GlobalOptions::default().into_settings(client.clone());
+        let mut session = Session::new(
+            &ClientCapabilities::default(),
             PositionEncoding::UTF16,
-            crate::session::DocumentQuery::default(),
+            global,
+            &workspaces,
+            &client,
         )
+        .expect("test session should initialize");
+
+        let uri = Url::from_file_path(std::env::temp_dir().join("test_inlay.sh")).unwrap();
+        session.open_text_document(
+            uri.clone(),
+            TextDocument::new(content.to_owned(), 1).with_language_id("shellscript"),
+        );
+
+        session
+            .take_snapshot(uri)
+            .expect("test document should produce a snapshot")
     }
 
     fn full_range() -> types::Range {
@@ -995,7 +1014,7 @@ nested=$(echo $(whoami))
             })
             .collect();
 
-        // First line has export URL and ${DEFAULT_URL:-http://localhost}
+        // First line has export URL (char 10) and ${DEFAULT_URL:-http://localhost} (char 26)
         assert_eq!(labels, vec![": export", ": default"]);
     }
 }

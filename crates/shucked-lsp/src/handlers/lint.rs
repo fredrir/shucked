@@ -29,12 +29,21 @@ impl From<Applicability> for DiagnosticApplicability {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AlternativeDiagnosticFix {
+    pub(crate) title: String,
+    pub(crate) edits: Vec<types::TextEdit>,
+    pub(crate) applicability: DiagnosticApplicability,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AssociatedDiagnosticData {
     pub(crate) title: String,
     pub(crate) code: String,
     pub(crate) edits: Vec<types::TextEdit>,
     pub(crate) directive_edit: Option<types::TextEdit>,
     pub(crate) applicability: DiagnosticApplicability,
+    #[serde(default)]
+    pub(crate) alternative_fixes: Vec<AlternativeDiagnosticFix>,
 }
 
 #[derive(Clone)]
@@ -278,12 +287,30 @@ fn associated_diagnostic_data_for_shuck(
         .fix_title
         .clone()
         .unwrap_or_else(|| diagnostic.message.clone());
+    let alternative_fixes = diagnostic
+        .alternative_fixes
+        .iter()
+        .map(|alt| {
+            let alt_edits = alt
+                .fix
+                .edits()
+                .iter()
+                .map(|edit| to_lsp_text_edit(edit, source, line_index, snapshot.encoding()))
+                .collect();
+            AlternativeDiagnosticFix {
+                title: alt.title.clone(),
+                edits: alt_edits,
+                applicability: alt.fix.applicability().into(),
+            }
+        })
+        .collect();
     match serde_json::to_value(AssociatedDiagnosticData {
         title,
         code: diagnostic.code().to_owned(),
         edits,
         directive_edit,
         applicability,
+        alternative_fixes,
     }) {
         Ok(data) => Some(data),
         Err(error) => {

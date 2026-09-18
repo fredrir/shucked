@@ -47,16 +47,26 @@ pub(crate) fn code_actions(
                 }
             }
 
-            if let Some(edit) = data.directive_edit.clone() {
-                suppression_actions.push(types::CodeActionOrCommand::CodeAction(
-                    diagnostic_directive_action(&snapshot, &diagnostic, &data, edit),
-                ));
+            for alt in &data.alternative_fixes {
+                if should_offer_alternative_fix(&snapshot, &data.code, alt) {
+                    semantic_fixes.push(types::CodeActionOrCommand::CodeAction(
+                        diagnostic_alternative_fix_action(&snapshot, &diagnostic, &data.code, alt),
+                    ));
+                }
             }
 
-            let file_edit = file_suppression_edit(&snapshot, &data.code);
-            suppression_actions.push(types::CodeActionOrCommand::CodeAction(
-                diagnostic_file_directive_action(&snapshot, &diagnostic, &data.code, file_edit),
-            ));
+            if snapshot.client_settings().disable_rule_comments() {
+                if let Some(edit) = data.directive_edit.clone() {
+                    suppression_actions.push(types::CodeActionOrCommand::CodeAction(
+                        diagnostic_directive_action(&snapshot, &diagnostic, &data, edit),
+                    ));
+                }
+
+                let file_edit = file_suppression_edit(&snapshot, &data.code);
+                suppression_actions.push(types::CodeActionOrCommand::CodeAction(
+                    diagnostic_file_directive_action(&snapshot, &diagnostic, &data.code, file_edit),
+                ));
+            }
         }
     }
 
@@ -233,6 +243,36 @@ fn diagnostic_fix_action(
         edit: Some(workspace_edit_for_document(snapshot, data.edits.clone())),
         command: None,
         is_preferred: Some(true),
+        disabled: None,
+        data: None,
+    }
+}
+
+fn should_offer_alternative_fix(
+    snapshot: &DocumentSnapshot,
+    code: &str,
+    alt: &crate::lint::AlternativeDiagnosticFix,
+) -> bool {
+    !alt.edits.is_empty()
+        && shucked_linter::code_to_rule(code)
+            .is_some_and(|rule| snapshot.shuck_settings().fixable_rules().contains(rule))
+        && (snapshot.client_settings().unsafe_fixes()
+            || alt.applicability == crate::lint::DiagnosticApplicability::Safe)
+}
+
+fn diagnostic_alternative_fix_action(
+    snapshot: &DocumentSnapshot,
+    diagnostic: &types::Diagnostic,
+    code: &str,
+    alt: &crate::lint::AlternativeDiagnosticFix,
+) -> types::CodeAction {
+    types::CodeAction {
+        title: format!("Shucked ({}): {}", code, alt.title),
+        kind: Some(types::CodeActionKind::QUICKFIX),
+        diagnostics: Some(vec![diagnostic.clone()]),
+        edit: Some(workspace_edit_for_document(snapshot, alt.edits.clone())),
+        command: None,
+        is_preferred: Some(false),
         disabled: None,
         data: None,
     }
@@ -1277,14 +1317,62 @@ mod tests {
         let actions = extract_actions(response);
         let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
 
-        // Semantic fix is first
+        // Primary semantic fix is first
         assert!(titles[0].starts_with("Shucked (C001): rename"));
+        // Alternative semantic fix (deletion) is next
+        assert_eq!(titles[1], "Shucked (C001): delete the unused assignment");
         // Batch fix is next
-        assert_eq!(titles[1], "Shucked (C001): Fix all in this file");
+        assert_eq!(titles[2], "Shucked (C001): Fix all in this file");
         // Fix all is next
-        assert_eq!(titles[2], "Shucked: Fix all auto-fixable issues");
+        assert_eq!(titles[3], "Shucked: Fix all auto-fixable issues");
         // Suppressions are at the bottom
-        assert_eq!(titles[3], "Shucked (C001): Disable for this line");
-        assert_eq!(titles[4], "Shucked (C001): Disable for entire file");
+        assert_eq!(titles[4], "Shucked (C001): Disable for this line");
+        assert_eq!(titles[5], "Shucked (C001): Disable for entire file");
+    }
+
+    #[test]
+    fn c006_undefined_variable_offers_typo_correction_and_fallback_before_suppressions() {
+        let capabilities = ClientCapabilities::default();
+        let (session, client, _client_receiver, uri) = make_session(
+            capabilities,
+            "temp_folder=\"/tmp\"\necho \"$tmp_folder\"\n",
+            "shellscript",
+            "script.sh",
+        );
+        let snapshot = session.take_snapshot(uri.clone()).unwrap();
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri },
+                range: Range::new(Position::new(1, 6), Position::new(1, 18)),
+                context: CodeActionContext {
+                    diagnostics: Vec::new(),
+                    only: Some(vec![types::CodeActionKind::QUICKFIX]),
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("code actions should be present");
+
+        let actions = extract_actions(response);
+        let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
+
+        // Typo correction is first
+        assert_eq!(titles[0], "Shucked (C006): change to '$temp_folder'");
+        // Fallback default is second
+        assert_eq!(
+            titles[1],
+            "Shucked (C006): use default value fallback '${tmp_folder:-}'"
+        );
+        // Batch fix is third
+        assert_eq!(titles[2], "Shucked (C006): Fix all in this file");
+        // Suppressions are at the bottom
+        assert_eq!(titles[3], "Shucked (C006): Disable for this line");
+        assert_eq!(titles[4], "Shucked (C006): Disable for entire file");
     }
 }

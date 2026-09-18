@@ -17,13 +17,27 @@ use crate::session::{
     ClientOptions, CompletionFeatureOptions, RenameFeatureOptions, WorkspaceSymbolFeatureOptions,
 };
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClientSettings {
     fix_all: bool,
     unsafe_fixes: bool,
     show_syntax_errors: bool,
+    disable_rule_comments: bool,
     completion: CompletionFeatureOptions,
     rename: RenameFeatureOptions,
+}
+
+impl Default for ClientSettings {
+    fn default() -> Self {
+        Self {
+            fix_all: true,
+            unsafe_fixes: false,
+            show_syntax_errors: false,
+            disable_rule_comments: true,
+            completion: CompletionFeatureOptions::default(),
+            rename: RenameFeatureOptions::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +98,10 @@ impl ClientSettings {
         self.rename
     }
 
+    pub(crate) fn disable_rule_comments(&self) -> bool {
+        self.disable_rule_comments
+    }
+
     pub(crate) fn from_options(options: &ClientOptions) -> Self {
         Self::from_layered_options(&[options])
     }
@@ -92,6 +110,7 @@ impl ClientSettings {
         let mut fix_all = None;
         let mut unsafe_fixes = None;
         let mut show_syntax_errors = None;
+        let mut disable_rule_comments = None;
         let mut completion = CompletionFeatureOptions::default();
         let mut rename = RenameFeatureOptions::default();
 
@@ -105,6 +124,14 @@ impl ClientSettings {
             if options.show_syntax_errors.is_some() {
                 show_syntax_errors = options.show_syntax_errors;
             }
+            if let Some(enable) = options
+                .code_action
+                .as_ref()
+                .and_then(|action| action.disable_rule_comment.as_ref())
+                .and_then(|disable| disable.enable)
+            {
+                disable_rule_comments = Some(enable);
+            }
             completion = options.server.completion_layered_over(completion);
             rename = options.server.rename_layered_over(rename);
         }
@@ -113,6 +140,7 @@ impl ClientSettings {
             fix_all: fix_all.unwrap_or(true),
             unsafe_fixes: unsafe_fixes.unwrap_or(false),
             show_syntax_errors: show_syntax_errors.unwrap_or(false),
+            disable_rule_comments: disable_rule_comments.unwrap_or(true),
             completion,
             rename,
         }

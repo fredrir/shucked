@@ -55,7 +55,7 @@ pub enum DocumentQuery {
         file_url: Url,
         /// Current document contents and line index.
         document: Arc<TextDocument>,
-        /// Resolved Shuck settings for the document.
+        /// Resolved Shucked settings for the document.
         settings: Arc<ShuckSettings>,
     },
 }

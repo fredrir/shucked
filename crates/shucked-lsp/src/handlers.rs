@@ -11,6 +11,7 @@ pub(crate) mod lint;
 pub(crate) mod refactor;
 pub(crate) mod resolve;
 pub(crate) mod selection;
+pub(crate) mod semantic_tokens;
 pub(crate) mod symbols;
 pub(crate) mod workspace_diagnostics;
 pub(crate) mod workspace_functions;
