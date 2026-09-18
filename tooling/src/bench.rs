@@ -2,7 +2,6 @@ use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::runner::{
@@ -124,7 +123,11 @@ pub fn run_bench(
 
 fn format_metric_change(current: f64, baseline: f64) -> String {
     if baseline == 0.0 {
-        return if current == 0.0 { "n/a".to_string() } else { "+inf".to_string() };
+        return if current == 0.0 {
+            "n/a".to_string()
+        } else {
+            "+inf".to_string()
+        };
     }
     let change = ((current / baseline) - 1.0) * 100.0;
     let sign = if change > 0.0 { "+" } else { "" };
@@ -187,7 +190,9 @@ pub fn run_bench_memory(
             cmd.args(["--", case]);
         }
 
-        let output = cmd.output().with_context(|| format!("Failed to run example {example}"))?;
+        let output = cmd
+            .output()
+            .with_context(|| format!("Failed to run example {example}"))?;
         if !output.status.success() {
             print_error(&format!("Example {example} failed:"));
             eprintln!("{}", String::from_utf8_lossy(&output.stderr));
@@ -213,34 +218,47 @@ pub fn run_bench_memory(
         }
 
         if let Some(b) = baseline {
-            let baseline_file = target_dir.join(format!("{example}-baselines")).join(format!("{b}.json"));
+            let baseline_file = target_dir
+                .join(format!("{example}-baselines"))
+                .join(format!("{b}.json"));
             if !baseline_file.is_file() {
                 bail!("Missing memory baseline file: {}", baseline_file.display());
             }
             let baseline_content = fs::read_to_string(&baseline_file)?;
             let baseline_json: Value = serde_json::from_str(&baseline_content)?;
 
-            println!("\n{}", format!("=== Comparison against baseline `{b}` for {example} ===").bold());
+            println!(
+                "\n{}",
+                format!("=== Comparison against baseline `{b}` for {example} ===").bold()
+            );
 
             let current_cases = current_json.as_array().cloned().unwrap_or_default();
             let baseline_cases = baseline_json.as_array().cloned().unwrap_or_default();
 
             for cur_case in &current_cases {
                 let case_name = cur_case["case"].as_str().unwrap_or("unknown");
-                if let Some(base_case) = baseline_cases.iter().find(|c| c["case"].as_str() == Some(case_name)) {
+                if let Some(base_case) = baseline_cases
+                    .iter()
+                    .find(|c| c["case"].as_str() == Some(case_name))
+                {
                     println!("\n{} {case_name}:", "●".cyan());
                     // Check if nested groups (facts_metrics / check_metrics) or flat metrics
                     if let Some(groups) = cur_case.as_object() {
                         for (key, val) in groups {
                             if key.ends_with("_metrics") && val.is_object() {
                                 println!("  {key}:");
-                                if let (Some(cur_m), Some(base_m)) = (val.as_object(), base_case[key].as_object()) {
+                                if let (Some(cur_m), Some(base_m)) =
+                                    (val.as_object(), base_case[key].as_object())
+                                {
                                     compare_metric_map(cur_m, base_m, "    ");
                                 }
                             }
                         }
                         if cur_case.get("metrics").is_some()
-                            && let (Some(cur_m), Some(base_m)) = (cur_case["metrics"].as_object(), base_case["metrics"].as_object())
+                            && let (Some(cur_m), Some(base_m)) = (
+                                cur_case["metrics"].as_object(),
+                                base_case["metrics"].as_object(),
+                            )
                         {
                             compare_metric_map(cur_m, base_m, "  ");
                         }

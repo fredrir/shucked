@@ -6,8 +6,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use crate::runner::{
-    RunOptions, find_repo_root, is_tool_available, print_section, print_step, print_success,
-    print_warning, run_command,
+    RunOptions, find_repo_root, print_section, print_step, print_success, print_warning,
+    run_command,
 };
 
 /// Get the list of installed rustup components.
@@ -138,7 +138,7 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
     print_step("Checking Cargo developer binary tools...");
     let cargo_tools: [(&str, &[&str], &str); 3] = [
         ("cargo-fuzz", &["--version"], "cargo-fuzz"),
-        ("cargo-flamegraph", &["--version"], "cargo-flamegraph"),
+        ("cargo-flamegraph", &["--version"], "flamegraph"),
         ("cargo-shear", &["--version"], "cargo-shear"),
     ];
 
@@ -157,14 +157,28 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
             ));
         } else {
             print_step(&format!("Installing {tool_name} via cargo install..."));
-            run_command("cargo", &["install", crate_name], &opts)
-                .with_context(|| format!("Failed to cargo install {crate_name}"))?;
-            println!(
-                "  {} Installed {} in {:.2?}",
-                "✔".green().bold(),
-                tool_name.cyan(),
-                tool_start.elapsed()
-            );
+            let install_res = run_command("cargo", &["install", crate_name], &opts);
+            if install_res.is_err() && crate_name == "cargo-shear" {
+                print_step("Retrying cargo-shear with --version 1.13.2 for rustc compatibility...");
+                let _ = run_command(
+                    "cargo",
+                    &["install", "cargo-shear", "--version", "1.13.2"],
+                    &opts,
+                );
+            }
+            if let Some(version_info) = is_cargo_tool_installed(tool_name, test_args) {
+                println!(
+                    "  {} Installed {} ({}) in {:.2?}",
+                    "✔".green().bold(),
+                    tool_name.cyan(),
+                    version_info.dimmed(),
+                    tool_start.elapsed()
+                );
+            } else {
+                print_warning(&format!(
+                    "Could not automatically install {tool_name}. You can install it manually via: cargo install {crate_name}"
+                ));
+            }
         }
     }
 
@@ -199,7 +213,11 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
             );
         } else {
             print_warning(&format!("{tool} is not installed on PATH."));
-            println!("     {} Install via: {}", "↳".yellow(), install_instr.cyan());
+            println!(
+                "     {} Install via: {}",
+                "↳".yellow(),
+                install_instr.cyan()
+            );
         }
     }
 
@@ -212,12 +230,8 @@ pub fn run_init(skip_cargo_tools: bool) -> Result<()> {
             .with_context(|| format!("Failed to create directory {}", hooks_dir.display()))?;
     }
 
-    run_command(
-        "git",
-        &["config", "core.hooksPath", ".githooks"],
-        &opts,
-    )
-    .context("Failed to configure git core.hooksPath")?;
+    run_command("git", &["config", "core.hooksPath", ".githooks"], &opts)
+        .context("Failed to configure git core.hooksPath")?;
 
     println!(
         "  {} Git hooks configured at {} ({:.2?})",

@@ -10,6 +10,7 @@ mod corpus;
 mod flame;
 mod format;
 mod fuzz;
+mod init;
 mod lint;
 mod profile;
 mod release;
@@ -32,6 +33,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Initialize project tooling, toolchains, components, and hooks
+    Init(InitArgs),
+
     /// Build workspace targets
     Build(BuildArgs),
 
@@ -70,6 +74,13 @@ enum Commands {
 
     /// Workspace cleaning
     Clean(CleanArgs),
+}
+
+#[derive(Args, Debug)]
+struct InitArgs {
+    /// Skip installing or updating optional cargo development tools
+    #[arg(long)]
+    skip_cargo_tools: bool,
 }
 
 #[derive(Args, Debug)]
@@ -178,6 +189,14 @@ struct BenchArgs {
     #[arg(value_enum)]
     target: Option<bench::BenchTarget>,
 
+    /// Run memory profiling benchmarks
+    #[arg(long)]
+    memory: bool,
+
+    /// Memory target (all, parser, linter, semantic)
+    #[arg(long, value_enum, default_value = "all")]
+    memory_target: bench::MemoryTarget,
+
     /// Save baseline results under given name
     #[arg(long)]
     save_baseline: Option<String>,
@@ -189,6 +208,10 @@ struct BenchArgs {
     /// Filter benchmark benchmarks
     #[arg(short, long)]
     filter: Option<String>,
+
+    /// Run benchmarks in release mode
+    #[arg(long)]
+    release: bool,
 
     /// Additional arguments passed to cargo bench
     #[arg(last = true)]
@@ -471,6 +494,9 @@ enum ReleaseCommands {
 
     /// Verify .release-please-config.json crate and python mappings
     CheckConfig,
+
+    /// Generate CycloneDX SBOM for release packaging
+    GenerateSbom,
 }
 
 #[derive(Args, Debug)]
@@ -499,6 +525,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Init(args) => init::run_init(args.skip_cargo_tools),
         Commands::Build(args) => build::run_build(
             args.release,
             args.wasm,
@@ -527,13 +554,25 @@ fn main() -> Result<()> {
             &args.extra_args,
         ),
         Commands::Check => check::run_check(),
-        Commands::Bench(args) => bench::run_bench(
-            args.target,
-            args.save_baseline.as_deref(),
-            args.baseline.as_deref(),
-            args.filter.as_deref(),
-            &args.extra_args,
-        ),
+        Commands::Bench(args) => {
+            if args.memory {
+                bench::run_bench_memory(
+                    args.memory_target,
+                    args.save_baseline.as_deref(),
+                    args.baseline.as_deref(),
+                    args.release,
+                    args.filter.as_deref(),
+                )
+            } else {
+                bench::run_bench(
+                    args.target,
+                    args.save_baseline.as_deref(),
+                    args.baseline.as_deref(),
+                    args.filter.as_deref(),
+                    &args.extra_args,
+                )
+            }
+        }
         Commands::Profile(args) => profile::run_profile(
             args.target,
             args.case.as_deref(),
@@ -595,6 +634,7 @@ fn main() -> Result<()> {
                 release::run_check_security(s.fix, s.workflow.as_deref())
             }
             ReleaseCommands::CheckConfig => release::run_check_config(),
+            ReleaseCommands::GenerateSbom => release::run_generate_sbom(),
         },
         Commands::Clean(args) => clean::run_clean(args.all, args.dry_run),
     }

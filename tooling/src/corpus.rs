@@ -225,8 +225,7 @@ fn extract_archive(archive_path: &Path, target_dir: &Path, url: &str) -> Result<
     let reader = BufReader::new(file);
 
     if url.ends_with(".zst") || url.ends_with(".tar.zst") {
-        let decoder = zstd::Decoder::new(reader)
-            .context("Failed to initialize zstd decoder")?;
+        let decoder = zstd::Decoder::new(reader).context("Failed to initialize zstd decoder")?;
         let mut archive = tar::Archive::new(decoder);
         archive
             .unpack(target_dir)
@@ -249,16 +248,26 @@ fn extract_archive(archive_path: &Path, target_dir: &Path, url: &str) -> Result<
 fn download_file(url: &str, dest: &Path) -> Result<()> {
     match ureq::get(url).call() {
         Ok(response) => {
-            let mut file = File::create(dest)
-                .with_context(|| format!("Failed to create destination file: {}", dest.display()))?;
+            let mut file = File::create(dest).with_context(|| {
+                format!("Failed to create destination file: {}", dest.display())
+            })?;
             let mut reader = response.into_reader();
-            std::io::copy(&mut reader, &mut file)
-                .with_context(|| format!("Failed to stream download from {url} to {}", dest.display()))?;
+            std::io::copy(&mut reader, &mut file).with_context(|| {
+                format!("Failed to stream download from {url} to {}", dest.display())
+            })?;
             Ok(())
         }
         Err(err) => {
             if is_tool_available("curl") {
-                let curl_args = ["-L", "--fail", "--retry", "3", "-o", dest.to_str().unwrap(), url];
+                let curl_args = [
+                    "-L",
+                    "--fail",
+                    "--retry",
+                    "3",
+                    "-o",
+                    dest.to_str().unwrap(),
+                    url,
+                ];
                 let opts = RunOptions::default();
                 run_command("curl", &curl_args, &opts)?;
                 Ok(())
@@ -404,20 +413,38 @@ pub fn run_download(clone: bool, dry_run: bool, custom_corpus_dir: Option<PathBu
 
             if !target_clone.exists() {
                 print_step(&format!("Cloning {repo}..."));
-                let clone_args = ["clone", "--depth", "1", "--single-branch", &url, target_clone.to_str().unwrap()];
+                let clone_args = [
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--single-branch",
+                    &url,
+                    target_clone.to_str().unwrap(),
+                ];
                 if let Err(e) = run_command("git", &clone_args, &opts) {
                     print_warning(&format!("Failed to clone {repo}: {e}"));
                     continue;
                 }
             }
 
-            for entry in walkdir::WalkDir::new(&target_clone).into_iter().filter_map(|e| e.ok()) {
+            for entry in walkdir::WalkDir::new(&target_clone)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
                 if entry.file_type().is_file() {
-                    let ext = entry.path().extension().and_then(|s| s.to_str()).unwrap_or("");
+                    let ext = entry
+                        .path()
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
                     let is_shell = matches!(ext, "sh" | "bash" | "zsh" | "ksh");
                     if is_shell {
-                        let rel = entry.path().strip_prefix(&target_clone).unwrap_or(entry.path());
-                        let dest_name = format!("{repo_name}__{}", rel.to_string_lossy().replace('/', "__"));
+                        let rel = entry
+                            .path()
+                            .strip_prefix(&target_clone)
+                            .unwrap_or(entry.path());
+                        let dest_name =
+                            format!("{repo_name}__{}", rel.to_string_lossy().replace('/', "__"));
                         let dest_file = scripts_dir.join(dest_name);
                         let _ = std::fs::copy(entry.path(), dest_file);
                     }
@@ -530,24 +557,9 @@ pub fn run_test(
         cargo_args.push("--nocapture");
     }
 
-    let use_nix = is_tool_available("nix");
-    let program: &str;
+    let program = "cargo";
     let mut final_args: Vec<&str> = Vec::new();
-
-    if use_nix {
-        program = "nix";
-        final_args.extend(&[
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "develop",
-            "--command",
-            "cargo",
-        ]);
-        final_args.extend(cargo_args);
-    } else {
-        program = "cargo";
-        final_args.extend(cargo_args);
-    }
+    final_args.extend(cargo_args);
 
     let opts = RunOptions {
         cwd: Some(&repo_root),
@@ -593,14 +605,38 @@ fn render_large_corpus_html_report(log_content: &str) -> String {
     ).unwrap();
 
     if let Some(caps) = summary_re.captures(log_content) {
-        blocking = caps.get(1).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        warnings = caps.get(2).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        fixtures = caps.get(3).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        unsupported_shells = caps.get(4).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        implementation = caps.get(5).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        mapping = caps.get(6).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        reviewed = caps.get(7).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
-        harness_failures = caps.get(8).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+        blocking = caps
+            .get(1)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        warnings = caps
+            .get(2)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        fixtures = caps
+            .get(3)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        unsupported_shells = caps
+            .get(4)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        implementation = caps
+            .get(5)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        mapping = caps
+            .get(6)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        reviewed = caps
+            .get(7)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
+        harness_failures = caps
+            .get(8)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0);
     }
 
     let escaped_log = log_content
@@ -608,7 +644,8 @@ fn render_large_corpus_html_report(log_content: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;");
 
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
@@ -716,7 +753,8 @@ fn render_large_corpus_html_report(log_content: &str) -> String {
         </div>
     </div>
 </body>
-</html>"#)
+</html>"#
+    )
 }
 
 /// Generate HTML compatibility report from large corpus test log.

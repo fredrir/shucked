@@ -486,7 +486,9 @@ pub fn run_check_config() -> Result<()> {
             "Cargo.toml::$.workspace.dependencies['{crate_name}'].version"
         ));
     }
-    expected.insert("python/pyproject.toml::$.project.version".to_string());
+    if repo_root.join("python/pyproject.toml").exists() {
+        expected.insert("python/pyproject.toml::$.project.version".to_string());
+    }
 
     let mut missing = Vec::new();
     for exp in &expected {
@@ -495,7 +497,8 @@ pub fn run_check_config() -> Result<()> {
         }
     }
 
-    if !configured_generics.contains("pyproject.toml") {
+    if repo_root.join("pyproject.toml").exists() && !configured_generics.contains("pyproject.toml")
+    {
         missing.push("pyproject.toml::generic".to_string());
     }
 
@@ -541,8 +544,7 @@ pub fn run_generate_sbom() -> Result<()> {
         .into_iter()
         .filter_map(|e| e.ok())
     {
-        if entry.file_type().is_file()
-            && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
+        if entry.file_type().is_file() && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
         {
             let _ = fs::remove_file(entry.path());
         }
@@ -571,13 +573,15 @@ pub fn run_generate_sbom() -> Result<()> {
         crates_dir.join("shuck-cli/shuck-cli.cdx.xml"),
     ];
 
-    let dest = repo_root.join("shuck.cdx.xml");
+    let dest1 = repo_root.join("shucked.cdx.xml");
+    let dest2 = repo_root.join("shuck.cdx.xml");
     let mut copied = false;
     for src in &possible_sources {
         if src.is_file() {
-            fs::copy(src, &dest).with_context(|| {
-                format!("Failed to copy {} to {}", src.display(), dest.display())
+            fs::copy(src, &dest1).with_context(|| {
+                format!("Failed to copy {} to {}", src.display(), dest1.display())
             })?;
+            let _ = fs::copy(src, &dest2);
             copied = true;
             break;
         }
@@ -588,20 +592,22 @@ pub fn run_generate_sbom() -> Result<()> {
         .into_iter()
         .filter_map(|e| e.ok())
     {
-        if entry.file_type().is_file()
-            && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
+        if entry.file_type().is_file() && entry.file_name().to_string_lossy().ends_with(".cdx.xml")
         {
             let _ = fs::remove_file(entry.path());
         }
     }
 
     if !copied {
-        bail!("Could not find generated CLI SBOM in {:?}", possible_sources);
+        bail!(
+            "Could not find generated CLI SBOM in {:?}",
+            possible_sources
+        );
     }
 
     print_success(&format!(
         "Successfully generated release SBOM: {}",
-        dest.display()
+        dest1.display()
     ));
     Ok(())
 }

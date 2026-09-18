@@ -51,6 +51,16 @@ pub fn run_test(
         return Ok(());
     }
 
+    // Map recognized suite names passed positionally into their corresponding test suite
+    let (filter, python, lsp, linter, wasm, all) = match filter {
+        Some("python") | Some("py") => (None, true, lsp, linter, wasm, all),
+        Some("lsp") => (None, python, true, linter, wasm, all),
+        Some("linter") => (None, python, lsp, true, wasm, all),
+        Some("wasm") => (None, python, lsp, linter, true, all),
+        Some("all") => (None, python, lsp, linter, wasm, true),
+        other => (other, python, lsp, linter, wasm, all),
+    };
+
     let run_all = all;
     let run_unit = unit || run_all || (!lsp && !linter && !python && !wasm);
     let run_lsp = lsp || run_all;
