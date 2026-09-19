@@ -163,6 +163,8 @@ impl SupportedCodeAction {
 /// Custom commands supported by Shucked LSP.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SupportedCommand {
+    /// Apply an explicitly selected, snapshot-checked command correction.
+    ApplyCommandCorrection,
     /// Apply autofix command.
     ApplyAutofix,
     /// Apply directive command.
@@ -175,6 +177,7 @@ impl SupportedCommand {
     /// Iterator over all supported commands.
     pub fn all() -> impl Iterator<Item = Self> {
         [
+            Self::ApplyCommandCorrection,
             Self::ApplyAutofix,
             Self::ApplyDirective,
             Self::PrintDebugInformation,
@@ -185,6 +188,7 @@ impl SupportedCommand {
     /// Command identifier string advertised to the client.
     pub fn identifier(self) -> &'static str {
         match self {
+            Self::ApplyCommandCorrection => "shucked.applyCommandCorrection",
             Self::ApplyAutofix => "shucked.applyAutofix",
             Self::ApplyDirective => "shucked.applyDirective",
             Self::PrintDebugInformation => "shucked.printDebugInformation",

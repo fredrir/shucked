@@ -119,6 +119,9 @@ pub(crate) fn resolve_code_action(
     _client: &Client,
     mut action: types::CodeAction,
 ) -> crate::server::Result<types::CodeAction> {
+    if super::commands_actions::is_command_action(&action) {
+        return Ok(super::commands_actions::resolve(session, action));
+    }
     if action.edit.is_some() {
         return Ok(action);
     }
@@ -154,6 +157,9 @@ pub(crate) fn execute_command(
     params: types::ExecuteCommandParams,
 ) -> crate::server::Result<Option<serde_json::Value>> {
     match params.command.as_str() {
+        super::commands_actions::APPLY_COMMAND => {
+            super::commands_actions::execute(session, client, &params.arguments)
+        }
         "shucked.applyAutofix" => {
             let uri = command_uri(&params.arguments)?;
             let Some(snapshot) = session.take_snapshot(uri) else {
