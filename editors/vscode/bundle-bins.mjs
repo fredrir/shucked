@@ -16,33 +16,19 @@ const binaries = [
 
 fs.mkdirSync(binDir, { recursive: true });
 
-function findSourceBinary(name) {
-  const releasePath = path.join(repoRoot, "target", "release", name);
-  if (fs.existsSync(releasePath)) {
-    return releasePath;
-  }
-  const debugPath = path.join(repoRoot, "target", "debug", name);
-  if (fs.existsSync(debugPath)) {
-    return debugPath;
-  }
-  return null;
+// Cargo's incremental build verifies freshness before every distribution.
+const build = cp.spawnSync(
+  "cargo", ["build", "--release", "-p", "shucked-cli", "-p", "shucked-server"],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+if (build.error) {
+  throw build.error;
 }
-
-const missing = binaries.some((name) => !findSourceBinary(name));
-
-if (missing) {
-  console.log("Building shucked and shucked-server binaries via cargo...");
-  const res = cp.spawnSync(
-    "cargo",
-    ["build", "--release", "-p", "shucked-cli", "-p", "shucked-server"],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-    },
-  );
-  if (res.status !== 0) {
-    throw new Error(`cargo build exited with status ${res.status}`);
-  }
+if (build.status !== 0) {
+  throw new Error(`cargo build exited with status ${build.status}`);
+}
+function findSourceBinary(name) {
+  return path.join(repoRoot, "target", "release", name);
 }
 
 for (const name of binaries) {
@@ -87,10 +73,8 @@ if (!fs.existsSync(path.join(providerRuntime, "manifest.json"))) {
   throw new Error("Provider runtimes missing. Run tooling/providers/build-zsh.sh and bundle-runtime.py before packaging.");
 }
 const runtimeManifest = JSON.parse(fs.readFileSync(path.join(providerRuntime, "manifest.json"), "utf8"));
-const runtimeArch = { arm64: "aarch64", x64: "x86_64" }[process.arch] ?? process.arch;
-if (runtimeManifest.platform !== process.platform ||
-    ![process.arch, runtimeArch].includes(runtimeManifest.architecture)) {
-  throw new Error("Provider runtime platform does not match this VSIX target.");
+if (runtimeManifest.target !== hostTarget()) {
+  throw new Error(`Provider runtime target ${runtimeManifest.target ?? "unspecified"} does not match ${hostTarget()}. Rebuild the runtime on this target host.`);
 }
 for (const file of runtimeManifest.files) {
   const bytes = fs.readFileSync(path.join(providerRuntime, file.path));

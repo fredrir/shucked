@@ -106,7 +106,8 @@ def main():
     (DEST / 'sources/zsh').mkdir(parents=True, exist_ok=True)
     shutil.copy2(zsh_archive, DEST / 'sources/zsh/zsh-5.9.tar.xz')
     sources.append(dict(name='zsh', version='5.9', license='Zsh', source='https://www.zsh.org/pub/old/zsh-5.9.tar.xz', sha256=hashlib.sha256(zsh_archive.read_bytes()).hexdigest()))
-    manifest = dict(schemaVersion=1, platform='darwin', architecture=platform.machine(), sources=sources,
+    manifest = dict(schemaVersion=1, platform='darwin', architecture=platform.machine(),
+                    target='darwin-' + {'arm64': 'arm64', 'x86_64': 'x64'}[platform.machine()], sources=sources,
                     systemDependencies=['macOS system libraries', '/usr/bin and /bin POSIX utilities'], files=[])
     for file in sorted(DEST.rglob('*')):
         if file.is_file() and file.name != 'manifest.json':

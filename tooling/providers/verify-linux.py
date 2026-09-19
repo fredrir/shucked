@@ -17,7 +17,9 @@ for name in ('bash', 'zsh', 'fish'):
             name = line.split('=>')[0].strip()
             if name not in ('libc.so.6', 'libm.so.6', 'libdl.so.2', 'libpthread.so.0', 'librt.so.1', 'libgcc_s.so.1', 'libutil.so.1'):
                 raise RuntimeError(f'Unbundled dependency: {line}')
-manifest = dict(schemaVersion=1, platform='linux', architecture=platform.machine(), sources=[dict(name='bash', version='5.3'), dict(name='zsh', version='5.9'), dict(name='fish', version='4.9.3'), dict(name='ncurses', version='6.6')],
+family = 'alpine' if Path('/etc/alpine-release').exists() else 'linux'
+architecture = {'x86_64': 'x64', 'aarch64': 'arm64', 'armv7l': 'armhf'}[platform.machine()]
+manifest = dict(schemaVersion=1, platform='linux', architecture=platform.machine(), target=f'{family}-{architecture}', sources=[dict(name='bash', version='5.3'), dict(name='zsh', version='5.9'), dict(name='fish', version='4.9.3'), dict(name='ncurses', version='6.6')],
                 systemDependencies=['target libc', 'compiler runtime', 'POSIX utilities in /usr/bin and /bin'], files=[])
 for file in sorted(DEST.rglob('*')):
     if file.is_file() and file.name != 'manifest.json':
