@@ -82,7 +82,7 @@ test("untrusted workspace cannot choose the server program or arguments", async 
     writeFileSync(workspaceServer, "workspace selected server", { mode: 0o755 });
     const api = resolver(process, { "server.path": workspaceServer, "server.extraArgs": ["--workspace-code"] }, false,
       { "server.path": userServer, "server.extraArgs": ["--user-option"] });
-    const output = { info() {}, warn() {} };
+    const output = { info() { return undefined; }, warn() { return undefined; } };
     const server = await api.resolveServerCommand({ extensionPath: root }, output, ["--workspace-code"]);
     assert.equal(server.command, userServer);
     assert.deepEqual(Array.from(server.args), ["--user-option"]);
