@@ -6,16 +6,16 @@ Status: implementation in progress. The original acceptance gates below remain b
 
 | Area                   | Implemented                                                                                                                                          | Remaining gate                                                                                  |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Shared resolution      | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results; independent review and regression tests                     | Cold/remote filesystem latency matrix                                                           |
+| Shared resolution      | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results; independent review and regression tests                     | WAN and cold filesystem-cache measurements                                                           |
 | Editor feedback        | Command tokens, resolution hover, parser/environment workers, snapshot-checked corrections; development and installed VSIX smoke pass on macOS arm64 | Other platform/editor acceptance                                                                |
-| Context                | Workspace/Portable, captured targets, terminal selection, explicit cwd                                                                               | Real SSH/WSL/container and untitled workspace-association tests                                 |
-| Validators             | Brew/Git command inventories; exact-version eza/rg/fd/bat/GNU ls/Pacman/curl flags                                                                   | Broader versions, BSD ls, SSH/Docker/kubectl grammars where authoritative evidence is available |
+| Context                | Workspace/Portable, captured targets, terminal selection, explicit cwd, untitled association                                                                               | Real WSL and remote VS Code UI; SSH/container protocol checks pass                                 |
+| Validators             | Brew/Git inventories; exact-version eza/rg/fd/bat/GNU/BSD ls/Pacman/curl/SSH/Docker/kubectl grammar                                                                   | Uncovered versions/extensions remain Unknown; finite coverage recorded in validator manifests |
 | Providers              | Vendored definitions; managed Zsh/Bash/Fish adapters; private macOS arm64 engines                                                                    | All advertised native runtime targets and private Unix helper closure                           |
 | Fish                   | Dedicated command/syntax frontend and completion routing                                                                                             | Broader Fish grammar fixtures; full existing lint-rule parity is not claimed                    |
-| Refresh/dependencies   | Environment refresh, scoped declarations, guarded optional commands                                                                                  | Package/plugin/configuration watcher coverage beyond TTL fallback                               |
-| Live sessions          | Authenticated Bash/Zsh/Fish prompt hooks, explicit attach/profile; actual VS Code Zsh alias/disconnect checks pass                                   | Remote reconnect, full hook coexistence matrix, transient custom-completer query channel        |
-| Inventories/comparison | Versioned bounded capture/import and target-labelled comparison                                                                                      | Capturing authoritative capability evidence beyond executable inventory                         |
-| History                | Separate opt-ins, bounded memory, authenticated accepted-command confirmation                                                                        | Custom history-file discovery; real editor inline suggestion/revocation matrix                  |
+| Refresh/dependencies   | Host filesystem watches, relative PATH/cwd contexts, coalesced refresh, scoped declarations and guards                                                                                  | Unsupported filesystems use bounded polling fallback                               |
+| Live sessions          | Authenticated Bash/Zsh/Fish prompt hooks and transient custom completers; real shell/editor fixtures                                   | Unix signal channel only; Windows custom-completer channel unavailable        |
+| Inventories/comparison | Versioned bounded capture/import, audited capability evidence, target-labelled argument comparison                                                                                      | Uncovered capabilities remain Unknown                         |
+| History                | Separate opt-ins, actual custom history paths, bounded memory, authenticated accepted-command confirmation                                                                        | Real editor insertion/revocation pass on macOS arm64                  |
 | Distribution           | Pinned hashes, licenses/source archives, exact runtime target checks; macOS arm64 installed VSIX passes; Linux build recipes                         | Linux/macOS x64/Windows runtime artifacts and installed-package matrix                          |
 
 Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
@@ -29,6 +29,19 @@ Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_comma
 | Full-text edit → completion response | 103 lines, 2,940 bytes; 1,000 returned candidates                               | 24.325 / 25.227 ms |
 
 macOS arm64, local stdio, 10 warmups and 100 samples. These figures include the Python client, exclude cold provider startup and remote transport, and do not measure notification handling alone. Run `python3 tests/lsp/benchmark_command_intelligence.py --build-mode debug`; output records binary SHA, platform, and fixture sizes. Timing thresholds are not unit-test assertions.
+
+## Remote performance evidence
+
+| Measurement | SSH p50 / p95 | Container p50 / p95 |
+|---|---|---|
+| Startup through first completion | 125.842 / 128.870 ms | 119.044 / 123.239 ms |
+| Cold command request | 30.928 / 31.767 ms | 35.048 / 38.123 ms |
+| First native help request | 11.965 / 12.417 ms | 11.361 / 11.570 ms |
+| Warm command completion | 17.567 / 18.615 ms | 19.050 / 20.180 ms |
+| Warm native arguments | 3.914 / 4.019 ms | 4.858 / 5.286 ms |
+| Edit through completion | 28.243 / 29.629 ms | 26.441 / 29.433 ms |
+
+Linux ARM64 debug server in a local VM; 10 fresh processes, 10 warmups and 100 warm samples. Four PATH directories, 1,001 executable fixtures, 100 functions and 128 native-help candidates. Server caches start fresh for cold runs; filesystem caches remain warm. No simulated WAN latency. Reproduce with `tests/remote/benchmark_completion.py`; JSON output records binary identity and fixtures. Real SSH/container acceptance also checks installation refresh and reconnect with absolute and relative PATH.
 
 ## Confirmed scope
 

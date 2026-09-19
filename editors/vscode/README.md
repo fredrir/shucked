@@ -12,6 +12,7 @@ Shell diagnostics, completion, formatting, navigation, and execution-context awa
 | Attached terminal | Use that session's aliases, functions, options, `PATH`, and working directory |
 | Startup file | Analyze definitions in source order; do not treat post-startup state as entry state |
 | Launch directory | Workspace directory is an assumption; select an explicit directory when needed |
+| Untitled document | One workspace is selected automatically; use Associate workspace in multi-root windows |
 
 Use **Shucked: Select Execution Context** or the context status item. Per-document selections override workspace settings. Session attachment is explicit and temporary.
 
@@ -38,6 +39,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Paths | Selected launch directory; quoted/escaped names and supported home expansions |
 | Arguments | Bundled definitions plus bounded installed-tool queries |
 | Native engines | Managed Zsh, Bash, and Fish adapters; personal dotfiles are unnecessary |
+| Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable |
 | Packages | Installed package tools and their available metadata; no package installation or database refresh |
 | Aliases | Preserve injected arguments and source ranges; standalone scripts do not inherit interactive aliases |
 | Missing commands | Debounced warning and invalid semantic classification when absence is established |
@@ -60,7 +62,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 
 Managed completion workers bypass personal startup files. Creating a Shucked terminal starts a real shell with its normal trusted startup configuration. Attaching an existing terminal copies an attachment command for you to run at an idle prompt; it does not inject commands or modify dotfiles. Analysis never executes editor-buffer contents or follows sources by executing them.
 
-History suggestions are separately opt-in for accepted session commands and history files. Entries stay in bounded memory caches and are cleared when disabled. Session collection requires an authenticated prompt confirmation.
+History suggestions are separately opt-in for accepted session commands and history files. Attached sessions report their actual history path only when file reads are enabled, including custom `HISTFILE` and Fish namespaces. Entries stay in bounded memory caches; disabling history or disconnecting clears cached and displayed suggestions. Session collection requires an authenticated prompt confirmation.
 
 ## Project dependencies
 
@@ -93,10 +95,10 @@ Declarations distinguish expected dependencies from spelling mistakes; they do n
 
 Install the extension on the workspace host. The VSIX must match that host's platform. Inherited environment changes outside a linked terminal require a server restart; installing/removing files on the existing `PATH` does not.
 
-**Capture Target Inventory** exports a bounded, checksummed inventory without running discovered programs. **Compare Target Inventories** compares the active document against selected inventories. Captured capability validation remains Unknown where no authoritative grammar was recorded.
+**Capture Target Inventory** exports a bounded, checksummed inventory. Trusted workspaces also capture audited tool capabilities; untrusted capture reads the executable inventory only. **Compare Target Inventories** compares the active document against selected inventories, preserving Unknown where authoritative grammar is unavailable. CLI capture is filesystem-only unless `--capabilities` is explicit.
 
 ```sh
-shucked target capture --label deployment --shell bash --output deployment.json
+shucked target capture --label deployment --shell bash --capabilities --output deployment.json
 shucked target inspect deployment.json
 shucked target compare --target deployment.json --target workstation.json script.sh
 ```

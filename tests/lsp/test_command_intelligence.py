@@ -1,5 +1,6 @@
 """Execution target evidence is shared across editor surfaces."""
 import os
+import asyncio
 import pytest
 from tests.lsp.client import LspClient
 
@@ -68,7 +69,9 @@ async def test_install_refresh_updates_diagnostics_and_tokens_without_edit(shuck
         assert not any(d.get("code") == "ENV001" for d in await client.wait_for_diagnostics(uri))
         after = await client.send_request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
         assert not after["data"][4] & 16
-        assert any(n["method"] == "workspace/semanticTokens/refresh" for n in client._all_notifications)
+        async with asyncio.timeout(2):
+            while not any(n["method"] == "workspace/semanticTokens/refresh" for n in client._all_notifications):
+                await asyncio.sleep(.01)
     finally:
         await client.shutdown_and_exit()
 
