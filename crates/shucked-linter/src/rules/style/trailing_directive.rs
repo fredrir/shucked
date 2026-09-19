@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn reports_inline_shuck_disable_directive() {
-        let source = "#!/bin/sh\n: # shuck: disable=C003\nfoo=1\n";
+        let source = "#!/bin/sh\n: # shucked: disable=C003\nfoo=1\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn ignores_shuck_disable_after_semicolon_separator() {
-        let source = "#!/bin/sh\ntrue; # shuck: disable=C001\nfalse\n";
+        let source = "#!/bin/sh\ntrue; # shucked: disable=C001\nfalse\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert!(diagnostics.is_empty());
@@ -210,7 +210,7 @@ mod tests {
 
     #[test]
     fn reports_keyword_like_arguments_with_trailing_shuck_disable() {
-        let source = "#!/bin/sh\necho if # shuck: disable=S001\necho $foo\n";
+        let source = "#!/bin/sh\necho if # shucked: disable=S001\necho $foo\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);

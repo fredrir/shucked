@@ -520,7 +520,7 @@ fn is_function_doc_comment_body(body: &str) -> bool {
     }
 
     let lower = body.to_ascii_lowercase();
-    !lower.starts_with("shellcheck ") && !lower.starts_with("shuck:")
+    !lower.starts_with("shellcheck ") && !lower.starts_with("shucked:")
 }
 
 fn build_function_scopes_using_positional_parameters(

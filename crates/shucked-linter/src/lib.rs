@@ -6243,7 +6243,7 @@ foo=2
     fn redundant_return_status_suppressed_by_shuck_directive() {
         let source = "\
 #!/bin/sh
-# shuck: disable=S038
+# shucked: disable=S038
 f() {
   false
   return $?

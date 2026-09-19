@@ -1647,7 +1647,7 @@ pub(crate) fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
         });
     }
 
-    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") else {
+    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shucked:") else {
         return false;
     };
     let body = remainder

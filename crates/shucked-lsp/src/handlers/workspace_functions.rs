@@ -865,7 +865,7 @@ mod tests {
             uri: types::Url::from_file_path(&open_path).unwrap(),
             document: Arc::new(
                 TextDocument::new(
-                    "# shuck: source=vendored/edge.sh\nsource \"$DIR/edge.sh\"\nedge_fn\n"
+                    "# shucked: source=vendored/edge.sh\nsource \"$DIR/edge.sh\"\nedge_fn\n"
                         .to_owned(),
                     1,
                 )

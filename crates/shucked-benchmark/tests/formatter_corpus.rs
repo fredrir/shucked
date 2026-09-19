@@ -118,14 +118,19 @@ fn run_shfmt(source: &str, filename: &str, flags: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("utf8 shfmt output")
 }
 
-fn render_oracle_mismatch(name: &str, filename: &str, shfmt: &str, shuck: &str) -> Option<String> {
-    if shfmt == shuck {
+fn render_oracle_mismatch(
+    name: &str,
+    filename: &str,
+    shfmt: &str,
+    shucked: &str,
+) -> Option<String> {
+    if shfmt == shucked {
         return None;
     }
 
-    let diff = TextDiff::from_lines(shfmt, shuck)
+    let diff = TextDiff::from_lines(shucked, shucked)
         .unified_diff()
-        .header(&format!("shfmt/{filename}"), &format!("shuck/{filename}"))
+        .header(&format!("shfmt/{filename}"), &format!("shucked/{filename}"))
         .context_radius(3)
         .to_string();
     let clipped = diff

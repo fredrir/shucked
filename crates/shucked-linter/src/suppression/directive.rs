@@ -122,7 +122,7 @@ fn parse_shuck_directive(
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
     let body = strip_comment_prefix(comment.text);
-    let remainder = strip_prefix_ignore_ascii_case(body, "shuck:")?;
+    let remainder = strip_prefix_ignore_ascii_case(body, "shucked:")?;
     let remainder = remainder
         .split_once('#')
         .map_or(remainder, |(before, _)| before);
@@ -272,7 +272,7 @@ impl DirectiveAttachmentFacts {
 
 fn comment_may_need_inline_attachment(text: &str) -> bool {
     let body = strip_comment_prefix(text);
-    if let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") {
+    if let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shucked:") {
         let Some((action, _)) = remainder.split_once('=') else {
             return false;
         };
@@ -782,7 +782,7 @@ mod tests {
 
     #[test]
     fn parses_shuck_directives_and_strips_reasons() {
-        let directives = directives("# shuck: disable=C006,S001 # legacy code\n");
+        let directives = directives("# shucked: disable=C006,S001 # legacy code\n");
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn parses_shuck_ignore_directives_on_inline_lines() {
-        let directives = directives("echo $foo # shuck: ignore=C006,S001 # legacy\n");
+        let directives = directives("echo $foo # shucked: ignore=C006,S001 # legacy\n");
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Ignore);
@@ -812,7 +812,7 @@ mod tests {
     fn parses_dead_code_rule_directives() {
         let directives = directives(
             "\
-# shuck: disable=C124
+# shucked: disable=C124
 ",
         );
 
@@ -824,8 +824,8 @@ mod tests {
     fn parses_shellcheck_codes_in_shuck_directives() {
         let directives = directives(
             "\
-# shuck: disable=SC2086,2154
-# shuck: disable-file=SC2268
+# shucked: disable=SC2086,2154
+# shucked: disable-file=SC2268
 ",
         );
 
@@ -897,7 +897,7 @@ echo $foo
     #[test]
     fn rejects_shuck_disable_directives_after_regular_code() {
         let source = "\
-value=1 # shuck: disable=C006
+value=1 # shucked: disable=C006
 echo $foo
 ";
         let directives = directives(source);
@@ -921,20 +921,20 @@ esac
     #[test]
     fn parses_shuck_disable_directives_after_control_flow_headers_and_group_openers() {
         let source = "\
-if # shuck: disable=SC2086
+if # shucked: disable=SC2086
   echo $foo
 then
   :
 fi
-if true; then { # shuck: disable=SC2086
+if true; then { # shucked: disable=SC2086
   echo $foo
 }; fi
-while # shuck: disable=SC2086
+while # shucked: disable=SC2086
   echo $foo
 do
   :
 done
-{ # shuck: disable=SC2086
+{ # shucked: disable=SC2086
   echo $foo
 }
 ";
@@ -952,7 +952,7 @@ done
     fn parses_shuck_disable_directives_after_case_labels() {
         let source = "\
 case $x in
-  on) # shuck: disable=SC2086
+  on) # shucked: disable=SC2086
     echo $foo
     ;;
 esac
@@ -1138,12 +1138,12 @@ foreach item (1 2) { # shellcheck disable=SC2086
     #[test]
     fn ignores_malformed_and_unknown_directives() {
         let source = "\
-# shuck: disable=
-# shuck: ignore=
-# shuck: foobar=C001
+# shucked: disable=
+# shucked: ignore=
+# shucked: foobar=C001
 # shuck disable=C001
-# shuck: enable=C006
-# shuck: disable=C006
+# shucked: enable=C006
+# shucked: disable=C006
 ";
         let directives = directives(source);
 

@@ -44,11 +44,11 @@ struct FieldProbeExpectation {
     #[serde(default)]
     values: Vec<String>,
     #[serde(default)]
-    shuck: Option<ShuckFieldExpectation>,
+    shucked: Option<ShuckedFieldExpectation>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ShuckFieldExpectation {
+struct ShuckedFieldExpectation {
     multi: bool,
     field_splitting: bool,
     pathname_matching: bool,

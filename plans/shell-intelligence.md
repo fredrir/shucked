@@ -4,29 +4,29 @@ Status: implementation in progress. The original acceptance gates below remain b
 
 ## Implementation evidence
 
-| Area | Implemented | Remaining gate |
-|---|---|---|
-| Shared resolution | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results; independent review and regression tests | Cold/remote filesystem latency matrix |
-| Editor feedback | Command tokens, resolution hover, parser/environment workers, snapshot-checked corrections; development and installed VSIX smoke pass on macOS arm64 | Other platform/editor acceptance |
-| Context | Workspace/Portable, captured targets, terminal selection, explicit cwd | Real SSH/WSL/container and untitled workspace-association tests |
-| Validators | Brew/Git command inventories; exact-version eza/rg/fd/bat/GNU ls/Pacman/curl flags | Broader versions, BSD ls, SSH/Docker/kubectl grammars where authoritative evidence is available |
-| Providers | Vendored definitions; managed Zsh/Bash/Fish adapters; private macOS arm64 engines | All advertised native runtime targets and private Unix helper closure |
-| Fish | Dedicated command/syntax frontend and completion routing | Broader Fish grammar fixtures; full existing lint-rule parity is not claimed |
-| Refresh/dependencies | Environment refresh, scoped declarations, guarded optional commands | Package/plugin/configuration watcher coverage beyond TTL fallback |
-| Live sessions | Authenticated Bash/Zsh/Fish prompt hooks, explicit attach/profile; actual VS Code Zsh alias/disconnect checks pass | Remote reconnect, full hook coexistence matrix, transient custom-completer query channel |
-| Inventories/comparison | Versioned bounded capture/import and target-labelled comparison | Capturing authoritative capability evidence beyond executable inventory |
-| History | Separate opt-ins, bounded memory, authenticated accepted-command confirmation | Custom history-file discovery; real editor inline suggestion/revocation matrix |
-| Distribution | Pinned hashes, licenses/source archives, exact runtime target checks; macOS arm64 installed VSIX passes; Linux build recipes | Linux/macOS x64/Windows runtime artifacts and installed-package matrix |
+| Area                   | Implemented                                                                                                                                          | Remaining gate                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Shared resolution      | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results; independent review and regression tests                     | Cold/remote filesystem latency matrix                                                           |
+| Editor feedback        | Command tokens, resolution hover, parser/environment workers, snapshot-checked corrections; development and installed VSIX smoke pass on macOS arm64 | Other platform/editor acceptance                                                                |
+| Context                | Workspace/Portable, captured targets, terminal selection, explicit cwd                                                                               | Real SSH/WSL/container and untitled workspace-association tests                                 |
+| Validators             | Brew/Git command inventories; exact-version eza/rg/fd/bat/GNU ls/Pacman/curl flags                                                                   | Broader versions, BSD ls, SSH/Docker/kubectl grammars where authoritative evidence is available |
+| Providers              | Vendored definitions; managed Zsh/Bash/Fish adapters; private macOS arm64 engines                                                                    | All advertised native runtime targets and private Unix helper closure                           |
+| Fish                   | Dedicated command/syntax frontend and completion routing                                                                                             | Broader Fish grammar fixtures; full existing lint-rule parity is not claimed                    |
+| Refresh/dependencies   | Environment refresh, scoped declarations, guarded optional commands                                                                                  | Package/plugin/configuration watcher coverage beyond TTL fallback                               |
+| Live sessions          | Authenticated Bash/Zsh/Fish prompt hooks, explicit attach/profile; actual VS Code Zsh alias/disconnect checks pass                                   | Remote reconnect, full hook coexistence matrix, transient custom-completer query channel        |
+| Inventories/comparison | Versioned bounded capture/import and target-labelled comparison                                                                                      | Capturing authoritative capability evidence beyond executable inventory                         |
+| History                | Separate opt-ins, bounded memory, authenticated accepted-command confirmation                                                                        | Custom history-file discovery; real editor inline suggestion/revocation matrix                  |
+| Distribution           | Pinned hashes, licenses/source archives, exact runtime target checks; macOS arm64 installed VSIX passes; Linux build recipes                         | Linux/macOS x64/Windows runtime artifacts and installed-package matrix                          |
 
 Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
 
 ## Local performance evidence
 
-| Measurement | Fixture | Debug p50 / p95 |
-|---|---|---|
-| Warm command completion | 4 PATH directories, 1,001 executables, 100 functions; 1,000 returned candidates | 14.797 / 15.241 ms |
-| Cached native argument completion | 128 described flags | 3.572 / 3.757 ms |
-| Full-text edit → completion response | 103 lines, 2,940 bytes; 1,000 returned candidates | 24.325 / 25.227 ms |
+| Measurement                          | Fixture                                                                         | Debug p50 / p95    |
+| ------------------------------------ | ------------------------------------------------------------------------------- | ------------------ |
+| Warm command completion              | 4 PATH directories, 1,001 executables, 100 functions; 1,000 returned candidates | 14.797 / 15.241 ms |
+| Cached native argument completion    | 128 described flags                                                             | 3.572 / 3.757 ms   |
+| Full-text edit → completion response | 103 lines, 2,940 bytes; 1,000 returned candidates                               | 24.325 / 25.227 ms |
 
 macOS arm64, local stdio, 10 warmups and 100 samples. These figures include the Python client, exclude cold provider startup and remote transport, and do not measure notification handling alone. Run `python3 tests/lsp/benchmark_command_intelligence.py --build-mode debug`; output records binary SHA, platform, and fixture sizes. Timing thresholds are not unit-test assertions.
 

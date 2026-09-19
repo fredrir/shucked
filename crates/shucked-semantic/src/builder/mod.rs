@@ -2078,10 +2078,10 @@ fn parse_source_directive_override(
     text_offset: usize,
     own_line: bool,
 ) -> Option<SourceDirectiveOverride> {
-    // The shuck-native spelling asserts a target and, optionally, a lint
+    // The shucked-native spelling asserts a target and, optionally, a lint
     // policy:
-    //   `# shuck: source=<path>`            -> import the target's symbols only
-    //   `# shuck: source=<path> lint=true`  -> also lint the target
+    //   `# shucked: source=<path>`            -> import the target's symbols only
+    //   `# shucked: source=<path> lint=true`  -> also lint the target
     // All tokens are scanned before deciding, so the result is independent of
     // token order (`lint=true source=x` == `source=x lint=true`). The first
     // `source=` sets the target and the first `lint=` sets the policy; later
@@ -2091,7 +2091,7 @@ fn parse_source_directive_override(
         let mut lint: Option<bool> = None;
         for part in rest.split_whitespace() {
             if part.eq_ignore_ascii_case("shellcheck") {
-                // `# shuck: shellcheck source=<path>`: an explicitly
+                // `# shucked: shellcheck source=<path>`: an explicitly
                 // ShellCheck-style directive under the shuck prefix; defer to
                 // the compat recognition below rather than reading its
                 // `source=` as the native spelling.
@@ -2120,7 +2120,7 @@ fn parse_source_directive_override(
                 own_line,
             ));
         }
-        // Fall through: a `shuck:` comment without a native source token may
+        // Fall through: a `shucked:` comment without a native source token may
         // still carry a ShellCheck-style `shellcheck source=` hint.
     }
 
@@ -2145,13 +2145,13 @@ fn parse_source_directive_override(
     None
 }
 
-/// Strips a leading case-insensitive `shuck:` directive prefix, returning the
+/// Strips a leading case-insensitive `shucked:` directive prefix, returning the
 /// remaining directive body when present.
 fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
     let trimmed = text.trim_start();
     let prefix = trimmed.get(..6)?;
     prefix
-        .eq_ignore_ascii_case("shuck:")
+        .eq_ignore_ascii_case("shucked:")
         .then(|| trimmed[6..].trim_start())
 }
 

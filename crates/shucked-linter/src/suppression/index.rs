@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn applies_disable_file_directives_to_the_entire_file() {
-        let source = "echo $foo # shuck: disable-file=C006\n";
+        let source = "echo $foo # shucked: disable-file=C006\n";
         let index = suppression_index(source);
 
         assert!(index.is_suppressed(Rule::UndefinedVariable, 1));
@@ -293,7 +293,7 @@ mod tests {
         let source = "\
 foo='a b'
 echo $foo
-# shuck: disable=C006
+# shucked: disable=C006
 echo $foo
 echo $foo
 ";
@@ -308,7 +308,7 @@ echo $foo
     fn applies_shuck_ignore_only_to_the_directive_line() {
         let source = "\
 foo='a b'
-echo $foo # shuck: ignore=C006
+echo $foo # shucked: ignore=C006
 echo $foo
 ";
         let index = suppression_index(source);
@@ -322,7 +322,7 @@ echo $foo
     fn applies_dead_code_suppressions() {
         let source = "\
 exit 0
-# shuck: disable=C124
+# shucked: disable=C124
 echo dead
 echo still_dead
 ";
@@ -353,7 +353,7 @@ echo still_dead
         let source = "\
 foo='a b'
 echo $foo
-# shuck: disable=SC2086
+# shucked: disable=SC2086
 echo $foo
 echo $foo
 ";
@@ -368,7 +368,7 @@ echo $foo
     fn promotes_shuck_disable_before_the_first_statement_to_file_scope() {
         let source = "\
 #!/bin/bash
-# shuck: disable=S001
+# shucked: disable=S001
 
 echo $foo
 ";
@@ -425,7 +425,7 @@ echo $foo
     fn scopes_shuck_disable_after_then_header_to_the_next_command() {
         let source = "\
 foo='a b'
-if true; then # shuck: disable=S001
+if true; then # shucked: disable=S001
   echo $foo
 fi
 echo $foo

@@ -1450,7 +1450,7 @@ fn check_add_ignore_writes_inline_shuck_ignore() {
 
     assert_eq!(
         fs::read_to_string(script).unwrap(),
-        "#!/bin/bash\necho $foo  # shuck: ignore=C006\n"
+        "#!/bin/bash\necho $foo  # shucked: ignore=C006\n"
     );
 }
 
@@ -1473,7 +1473,7 @@ fn check_add_ignore_merges_existing_ignore_and_preserves_reason() {
     let script = tempdir.path().join("warn.sh");
     fs::write(
         &script,
-        "#!/bin/bash\necho $foo  # shuck: ignore=S001 # legacy\n",
+        "#!/bin/bash\necho $foo  # shucked: ignore=S001 # legacy\n",
     )
     .unwrap();
 
@@ -1488,7 +1488,7 @@ fn check_add_ignore_merges_existing_ignore_and_preserves_reason() {
 
     assert_eq!(
         fs::read_to_string(script).unwrap(),
-        "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # legacy\n"
+        "#!/bin/bash\necho $foo  # shucked: ignore=C006, S001 # legacy\n"
     );
 }
 
@@ -1605,7 +1605,7 @@ fn inline_shuck_ignore_suppresses_only_its_own_line() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("warn.sh"),
-        "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\n",
+        "#!/bin/bash\necho $foo  # shucked: ignore=C006\necho $bar\n",
     )
     .unwrap();
 
@@ -2809,7 +2809,7 @@ fn source_directive_silences_untracked_source_without_linting_target() {
     .unwrap();
     fs::write(
         tempdir.path().join("main.sh"),
-        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shucked: source=helper.sh\nsource \"$DIR/helper.sh\"\ngreet\n",
     )
     .unwrap();
 
@@ -2835,7 +2835,7 @@ fn lint_true_directive_lints_the_target() {
     .unwrap();
     fs::write(
         tempdir.path().join("main.sh"),
-        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shucked: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
     )
     .unwrap();
 
@@ -2866,7 +2866,7 @@ fn lint_sources_config_false_downgrades_lint_true() {
     .unwrap();
     fs::write(
         tempdir.path().join("main.sh"),
-        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shuck: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
+        "#!/bin/bash\nDIR=$(dirname \"$0\")\n# shucked: source=helper.sh lint=true\nsource \"$DIR/helper.sh\"\ngreet\n",
     )
     .unwrap();
     fs::write(
@@ -2899,7 +2899,7 @@ fn source_paths_config_resolves_directive_targets_against_roots() {
     .unwrap();
     fs::write(
         tempdir.path().join("scripts/main.sh"),
-        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+        "#!/bin/bash\n# shucked: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
     )
     .unwrap();
     fs::write(
@@ -2949,7 +2949,7 @@ fn directive_target_next_to_script_shadows_configured_root_match() {
     .unwrap();
     fs::write(
         tempdir.path().join("scripts/main.sh"),
-        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
+        "#!/bin/bash\n# shucked: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\ngreet\n",
     )
     .unwrap();
     fs::write(
@@ -2987,7 +2987,7 @@ fn cached_directive_resolution_invalidates_when_nearer_target_appears() {
     fs::write(tempdir.path().join("lib/util.sh"), "root_unused=1\n").unwrap();
     fs::write(
         tempdir.path().join("scripts/main.sh"),
-        "#!/bin/bash\n# shuck: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\n",
+        "#!/bin/bash\n# shucked: source=util.sh lint=true\nsource \"$SOMEDIR/util.sh\"\n",
     )
     .unwrap();
     fs::write(
@@ -3028,7 +3028,7 @@ fn linted_source_targets_share_the_complete_analyzed_path_set() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("main.sh"),
-        "#!/bin/bash\n# shuck: source=a.sh lint=true\nsource \"$DIR/a.sh\"\n# shuck: source=b.sh lint=true\nsource \"$DIR/b.sh\"\n",
+        "#!/bin/bash\n# shucked: source=a.sh lint=true\nsource \"$DIR/a.sh\"\n# shucked: source=b.sh lint=true\nsource \"$DIR/b.sh\"\n",
     )
     .unwrap();
     fs::write(

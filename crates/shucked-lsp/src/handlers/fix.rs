@@ -392,7 +392,7 @@ fn file_suppression_edit(snapshot: &DocumentSnapshot, code: &str) -> types::Text
 
     types::TextEdit {
         range,
-        new_text: format!("{prefix_nl}# shuck: disable-file={code}{newline}"),
+        new_text: format!("{prefix_nl}# shucked: disable-file={code}{newline}"),
     }
 }
 
@@ -1339,7 +1339,7 @@ mod tests {
         let edit = file_suppression_edit(&snapshot, "C001");
         assert_eq!(edit.range.start.line, 1);
         assert_eq!(edit.range.start.character, 0);
-        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+        assert_eq!(edit.new_text, "# shucked: disable-file=C001\n");
 
         // 2. Shebang and initial comments
         let (session, _client, _client_receiver, uri) = make_session(
@@ -1352,7 +1352,7 @@ mod tests {
         let edit = file_suppression_edit(&snapshot, "C001");
         assert_eq!(edit.range.start.line, 3);
         assert_eq!(edit.range.start.character, 0);
-        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+        assert_eq!(edit.new_text, "# shucked: disable-file=C001\n");
 
         // 3. Comments without shebang
         let (session, _client, _client_receiver, uri) = make_session(
@@ -1365,7 +1365,7 @@ mod tests {
         let edit = file_suppression_edit(&snapshot, "C001");
         assert_eq!(edit.range.start.line, 1);
         assert_eq!(edit.range.start.character, 0);
-        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+        assert_eq!(edit.new_text, "# shucked: disable-file=C001\n");
 
         // 4. No shebang, no comments
         let (session, _client, _client_receiver, uri) =
@@ -1374,7 +1374,7 @@ mod tests {
         let edit = file_suppression_edit(&snapshot, "C001");
         assert_eq!(edit.range.start.line, 0);
         assert_eq!(edit.range.start.character, 0);
-        assert_eq!(edit.new_text, "# shuck: disable-file=C001\n");
+        assert_eq!(edit.new_text, "# shucked: disable-file=C001\n");
     }
 
     #[test]

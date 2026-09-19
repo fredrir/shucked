@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn hover_resolves_shuck_ignore_codes() {
-        let (snapshot, client) = make_snapshot("#!/bin/bash\necho $foo  # shuck: ignore=C006\n");
+        let (snapshot, client) = make_snapshot("#!/bin/bash\necho $foo  # shucked: ignore=C006\n");
         let hover = hover(
             snapshot,
             &client,

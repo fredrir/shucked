@@ -17,7 +17,7 @@ pub(crate) fn spawn_main_loop(
 ) -> crate::Result<std::thread::JoinHandle<crate::Result<()>>> {
     const MAIN_THREAD_STACK_SIZE: usize = 2 * 1024 * 1024;
     Ok(std::thread::Builder::new()
-        .name("shuck:main".into())
+        .name("shucked:main".into())
         .stack_size(MAIN_THREAD_STACK_SIZE)
         .spawn(func)?)
 }

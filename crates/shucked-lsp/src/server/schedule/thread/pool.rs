@@ -42,7 +42,7 @@ impl Pool {
 
 fn spawn_worker(index: usize, job_receiver: Receiver<Job>) -> std::thread::JoinHandle<()> {
     match std::thread::Builder::new()
-        .name(format!("shuck:worker:{index}"))
+        .name(format!("shucked:worker:{index}"))
         .stack_size(2 * 1024 * 1024)
         .spawn(move || {
             for job in job_receiver {

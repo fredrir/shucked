@@ -568,7 +568,7 @@ fn cross_file_rename_for_encoding(
     let shadow_path = workspace.path().join("shadow.sh");
     let unrelated_path = workspace.path().join("unrelated.sh");
     let target_source = "source cycle.sh\n: '😀'; foo() { :; }\n";
-    let main_source = "# shuck: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\n";
+    let main_source = "# shucked: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\n";
     let caller_source = "source main.sh\nfoo\n";
     let shadow_source = "source main.sh\nfoo\nfoo() { :; }\nfoo\n";
     std::fs::write(&target_path, "stale_target() { :; }\n").unwrap();
@@ -742,7 +742,7 @@ fn cross_file_rename_for_encoding(
         &client_connection,
         &main_uri,
         2,
-        "# shuck: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\nsource \"$dynamic\"\n",
+        "# shucked: source=target.sh\nsource \"$DIR/target.sh\"\n: '😀'; foo\nsource \"$dynamic\"\n",
     );
     send_request(
         &client_connection,
@@ -828,7 +828,7 @@ fn document_links_follow_sources_for_encoding(
     std::fs::write(outer.path().join("outside.sh"), ":\n").unwrap();
 
     let main_path = scripts.join("main.sh");
-    let main_source = "# shuck: source=hinted.sh\nsource \"$DIR/hinted.sh\"\n: '😀'; . relative.sh\nsource configured.sh\nsource cycle_a.sh\nsource \"$dynamic\"\nsource missing.sh\nsource ../../outside.sh\n";
+    let main_source = "# shucked: source=hinted.sh\nsource \"$DIR/hinted.sh\"\n: '😀'; . relative.sh\nsource configured.sh\nsource cycle_a.sh\nsource \"$dynamic\"\nsource missing.sh\nsource ../../outside.sh\n";
     std::fs::write(&main_path, "stale\n").unwrap();
     let main_uri = Url::from_file_path(&main_path).unwrap();
     let hinted_uri = Url::from_file_path(scripts.join("hinted.sh")).unwrap();
@@ -1048,7 +1048,7 @@ fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
 
     let caller_path = workspace.path().join("caller.sh");
     std::fs::write(&caller_path, "stale_caller\n").unwrap();
-    let caller_source = "# shuck: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\nunknown\n";
+    let caller_source = "# shucked: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\nunknown\n";
 
     let imported_uri = Url::from_file_path(std::fs::canonicalize(&imported_path).unwrap()).unwrap();
     let configured_uri =
@@ -1180,7 +1180,7 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
     std::fs::write(&library_path, "stale_disk_only() { :; }\n").unwrap();
     let completion_line = ": \"🦀\"; imp";
     let caller = format!(
-        "imp\n# shuck: source=lib.sh\nsource \"$DIR/lib.sh\"\n{completion_line}\ndup() {{ :; }}\ndu\nlat\nsource later.sh\nsource configured.sh\ncon\necho \"$imp\"\nrun() {{ local imp\n}}\nlocal_scope() {{\n  source inner.sh\n  inn\n}}\n"
+        "imp\n# shucked: source=lib.sh\nsource \"$DIR/lib.sh\"\n{completion_line}\ndup() {{ :; }}\ndu\nlat\nsource later.sh\nsource configured.sh\ncon\necho \"$imp\"\nrun() {{ local imp\n}}\nlocal_scope() {{\n  source inner.sh\n  inn\n}}\n"
     );
     std::fs::write(&caller_path, &caller).unwrap();
     std::fs::write(
@@ -1391,7 +1391,7 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
     let imported_source = ": '😀'; imported() {\n  :\n}\n";
 
     let caller_path = workspace.path().join("caller.sh");
-    let caller_source = "# shuck: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\n";
+    let caller_source = "# shucked: source=imported.sh\nsource \"$DIR/imported.sh\"\nprintf '😀'; imported\nimported() {\n  :\n}\nimported\nsource configured.sh\nconfigured\nsource \"$dynamic\"\nimported\n";
     std::fs::write(&caller_path, caller_source).unwrap();
 
     let imported_uri = Url::from_file_path(std::fs::canonicalize(&imported_path).unwrap()).unwrap();
@@ -1541,7 +1541,7 @@ fn cross_file_references_preserve_binding_identity_and_open_buffers() {
     std::fs::write(&child_path, "shared\n").unwrap();
     std::fs::write(
         &hinted_path,
-        "# shuck: source=lib/a.sh\nsource \"$DIR/a.sh\"\nshared\n",
+        "# shucked: source=lib/a.sh\nsource \"$DIR/a.sh\"\nshared\n",
     )
     .unwrap();
     std::fs::write(
@@ -1911,7 +1911,7 @@ fn cross_file_variable_navigation_follows_current_bash_source_anchor() {
         "#!/usr/bin/env bash\n\nexport DEFINITION=definition\n",
     )
     .unwrap();
-    let reference_source = "#!/usr/bin/env bash\n\n# shuck: source-path=SCRIPTDIR\nsource \"$(dirname \"${BASH_SOURCE[0]}\")/definition.sh\"\n\necho \"${DEFINITION}\"\n";
+    let reference_source = "#!/usr/bin/env bash\n\n# shucked: source-path=SCRIPTDIR\nsource \"$(dirname \"${BASH_SOURCE[0]}\")/definition.sh\"\n\necho \"${DEFINITION}\"\n";
     std::fs::write(&reference_path, reference_source).unwrap();
 
     let definition_uri =
@@ -1996,7 +1996,7 @@ fn prepare_call_hierarchy_resolves_sourced_cross_file_call() {
 
     let workspace = tempfile::tempdir().expect("tempdir should be created");
     std::fs::write(workspace.path().join("a.sh"), "greet() {\n  echo hi\n}\n").unwrap();
-    let caller = "greet() {\n  echo local\n}\n# shuck: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\ngreet() {\n  echo final\n}\ngreet\nhandler=greet\n\"$handler\"\n";
+    let caller = "greet() {\n  echo local\n}\n# shucked: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\ngreet() {\n  echo final\n}\ngreet\nhandler=greet\n\"$handler\"\n";
     std::fs::write(workspace.path().join("b.sh"), caller).unwrap();
     let a_uri = Url::from_file_path(
         std::fs::canonicalize(workspace.path().join("a.sh"))
@@ -2186,12 +2186,12 @@ fn cross_file_call_hierarchy_spans_source_edges() {
     std::fs::write(workspace.path().join("a.sh"), "greet() {\n  echo hi\n}\n").unwrap();
     std::fs::write(
         workspace.path().join("b.sh"),
-        "run() {\n  # shuck: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shucked: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
     )
     .unwrap();
     std::fs::write(
         workspace.path().join("c.sh"),
-        "# shuck: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\n",
+        "# shucked: source=a.sh\nsource \"$DIR/a.sh\"\ngreet\n",
     )
     .unwrap();
     let a_uri = Url::from_file_path(workspace.path().join("a.sh")).unwrap();
@@ -2264,7 +2264,7 @@ fn cross_file_call_hierarchy_spans_source_edges() {
     open_document(
         &client_connection,
         &b_uri,
-        "run() {\n  # shuck: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shucked: source=a.sh lint=true\n  source \"$DIR/a.sh\"\n  greet\n}\nrun\n",
     );
     send_request(
         &client_connection,
@@ -2326,7 +2326,7 @@ fn cross_file_call_hierarchy_honors_configured_source_paths() {
     .unwrap();
     std::fs::write(
         workspace.path().join("scripts/main.sh"),
-        "run() {\n  # shuck: source=util.sh lint=true\n  source \"$X/util.sh\"\n  greet\n}\nrun\n",
+        "run() {\n  # shucked: source=util.sh lint=true\n  source \"$X/util.sh\"\n  greet\n}\nrun\n",
     )
     .unwrap();
     let util_uri = Url::from_file_path(workspace.path().join("lib/util.sh")).unwrap();

@@ -164,7 +164,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: source=./known_pins.db
+# shucked: source=./known_pins.db
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
         fs::write(&helper, "echo ok\n").unwrap();
@@ -190,7 +190,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: source=./known_pins.db lint=true
+# shucked: source=./known_pins.db lint=true
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
         fs::write(&helper, "echo ok\n").unwrap();
@@ -216,7 +216,7 @@ source \"${scriptfolder}${known_pins_dbfile}\"
 #!/bin/bash
 scriptfolder=\"$(dirname \"$0\")/\"
 known_pins_dbfile=\"known_pins.db\"
-# shuck: source=./known_pins.db
+# shucked: source=./known_pins.db
 source \"${scriptfolder}${known_pins_dbfile}\"
 ";
 

@@ -301,7 +301,7 @@ fn build_ignore_edit(
                 join_shellcheck_codes(&merged_rules, shellcheck_map)
             )
         }
-        _ => format!("# shuck: ignore={}", join_codes(&merged_rules)),
+        _ => format!("# shucked: ignore={}", join_codes(&merged_rules)),
     };
     if let Some(comment_reason) = comment_reason {
         comment.push_str(" # ");
@@ -339,7 +339,7 @@ fn existing_ignore_reason<'a>(
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<&'a str> {
     if let Some(remainder) =
-        strip_prefix_ignore_ascii_case(strip_comment_prefix(comment_text), "shuck:")
+        strip_prefix_ignore_ascii_case(strip_comment_prefix(comment_text), "shucked:")
     {
         let (without_reason, reason) = remainder
             .split_once('#')
@@ -631,7 +631,7 @@ mod tests {
         assert_eq!(result.directives_added, 1);
         assert!(result.diagnostics.is_empty());
         assert!(result.parse_error.is_none());
-        assert_eq!(updated, "#!/bin/bash\necho $foo  # shuck: ignore=C006\n");
+        assert_eq!(updated, "#!/bin/bash\necho $foo  # shucked: ignore=C006\n");
     }
 
     #[test]
@@ -644,7 +644,7 @@ mod tests {
         assert_eq!(result.directives_added, 1);
         assert_eq!(
             updated,
-            "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001\n"
+            "#!/bin/bash\necho $foo  # shucked: ignore=C006, S001\n"
         );
     }
 
@@ -652,13 +652,13 @@ mod tests {
     fn merges_with_existing_ignore_and_preserves_reason() {
         let settings =
             LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
-        let source = "#!/bin/bash\necho $foo  # shuck: ignore=S001 # legacy\n";
+        let source = "#!/bin/bash\necho $foo  # shucked: ignore=S001 # legacy\n";
         let (result, updated) = run_add_ignore_with_settings(source, &settings, None);
 
         assert_eq!(result.directives_added, 1);
         assert_eq!(
             updated,
-            "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # legacy\n"
+            "#!/bin/bash\necho $foo  # shucked: ignore=C006, S001 # legacy\n"
         );
     }
 
@@ -675,7 +675,7 @@ mod tests {
     fn builds_in_memory_ignore_edit_for_existing_ignore() {
         let settings =
             LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
-        let source = "#!/bin/bash\necho $foo  # shuck: ignore=S001 # reason\n";
+        let source = "#!/bin/bash\necho $foo  # shucked: ignore=S001 # reason\n";
         let edit =
             build_ignore_edit_for_line(source, &settings, 2, None, Some(Path::new("script.sh")))
                 .expect("line should produce an ignore edit");
@@ -694,7 +694,7 @@ mod tests {
 
         assert_eq!(
             applied,
-            "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # reason\n"
+            "#!/bin/bash\necho $foo  # shucked: ignore=C006, S001 # reason\n"
         );
     }
 
@@ -702,14 +702,14 @@ mod tests {
     fn replaces_existing_reason_when_cli_reason_is_provided() {
         let settings =
             LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
-        let source = "#!/bin/bash\necho $foo  # shuck: ignore=S001 # legacy\n";
+        let source = "#!/bin/bash\necho $foo  # shucked: ignore=S001 # legacy\n";
         let (result, updated) =
             run_add_ignore_with_settings(source, &settings, Some("intentional"));
 
         assert_eq!(result.directives_added, 1);
         assert_eq!(
             updated,
-            "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # intentional\n"
+            "#!/bin/bash\necho $foo  # shucked: ignore=C006, S001 # intentional\n"
         );
     }
 
@@ -726,7 +726,7 @@ mod tests {
         assert_eq!(first.directives_added, 1);
         assert_eq!(second.directives_added, 0);
         assert!(second.diagnostics.is_empty());
-        assert_eq!(updated, "#!/bin/bash\necho $foo  # shuck: ignore=C006\n");
+        assert_eq!(updated, "#!/bin/bash\necho $foo  # shucked: ignore=C006\n");
     }
 
     #[test]
@@ -766,7 +766,7 @@ mod tests {
 
         assert!(result.directives_added > 0);
         assert!(result.parse_error.is_none());
-        assert!(updated.contains("echo $foo  # shuck: ignore=C006\n"));
+        assert!(updated.contains("echo $foo  # shucked: ignore=C006\n"));
     }
 
     #[test]
@@ -777,7 +777,7 @@ mod tests {
         assert_eq!(result.directives_added, 1);
         assert_eq!(
             updated,
-            "#!/bin/bash\r\necho $foo  # shuck: ignore=C006\r\n"
+            "#!/bin/bash\r\necho $foo  # shucked: ignore=C006\r\n"
         );
     }
 
@@ -785,13 +785,13 @@ mod tests {
     fn preserves_crlf_line_endings_when_rewriting_existing_ignores() {
         let settings =
             LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
-        let source = "#!/bin/bash\r\necho $foo  # shuck: ignore=S001 # legacy\r\n";
+        let source = "#!/bin/bash\r\necho $foo  # shucked: ignore=S001 # legacy\r\n";
         let (result, updated) = run_add_ignore_with_settings(source, &settings, None);
 
         assert_eq!(result.directives_added, 1);
         assert_eq!(
             updated,
-            "#!/bin/bash\r\necho $foo  # shuck: ignore=C006, S001 # legacy\r\n"
+            "#!/bin/bash\r\necho $foo  # shucked: ignore=C006, S001 # legacy\r\n"
         );
     }
 
@@ -802,7 +802,7 @@ mod tests {
         let path = Path::new("script.sh");
         let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
         let candidate_source =
-            "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\necho \"unterminated\n";
+            "#!/bin/bash\necho $foo  # shucked: ignore=C006\necho $bar\necho \"unterminated\n";
 
         let current = analyze_source(
             current_source,
@@ -839,7 +839,7 @@ mod tests {
         let shellcheck_map = ShellCheckCodeMap::default();
         let path = Path::new("script.sh");
         let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
-        let candidate_source = "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho ok\n";
+        let candidate_source = "#!/bin/bash\necho $foo  # shucked: ignore=C006\necho ok\n";
 
         let current = analyze_source(
             current_source,

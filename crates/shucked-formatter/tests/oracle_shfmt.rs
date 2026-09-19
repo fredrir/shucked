@@ -753,9 +753,9 @@ fn render_oracle_mismatch(
     case_name: &str,
     filename: &str,
     shfmt: &str,
-    shuck: &str,
+    shucked: &str,
 ) -> Option<String> {
-    build_oracle_mismatch(filename, shfmt, shuck).map(|mismatch| {
+    build_oracle_mismatch(filename, shfmt, shucked).map(|mismatch| {
         format!(
             "oracle mismatch for {case_name}\n{}",
             truncate_diff(&mismatch.diff)
@@ -763,14 +763,18 @@ fn render_oracle_mismatch(
     })
 }
 
-fn build_oracle_mismatch(filename: &str, shfmt: &str, shuck: &str) -> Option<ShfmtOracleMismatch> {
-    if shfmt == shuck {
+fn build_oracle_mismatch(
+    filename: &str,
+    shfmt: &str,
+    shucked: &str,
+) -> Option<ShfmtOracleMismatch> {
+    if shfmt == shucked {
         return None;
     }
 
-    let raw_diff = TextDiff::from_lines(shfmt, shuck)
+    let raw_diff = TextDiff::from_lines(shfmt, shucked)
         .unified_diff()
-        .header(&format!("shfmt/{filename}"), &format!("shuck/{filename}"))
+        .header(&format!("shfmt/{filename}"), &format!("shucked/{filename}"))
         .to_string();
     let diff = normalize_diff_body(&raw_diff);
     let hunks = parse_shfmt_diff_hunks(&diff);

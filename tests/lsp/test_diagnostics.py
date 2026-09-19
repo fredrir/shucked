@@ -59,7 +59,7 @@ async def test_diagnostics_cleared_by_directive_comment(
     """Verify inline suppression directive comments suppress diagnostics."""
     uri = "file:///tmp/suppress_diag_test.sh"
     text_with_suppression = """#!/bin/bash
-unused=1  # shuck: ignore=C001
+unused=1  # shucked: ignore=C001
 """
     await initialized_lsp_client.open_document(
         uri, "shellscript", text_with_suppression
