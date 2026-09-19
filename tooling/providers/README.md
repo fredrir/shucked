@@ -26,7 +26,7 @@
 
 | Platform | Current evidence |
 |---|---|
-| macOS arm64 | Relocated Bash/Fish engines pass worker smoke tests; source-built Zsh completion needs further runtime validation |
+| macOS arm64 | Private Zsh/Bash/Fish engines pass worker tests with hostile startup files and restricted helper PATH |
 | Linux GNU/musl | Target-host source build recipe; requires execution on the actual target before release |
 | macOS x64 | Requires a matching runtime lock and target-host build |
 | Windows | Bounded Job Object process capture implemented; compatible shell runtime distribution still required |

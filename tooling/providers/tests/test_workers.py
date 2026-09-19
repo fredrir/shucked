@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import subprocess
+import signal
 import tempfile
 import unittest
 
@@ -35,7 +36,20 @@ class ManagedWorkers(unittest.TestCase):
             args = [str(executable), '--noprofile', '--norc', str(WORKERS / 'bash_worker.bash'), *words]
         else:
             args = [str(executable), '--no-config', '--private', str(WORKERS / 'fish_worker.fish'), *words]
-        result = subprocess.run(args, env=env, cwd=home, capture_output=True, timeout=8)
+        process = subprocess.Popen(args, env=env, cwd=home, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            output, errors = process.communicate(timeout=8)
+        except subprocess.TimeoutExpired as error:
+            fields = (error.output or b'').split(b'\0')
+            if shell == 'zsh' and len(fields) >= 2 and fields[0] == b'P' and fields[1].isdigit():
+                try: os.killpg(int(fields[1]), signal.SIGKILL)
+                except ProcessLookupError: pass
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.communicate()
+            raise
+        result = subprocess.CompletedProcess(args, process.returncode, output, errors)
         self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
         fields = result.stdout.split(b'\0')
         self.assertEqual(fields[0], b'P', result.stdout)

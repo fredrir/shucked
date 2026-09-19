@@ -21,7 +21,7 @@ cd "$build/bash-5.3"
 make -j "${SHUCKED_BUILD_JOBS:-4}"
 make install
 cd "$build/zsh-5.9"
-CPPFLAGS="-I$build/ncurses/include/ncursesw" LDFLAGS="-L$build/ncurses/lib" ./configure --prefix="$prefix" --disable-dynamic --enable-multibyte --with-tcsetpgrp=yes --with-term-lib=ncursesw
+CFLAGS="-O2 -Wno-error=implicit-int -Wno-error=implicit-function-declaration" CPPFLAGS="-I$build/ncurses/include/ncursesw" LDFLAGS="-L$build/ncurses/lib" ./configure --prefix="$prefix" --disable-dynamic --enable-multibyte --with-tcsetpgrp=yes --with-term-lib=ncursesw
 python3 - <<'PYMOD'
 from pathlib import Path
 import re
