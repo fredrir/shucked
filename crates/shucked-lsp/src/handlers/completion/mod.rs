@@ -1,5 +1,8 @@
 pub(super) mod context;
 pub(crate) mod environment;
+mod native;
+mod native_process;
+mod native_zsh;
 mod specs;
 
 use std::collections::BTreeSet;
@@ -71,9 +74,64 @@ pub(super) fn extend(
         }
     }
     let arguments = specs::arguments(&site.words);
+    let mut native_arguments = false;
+    let native_enabled = !site.command
+        && !site.redirect
+        && !arguments.expecting_value
+        && options.include_command_arguments
+        && options.include_native
+        && environment.native_allowed;
+    // Live providers can be busy or change their results between keystrokes.
+    // Do not let the editor permanently filter a temporary fallback response.
+    incomplete |= native_enabled;
+    if native_enabled
+        && let Some(candidates) = environment.native.complete(
+            environment,
+            &site.words,
+            &site.prefix,
+            analysis
+                .path()
+                .and_then(Path::parent)
+                .unwrap_or(&environment.cwd),
+            cancellation,
+            options.use_shell_config,
+        )
+    {
+        native_arguments = !candidates.is_empty();
+        incomplete |= candidates.len() >= 2000;
+        for candidate in candidates.iter() {
+            if candidate.text.starts_with(&site.prefix)
+                && !site
+                    .words
+                    .iter()
+                    .skip(1)
+                    .any(|word| word == &candidate.text)
+                && seen.insert(candidate.text.clone())
+            {
+                items.push(item(
+                    &candidate.text,
+                    if candidate.text.starts_with('-') {
+                        types::CompletionItemKind::FIELD
+                    } else {
+                        types::CompletionItemKind::VALUE
+                    },
+                    if candidate.description.is_empty() {
+                        "Native completion"
+                    } else {
+                        &candidate.description
+                    },
+                    site.insert(&candidate.text),
+                    range,
+                    1,
+                ));
+            }
+        }
+    }
+
     if !site.command
         && !site.redirect
         && options.include_command_arguments
+        && !native_arguments
         && !arguments.after_separator
         && !arguments.expecting_value
     {
@@ -83,7 +141,7 @@ pub(super) fn extend(
                     items.push(item(
                         flag,
                         types::CompletionItemKind::FIELD,
-                        "Command option",
+                        specs::description(flag),
                         site.insert(flag),
                         range,
                         2,
@@ -106,6 +164,7 @@ pub(super) fn extend(
         }
     }
     if options.include_paths
+        && !native_arguments
         && (!site.command || site.prefix.contains('/') || site.prefix.starts_with('~'))
         && (!site.prefix.starts_with('-')
             || arguments.after_separator

@@ -78,7 +78,9 @@ impl Session {
     ) -> crate::Result<Self> {
         Ok(Self {
             completion_environment: Arc::new(
-                crate::handlers::completion::environment::Environment::detect(),
+                crate::handlers::completion::environment::Environment::detect(
+                    global.options().native_execution_allowed,
+                ),
             ),
             index: index::Index::new(workspaces, &global, client)?,
             position_encoding,

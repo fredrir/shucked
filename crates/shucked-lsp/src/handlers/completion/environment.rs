@@ -12,6 +12,8 @@ const CACHE_TTL: Duration = Duration::from_secs(2);
 
 pub(crate) struct Environment {
     pub(super) cwd: PathBuf,
+    pub(super) native: super::native::Native,
+    pub(super) native_allowed: bool,
     pub(super) home: Option<PathBuf>,
     pub(super) variables: BTreeSet<String>,
     pub(super) path_variables: BTreeMap<String, PathBuf>,
@@ -43,6 +45,8 @@ impl Environment {
     pub(super) fn fixture(root: &Path) -> Self {
         Self {
             cwd: root.to_owned(),
+            native: super::native::Native::default(),
+            native_allowed: false,
             home: Some(root.to_owned()),
             variables: BTreeSet::from(["SHUCKED_TEST_VARIABLE".to_owned()]),
             path_variables: BTreeMap::from([("HOME".to_owned(), root.to_owned())]),
@@ -52,7 +56,7 @@ impl Environment {
         }
     }
 
-    pub(crate) fn detect() -> Self {
+    pub(crate) fn detect(native_allowed: bool) -> Self {
         let cwd = std::env::current_dir().unwrap_or_default();
         let variables = std::env::vars_os()
             .filter_map(|(name, _)| name.into_string().ok())
@@ -66,7 +70,8 @@ impl Environment {
             })
             .collect();
         let mut seen = BTreeSet::new();
-        let path = std::env::var_os("PATH")
+        #[allow(unused_mut)] // Standard Unix directories are appended below.
+        let mut path: Vec<PathBuf> = std::env::var_os("PATH")
             .map(|path| {
                 std::env::split_paths(&path)
                     .map(|path| {
@@ -80,6 +85,20 @@ impl Environment {
                     .collect()
             })
             .unwrap_or_default();
+        // Desktop launches often omit package-manager bins from PATH.
+        #[cfg(unix)]
+        for directory in [
+            "/opt/homebrew/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+        ] {
+            let directory = PathBuf::from(directory);
+            if directory.is_dir() && seen.insert(directory.clone()) {
+                path.push(directory);
+            }
+        }
         let executable_extensions = std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned())
             .split(';')
@@ -88,6 +107,8 @@ impl Environment {
             .collect();
         Self {
             cwd,
+            native: super::native::Native::detect(),
+            native_allowed,
             home: std::env::var_os("HOME")
                 .or_else(|| std::env::var_os("USERPROFILE"))
                 .map(PathBuf::from),
@@ -100,10 +121,26 @@ impl Environment {
     }
 
     pub(crate) fn invalidate(&self) {
+        self.native.invalidate();
         self.cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
+    }
+
+    pub(super) fn executable_path(&self, command: &str, directory: &Path) -> Option<PathBuf> {
+        let candidates = if command.contains('/') {
+            vec![directory.join(command)]
+        } else {
+            self.path
+                .iter()
+                .map(|directory| directory.join(command))
+                .collect()
+        };
+        candidates.into_iter().find(|path| {
+            std::fs::metadata(path)
+                .is_ok_and(|metadata| metadata.is_file() && self.executable(command, &metadata))
+        })
     }
 
     pub(super) fn commands(

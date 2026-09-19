@@ -30,6 +30,8 @@ impl GlobalOptions {
 /// Per-client or per-workspace Shucked options supplied through LSP settings.
 #[derive(Clone, Debug, Default)]
 pub struct ClientOptions {
+    /// Permission from initialization; later workspace settings cannot grant it.
+    pub native_execution_allowed: bool,
     /// Shared per-file shell dialect overrides.
     pub per_file_shell: Option<BTreeMap<String, String>>,
     /// Lint configuration overrides.
@@ -100,6 +102,8 @@ struct RawFormatOptions {
 #[serde(rename_all = "camelCase")]
 struct RawClientOptions {
     #[serde(default)]
+    native_execution_allowed: bool,
+    #[serde(default)]
     per_file_shell: Option<BTreeMap<String, String>>,
     #[serde(default)]
     lint: Option<RawLintOptions>,
@@ -142,6 +146,7 @@ impl<'de> Deserialize<'de> for ClientOptions {
         });
 
         Ok(Self {
+            native_execution_allowed: raw.native_execution_allowed,
             per_file_shell: raw.per_file_shell,
             lint,
             format,
@@ -409,6 +414,8 @@ struct CompletionFeatureOptionsOverrides {
     include_environment: Option<bool>,
     include_paths: Option<bool>,
     include_command_arguments: Option<bool>,
+    include_native: Option<bool>,
+    use_shell_config: Option<bool>,
     max_items: Option<usize>,
 }
 
@@ -419,6 +426,8 @@ impl CompletionFeatureOptionsOverrides {
             || self.include_environment.is_some()
             || self.include_paths.is_some()
             || self.include_command_arguments.is_some()
+            || self.include_native.is_some()
+            || self.use_shell_config.is_some()
             || self.max_items.is_some()
     }
 
@@ -433,6 +442,8 @@ impl CompletionFeatureOptionsOverrides {
             include_command_arguments: self
                 .include_command_arguments
                 .unwrap_or(base.include_command_arguments),
+            include_native: self.include_native.unwrap_or(base.include_native),
+            use_shell_config: self.use_shell_config.unwrap_or(base.use_shell_config),
             max_items: self.max_items.unwrap_or(base.max_items),
         }
     }
@@ -457,6 +468,12 @@ pub struct CompletionFeatureOptions {
     /// Include known command flags and subcommands.
     #[serde(default = "default_completion_include_keywords")]
     pub include_command_arguments: bool,
+    /// Query native tools in trusted workspaces.
+    #[serde(default = "default_completion_include_keywords")]
+    pub include_native: bool,
+    /// Opt in to personal Zsh aliases, completion functions, and startup files.
+    #[serde(default)]
+    pub use_shell_config: bool,
     /// Maximum candidates in a response; clamped to 1..=2000.
     #[serde(default = "default_completion_max_items")]
     pub max_items: usize,
@@ -470,6 +487,8 @@ impl Default for CompletionFeatureOptions {
             include_environment: true,
             include_paths: true,
             include_command_arguments: true,
+            include_native: true,
+            use_shell_config: false,
             max_items: default_completion_max_items(),
         }
     }

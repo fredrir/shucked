@@ -150,6 +150,17 @@
           "description": "Complete paths relative to the current script directory.",
           "scope": "resource"
         },
+        "shucked.server.completion.useShellConfig": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Load personal Zsh startup files for flag completions, including aliases and custom completers. Optional; built-in providers work without shell configuration. Requires workspace trust."
+        },
+        "shucked.server.completion.includeNative": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete flags and package names using tools on the workspace host. Requires workspace trust; personal shell startup files are disabled by default."
+        },
         "shucked.server.completion.includeCommandArguments": {
           "type": "boolean",
           "default": true,

@@ -2055,6 +2055,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "libc",
  "lsp-server",
  "lsp-types",
  "rustc-hash 2.1.2",

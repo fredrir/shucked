@@ -1,6 +1,7 @@
 """Tests for LSP push diagnostics handling on didOpen and didChange."""
 
 import pytest
+
 from tests.lsp.client import LspClient
 
 
@@ -46,7 +47,9 @@ echo "$var"
 """
     await initialized_lsp_client.change_document(uri, text_v2, version=2)
     diags_v2 = await initialized_lsp_client.wait_for_diagnostics(uri)
-    assert len(diags_v2) == 0, f"Expected diagnostics to clear after using variable, got: {diags_v2}"
+    assert len(diags_v2) == 0, (
+        f"Expected diagnostics to clear after using variable, got: {diags_v2}"
+    )
 
 
 @pytest.mark.asyncio
@@ -58,6 +61,10 @@ async def test_diagnostics_cleared_by_directive_comment(
     text_with_suppression = """#!/bin/bash
 unused=1  # shuck: ignore=C001
 """
-    await initialized_lsp_client.open_document(uri, "shellscript", text_with_suppression)
+    await initialized_lsp_client.open_document(
+        uri, "shellscript", text_with_suppression
+    )
     diags = await initialized_lsp_client.wait_for_diagnostics(uri)
-    assert diags == [], f"Expected diagnostic to be suppressed by directive, got: {diags}"
+    assert diags == [], (
+        f"Expected diagnostic to be suppressed by directive, got: {diags}"
+    )

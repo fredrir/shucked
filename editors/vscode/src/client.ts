@@ -50,7 +50,7 @@ class ShuckedErrorHandler implements ErrorHandler {
     private readonly statusManager: StatusBarManager,
     private readonly onRestart: () => Promise<void>,
     private readonly isManualShutdown: () => boolean,
-  ) {}
+  ) { }
 
   public error(
     error: Error,
@@ -58,8 +58,7 @@ class ShuckedErrorHandler implements ErrorHandler {
     count: number | undefined,
   ): ErrorHandlerResult {
     this.outputChannel.error(
-      `Language server error (count: ${count ?? 1}): ${error.message}${
-        message ? ` | message: ${JSON.stringify(message)}` : ""
+      `Language server error (count: ${count ?? 1}): ${error.message}${message ? ` | message: ${JSON.stringify(message)}` : ""
       }`,
     );
 
@@ -139,6 +138,7 @@ export function getInitializationOptions(
   config: vscode.WorkspaceConfiguration,
 ): Record<string, unknown> {
   return {
+    nativeExecutionAllowed: vscode.workspace.isTrusted,
     unsafeFixes: config.get("unsafeFixes"),
     fixAll: config.get("fixAll"),
     lint: config.get("lint"),
@@ -163,7 +163,7 @@ export class ClientManager implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
     private readonly outputChannel: vscode.LogOutputChannel,
     private readonly statusManager: StatusBarManager,
-  ) {}
+  ) { }
 
   public get isRunning(): boolean {
     return this.client?.isRunning() ?? false;

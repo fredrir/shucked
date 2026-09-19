@@ -1,4 +1,4 @@
-// Repository-authored completion metadata. No command is executed to obtain candidates.
+// Repository-authored completion metadata, also available without native providers.
 
 pub(super) struct Spec {
     pub words: &'static str,
@@ -8,6 +8,36 @@ pub(super) struct Spec {
 }
 
 pub(super) const SPECS: &[Spec] = &[
+    Spec {
+        words: "brew",
+        flags: "--version --help --verbose --debug",
+        values: "",
+        subcommands: "install uninstall reinstall upgrade update list info search outdated cleanup doctor config tap untap pin unpin link unlink services autoremove fetch",
+    },
+    Spec {
+        words: "brew install",
+        flags: "--formula --cask --dry-run --force --verbose --debug --quiet --build-from-source --HEAD --ignore-dependencies --only-dependencies",
+        values: "",
+        subcommands: "",
+    },
+    Spec {
+        words: "brew uninstall",
+        flags: "--formula --cask --force --ignore-dependencies --zap",
+        values: "",
+        subcommands: "",
+    },
+    Spec {
+        words: "brew upgrade",
+        flags: "--formula --cask --dry-run --force --greedy --verbose",
+        values: "",
+        subcommands: "",
+    },
+    Spec {
+        words: "pacman",
+        flags: "-S -R -Q -U -F -D -T --sync --remove --query --upgrade --files --database --deptest --help --version --verbose --needed --noconfirm --downloadonly --refresh --sysupgrade --search --info --list --quiet --recursive --nosave --root --dbpath --config --cachedir --sysroot",
+        values: "--root --dbpath --config --cachedir --sysroot -r -b",
+        subcommands: "",
+    },
     Spec {
         words: "git",
         flags: "--version --help -C -c --git-dir --work-tree --no-pager --bare",
@@ -280,10 +310,51 @@ pub(super) fn arguments(words: &[String]) -> Arguments {
             .subcommands
             .extend(spec.subcommands.split_whitespace());
     }
+    if command == "pacman" {
+        let operation = words.iter().skip(1).find_map(|word| match word.as_str() {
+            "--sync" => Some('S'),
+            "--remove" => Some('R'),
+            "--query" => Some('Q'),
+            _ if word.starts_with('-') && !word.starts_with("--") => {
+                word.chars().find(|ch| "SRQ".contains(*ch))
+            }
+            _ => None,
+        });
+        if let Some(operation) = operation {
+            result.flags = "--help --verbose --root --dbpath --config --sysroot"
+                .split_whitespace()
+                .collect();
+            result.flags.extend(match operation {
+                'S' => "-s -i -l -y -u -w --search --info --list --refresh --sysupgrade --downloadonly --needed --asdeps --asexplicit --ignore --ignoregroup --overwrite",
+                'R' => "-s -n -c -u --recursive --nosave --cascade --unneeded --print",
+                _ => "-s -i -l -o -u -m -e -d --search --info --list --owns --upgrades --foreign --explicit --deps --quiet",
+            }.split_whitespace());
+        }
+    }
     result.flags.retain(|flag| {
         !words
             .iter()
             .any(|word| word == flag || word.starts_with(&format!("{flag}=")))
     });
     result
+}
+
+pub(super) fn description(flag: &str) -> &'static str {
+    match flag {
+        "--formula" => "Use Homebrew formulae",
+        "--cask" => "Use Homebrew casks",
+        "--dry-run" => "Preview the operation",
+        "--needed" => "Skip packages that are already current",
+        "--sync" => "Use the package repository database",
+        "--remove" => "Remove installed packages",
+        "--query" => "Inspect installed packages",
+        "--downloadonly" => "Download packages without installing",
+        "--refresh" => "Refresh package repository metadata",
+        "--sysupgrade" => "Upgrade installed packages",
+        "--config" => "Choose a configuration file",
+        "--dbpath" => "Choose a package database directory",
+        "--help" => "Show command help",
+        "--version" => "Show the installed version",
+        _ => "Command option",
+    }
 }

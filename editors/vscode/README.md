@@ -19,43 +19,56 @@ VS Code extension for **Shucked**: Industry-grade Shellscript & ZSH Language Ser
 
 > `shucked.server.path` expands `~`, `$VAR`, and `${VAR}`.
 
-| Completion setting | Default |
-| --- | --- |
-| `shucked.server.completion.includeEnvironment` | `true` |
-| `shucked.server.completion.includePaths` | `true` |
-| `shucked.server.completion.includeCommandArguments` | `true` |
-| `shucked.server.completion.includeRuntimeNames` | `true` |
-| `shucked.server.completion.includeKeywords` | `true` |
-| `shucked.server.completion.maxItems` | `200` (1–2000) |
+| Completion setting                                  | Default                     |
+| --------------------------------------------------- | --------------------------- |
+| `shucked.server.completion.includeEnvironment`      | `true`                      |
+| `shucked.server.completion.includePaths`            | `true`                      |
+| `shucked.server.completion.includeCommandArguments` | `true`                      |
+| `shucked.server.completion.includeNative`           | `true` (trusted workspaces) |
+| `shucked.server.completion.useShellConfig`          | `false` (machine setting)   |
+| `shucked.server.completion.includeRuntimeNames`     | `true`                      |
+| `shucked.server.completion.includeKeywords`         | `true`                      |
+| `shucked.server.completion.maxItems`                | `200` (1–2000)              |
 
 ## Completion behavior
 
-| Source | Behavior |
-| --- | --- |
-| Symbols | Visible variables, functions, sourced functions, builtins, shell keywords, Zsh options |
-| Commands | Executable files from the server host's `PATH`; first matching directory wins |
-| Variables | Inherited environment names; values are not included in suggestions |
-| Paths | Script directory; server working directory for untitled buffers |
-| Path syntax | Absolute/relative paths, `~/`, `$HOME/`, `${HOME}/`, quoted and escaped names |
-| Directories | Directory-only suggestions for `cd`, `pushd`, and `rmdir` |
-| Arguments | Repository-authored flags and subcommands for Git, curl, SSH, Docker, kubectl, common file tools, and selected builtins |
-| Edits | Replace the word suffix; negotiate insert/replace edits with the editor |
-| Limits | Bounded directory caches and result counts; partial lists request further completion |
-| Refresh | Directory listings expire after two seconds; watched-file changes invalidate the cache |
-| Execution | No shell startup files, completion scripts, or command help processes are executed |
+| Source              | Behavior                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Symbols             | Visible variables, functions, sourced functions, builtins, shell keywords, Zsh options                                        |
+| Commands            | Server host's `PATH`, then standard system and Homebrew directories; first match wins                                         |
+| Variables           | Inherited environment names; values are not included in suggestions                                                           |
+| Paths               | Script directory; server working directory for untitled buffers                                                               |
+| Path syntax         | Absolute/relative paths, `~/`, `$HOME/`, `${HOME}/`, quoted and escaped names                                                 |
+| Directories         | Directory-only suggestions for `cd`, `pushd`, and `rmdir`                                                                     |
+| Arguments           | Bundled flags and subcommands for Git, Homebrew, Pacman, curl, SSH, Docker, kubectl, common file tools, and selected builtins |
+| Native flags        | Installed `ls`, `gls`, `eza`, `exa`, `rg`, `fd`, and `bat` help output; managed Zsh completion fallback                       |
+| Packages            | `pacman -S` uses repository package names; `pacman -R` / `-Q` use installed names                                             |
+| Homebrew            | `brew install` suggests formulae and casks; `--formula` / `--cask` narrow the list; removal and upgrade use installed names   |
+| Descriptions        | Native help/completion descriptions appear beside flags                                                                       |
+| Personal aliases    | Optional `useShellConfig` loads Zsh login/interactive startup files for flag completion                                       |
+| Edits               | Replace the word suffix; negotiate insert/replace edits with the editor                                                       |
+| Limits              | Bounded directory caches and result counts; partial lists request further completion                                          |
+| Refresh             | Directories: 2 seconds; native queries: 60 seconds; Zsh: 30 seconds; watched-file changes invalidate caches                   |
+| Execution           | Trusted workspaces only; fixed help/package queries and Zsh completion scripts, with deadlines and cancellation               |
+| Default shell setup | Zsh starts with `-f`; Shucked initializes completion without `.zshrc`, plugins, or a completion dump                          |
+| Native platforms    | Unix workspace hosts; other platforms retain bundled metadata, paths, and symbols                                             |
 
-Unknown commands receive path completion. Command metadata is a built-in catalog, not a probe of installed command versions.
+The providers ship inside the server binary bundled with the extension. Homebrew and Pacman completion requires the corresponding tool and its package metadata on the workspace host; Zsh is not required for those providers. Missing tools, unavailable metadata, failed queries, and timeouts fall back to bundled metadata and paths.
+
+Flags reflect the installed executable: macOS `ls`, GNU `ls`, and `eza` have different options. Personal aliases such as `ls=eza` are used only with `useShellConfig` enabled. The default needs no personal shell configuration.
+
+Completion never runs the edited command, installs packages, or explicitly refreshes package databases. Package names and help are queried through fixed arguments. Personal shell configuration, when enabled, runs its normal startup code.
 
 ## Remote workspaces
 
-| Environment | Server and completion source |
-| --- | --- |
-| Local | Local workspace extension host |
-| Remote SSH | SSH host |
-| WSL | WSL distribution |
-| Dev Container | Container |
-| Other LSP editors | Host running `shucked-server` |
-| Virtual filesystem without a native host | Unsupported |
+| Environment                              | Server and completion source   |
+| ---------------------------------------- | ------------------------------ |
+| Local                                    | Local workspace extension host |
+| Remote SSH                               | SSH host                       |
+| WSL                                      | WSL distribution               |
+| Dev Container                            | Container                      |
+| Other LSP editors                        | Host running `shucked-server`  |
+| Virtual filesystem without a native host | Unsupported                    |
 
 Install the extension on the workspace host. VSIX packages target that host's OS, architecture, and Linux/Alpine family. Incompatible bundled binaries are skipped; discovery continues through build artifacts and `PATH`.
 
@@ -63,18 +76,21 @@ Install the extension on the workspace host. VSIX packages target that host's OS
 
 ```json
 {
+  "nativeExecutionAllowed": true,
   "server": {
     "completion": {
       "includeEnvironment": true,
       "includePaths": true,
       "includeCommandArguments": true,
+      "includeNative": true,
+      "useShellConfig": false,
       "maxItems": 200
     }
   }
 }
 ```
 
-Other editors pass this object as LSP initialization options.
+Other editors pass this object as LSP initialization options for trusted workspaces. VS Code sets `nativeExecutionAllowed` from workspace trust automatically. Later workspace configuration cannot grant this permission; granting VS Code trust restarts the server.
 
 ## Commands
 
@@ -112,5 +128,5 @@ The status bar displays the current state of Shucked:
 | `src/status.ts`    | Status bar item state management and interactions.                                    |
 | `src/commands.ts`  | Command registrations (`restartServer`, `showOutputChannel`, `showVersion`).          |
 | `src/config.ts`    | Configuration watcher and live server reload.                                         |
-| `platform.mjs` | Native executable and host-platform detection |
-| `vsix.mjs` | Package/publish a VSIX for the current host |
+| `platform.mjs`     | Native executable and host-platform detection                                         |
+| `vsix.mjs`         | Package/publish a VSIX for the current host                                           |

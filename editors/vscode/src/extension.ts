@@ -23,6 +23,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   registerCommands(context, clientManager, outputChannel, statusManager);
   registerConfigWatcher(context, clientManager, outputChannel);
+  context.subscriptions.push(
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      void clientManager?.restart();
+    }),
+  );
 
   // Multi-root workspace change handling
   context.subscriptions.push(

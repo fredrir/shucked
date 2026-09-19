@@ -1,9 +1,10 @@
 """Pytest configuration and fixtures for Shucked test suite."""
 
-import asyncio
-from pathlib import Path
 import sys
-from typing import AsyncGenerator, Callable, Dict, Optional
+from collections.abc import AsyncGenerator, Callable
+from pathlib import Path
+from typing import Optional
+
 import pytest
 import pytest_asyncio
 
@@ -13,7 +14,6 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from tests.lsp.client import LspClient
-
 
 
 @pytest.fixture(scope="session")
@@ -60,8 +60,8 @@ async def lsp_client_factory(
     clients = []
 
     async def _create(
-        capabilities: Optional[Dict] = None,
-        initialization_options: Optional[Dict] = None,
+        capabilities: dict | None = None,
+        initialization_options: dict | None = None,
         initialize: bool = True,
     ) -> LspClient:
         client = LspClient(binary_path=str(shucked_binary))
