@@ -96,13 +96,40 @@ fn imported_inventory_integrity_is_verified_and_export_wont_overwrite() {
 fn comparison_recognizes_fish_shebang_and_source_functions() {
     let root = tempfile::tempdir().unwrap();
     let inventory = root.path().join("fish.json");
-    assert!(command().env("PATH", root.path()).args(["target", "capture", "--shell", "fish", "--output"]).arg(&inventory).output().unwrap().status.success());
+    assert!(
+        command()
+            .env("PATH", root.path())
+            .args(["target", "capture", "--shell", "fish", "--output"])
+            .arg(&inventory)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
     let source = root.path().join("script");
-    std::fs::write(&source, "#!/usr/bin/env fish\nfunction greeting\n printf hello\nend\ngreeting\n").unwrap();
-    let output = command().args(["target", "compare", "--target"]).arg(&inventory).arg(source).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    std::fs::write(
+        &source,
+        "#!/usr/bin/env fish\nfunction greeting\n printf hello\nend\ngreeting\n",
+    )
+    .unwrap();
+    let output = command()
+        .args(["target", "compare", "--target"])
+        .arg(&inventory)
+        .arg(source)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let greeting = report["comparison"]["commands"].as_array().unwrap().iter().find(|site| site["name"] == "greeting").unwrap();
+    let greeting = report["comparison"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|site| site["name"] == "greeting")
+        .unwrap();
     assert_eq!(greeting["results"][0]["state"], "resolved");
     assert_eq!(greeting["results"][0]["command"]["kind"], "function");
 }

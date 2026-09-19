@@ -26,7 +26,8 @@ const CONFIG_FILENAMES: [&str; 2] = [".shucked.toml", "shucked.toml"];
 /// (user-level) shucked config file. When set, only this directory is consulted
 /// for global configuration.
 const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCKED_CONFIG_HOME";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell", "environment"];
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] =
+    &["check", "format", "lint", "per-file-shell", "environment"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "exclude",
@@ -1742,7 +1743,9 @@ impl FormatConfig {
 
 impl ShuckConfig {
     fn apply_overrides(&mut self, overrides: ShuckConfig) {
-        self.environment.commands.extend(overrides.environment.commands);
+        self.environment
+            .commands
+            .extend(overrides.environment.commands);
         self.check.apply_overrides(overrides.check);
         self.format.apply_overrides(overrides.format);
         self.lint.apply_overrides(overrides.lint);

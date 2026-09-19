@@ -55,9 +55,23 @@ pub(crate) fn run(command: TargetCommand) -> Result<ExitStatus> {
                 .map(|path| read_inventory(path))
                 .collect::<Result<Vec<_>>>()?;
             let source = std::fs::read_to_string(&script)?;
-            let is_fish = script.extension().is_some_and(|ext| ext == "fish") || source.lines().next().and_then(shucked_parser::shebang::interpreter_name) == Some("fish");
+            let is_fish = script.extension().is_some_and(|ext| ext == "fish")
+                || source
+                    .lines()
+                    .next()
+                    .and_then(shucked_parser::shebang::interpreter_name)
+                    == Some("fish");
             let fish = is_fish.then(|| shucked_semantic::analyze_fish(&source));
-            let fish_functions: std::collections::BTreeSet<_> = fish.as_ref().map(|document| document.function_calls.iter().map(|(span, _)| span.start.offset()).collect()).unwrap_or_default();
+            let fish_functions: std::collections::BTreeSet<_> = fish
+                .as_ref()
+                .map(|document| {
+                    document
+                        .function_calls
+                        .iter()
+                        .map(|(span, _)| span.start.offset())
+                        .collect()
+                })
+                .unwrap_or_default();
             let facts = if let Some(fish) = fish {
                 fish.commands
             } else {
@@ -91,7 +105,9 @@ pub(crate) fn run(command: TargetCommand) -> Result<ExitStatus> {
                         .collect(),
                     alias_eligible: false,
                     environment_uncertain: fact.environment_uncertain.is_some(),
-                    functions: if fact.visible_function.is_some() || fish_functions.contains(&fact.name_span().start.offset()) {
+                    functions: if fact.visible_function.is_some()
+                        || fish_functions.contains(&fact.name_span().start.offset())
+                    {
                         fact.name().into_iter().map(str::to_owned).collect()
                     } else {
                         Default::default()
