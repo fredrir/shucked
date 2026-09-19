@@ -27,6 +27,27 @@ just test
 just run check .             # cargo run -p shucked-cli -- check .
 ```
 
+## Shell completions
+
+Shell completions live in `just/_just`: recipe names come from `just` itself, recipe arguments are
+read from the `tooling` CLI help.
+
+```bash
+mkdir -p ~/.zsh/completions
+ln -sf "$PWD/just/_just" ~/.zsh/completions/_just
+```
+
+Add to `~/.zshrc` and restart the shell:
+
+```bash
+fpath=(~/.zsh/completions $fpath)
+autoload -U compinit && compinit
+```
+
+Argument completion uses the built `tooling` binary (`target/debug/tooling`, `target/release/tooling`,
+or `tooling` on `PATH`). If the binary is missing but the workspace has been built before, it falls
+back to `cargo run -p shucked-tooling`; recipe names always complete.
+
 ## Development Workflow
 
 Before submitting changes, run the full check suite:
@@ -117,9 +138,9 @@ just corpus test              # run full comparison against ShellCheck
 You can target specific rules or sample a subset:
 
 ```bash
-just corpus test SHUCK_LARGE_CORPUS_RULES=C001
-just corpus test SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
-just corpus test SHUCK_LARGE_CORPUS_TIMING=1
+just corpus test --rules C001
+just corpus test --sample-percent 10
+just corpus test --timing
 ```
 
 ## Fuzzing
@@ -421,11 +442,15 @@ See `CLAUDE.md` for the full policy.
 ## Benchmarking
 
 ```bash
-just bench                    # Criterion microbenchmarks
-just bench-parser             # parser benchmarks only
-just bench-linter             # linter benchmarks only
-just bench-macro              # Hyperfine comparison vs ShellCheck
+just bench                    # Criterion microbenchmarks (all targets)
+just bench parser             # single benchmark target
+just bench --memory           # memory profiling benchmarks
+just flame parser             # flamegraph for one target
+just profile parser           # samply profile for one target
 ```
+
+Benchmark targets: `parser`, `arithmetic`, `lexer`, `semantic`, `linter`, `formatter`, `lsp`, `all`.
+Flamegraphs and profiles support a subset of those targets.
 
 ## License
 

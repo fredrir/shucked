@@ -1,0 +1,138 @@
+#compdef just
+_just_tool() {
+  local dir=$PWD bin
+  while [[ $dir != / ]]; do
+    if [[ -f $dir/justfile && -f $dir/Cargo.toml ]]; then
+      for bin in "$dir/target/debug/tooling" "$dir/target/release/tooling"; do
+        if [[ -x $bin ]]; then
+          reply=("$bin")
+          return 0
+        fi
+      done
+      if [[ -d $dir/target ]] && ((${+commands[cargo]})); then
+        reply=(cargo run -q -p shucked-tooling --)
+        return 0
+      fi
+      break
+    fi
+    dir=${dir:h}
+  done
+  if ((${+commands[tooling]})); then
+    reply=(tooling)
+    return 0
+  fi
+  return 1
+}
+
+_just_tooling_argv() {
+  case $1 in
+  fmt) reply=(format) ;;
+  corpus | fuzz | release | vscode) reply=($1 $2) ;;
+  wasm) [[ $2 == test ]] && reply=(test --wasm) || reply=(build --wasm) ;;
+  bench | build | check | clean | flame | init | lint | profile | test) reply=($1) ;;
+  *) return 1 ;;
+  esac
+}
+
+_just_flags() {
+  local -a flags=()
+  local flag
+  for flag in ${(f)"$(print -r -- "$1" | grep -oE -- '--[a-z][a-z0-9-]*')"}; do
+    [[ -n $flag ]] || continue
+    [[ $flag == --help || $flag == --version ]] && continue
+    ((flags[(I)$flag])) && continue
+    flags+=("$flag")
+  done
+  reply=("${flags[@]}")
+  ((${#reply}))
+}
+
+_just_possible_values() {
+  local flat=${1//$'\n'/ }
+  if [[ -n $2 ]]; then
+    flat=${${flat#*--$2}%%--*}
+  else
+    flat=${flat%%Options:*}
+  fi
+  local group=(${(f)"$(print -r -- "$flat" | grep -oE '\[possible values: [^]]*\]')"})
+  ((${#group})) || return 1
+  group=${group[1]#\[possible values: }
+  group=${group%\]}
+  reply=(${(s:, :)group})
+}
+
+_just() {
+  local cur=$words[CURRENT]
+  local -a done_words=() path_words
+  ((CURRENT > 2)) && done_words=("${(@)words[2,$((CURRENT-1))]}")
+  local w
+  for w in "${done_words[@]}"; do
+    [[ -n $w && $w != -* ]] && path_words+=("$w")
+  done
+
+  local global=0
+  [[ ${done_words[1]} == -* || (${#path_words} -eq 0 && $cur == -*) ]] && global=1
+  local prefix=""
+  ((!global && ${#path_words})) && prefix="${(j|::|)path_words}::"
+
+  local -a names descs
+  local entry name doc
+  for entry in "${(@f)$(_CLAP_COMPLETE_INDEX=$((CURRENT-1)) JUST_COMPLETE=zsh just -- "${words[@]}" 2>/dev/null)}"; do
+    [[ -n $entry ]] || continue
+    entry=${entry//\\:/$'\x01'}
+    [[ $entry == *:* ]] || continue
+    name=${entry%%:*}
+    doc=${entry#*:}
+    name=${name//$'\x01'/:}
+    doc=${doc//$'\x01'/:}
+    [[ $name == -* && $global -eq 0 ]] && continue
+    if [[ -n $prefix ]]; then
+      [[ $name == $prefix* ]] || continue
+      name=${name#$prefix}
+    fi
+    names+=("$name")
+    descs+=("$doc")
+  done
+
+  local mod
+  if [[ -z $prefix ]]; then
+    for mod in "${names[@]}"; do
+      [[ $mod == *::* ]] || continue
+      mod=${mod%%::*}
+      ((names[(I)$mod])) && continue
+      names+=("$mod")
+      descs+=("")
+    done
+  fi
+
+  local -a tool_argv flags values tool_cmd
+  local help=""
+  if ((${#path_words})) && _just_tooling_argv "${path_words[@]}"; then
+    tool_argv=("${reply[@]}")
+    if _just_tool; then
+      tool_cmd=("${reply[@]}")
+      help=$("${tool_cmd[@]}" "${tool_argv[@]}" --help 2>/dev/null)
+      [[ -n $help ]] && _just_flags "$help" && flags=("${reply[@]}")
+    fi
+  fi
+
+  local prev=${done_words[-1]}
+  if [[ -n $help && $cur != -* ]]; then
+    if [[ $prev == --* ]]; then
+      _just_possible_values "$help" "${prev#--}" && values=("${reply[@]}")
+    else
+      _just_possible_values "$help" && values=("${reply[@]}")
+    fi
+  fi
+
+  ((${#names})) && compadd -Q -d descs -a names
+  ((${#values})) && compadd -a values
+  ((${#flags})) && compadd -a flags
+
+  ((${#names} || ${#values} || ${#flags})) && return 0
+  _default
+}
+
+if [[ -n $words ]]; then
+  _just "$@"
+fi

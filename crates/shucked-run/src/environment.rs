@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-const DEFAULT_REGISTRY_URL: &str = "https://ewhauser.github.io/shuck-shells/";
+const DEFAULT_REGISTRY_URL: &str = "https://fredrir.github.io/shucked-shells/";
 const SHELLS_DIR_ENV: &str = "SHUCK_SHELLS_DIR";
 const REGISTRY_URL_ENV: &str = "SHUCK_RUN_REGISTRY_URL";
 
@@ -47,6 +47,8 @@ fn linux_runtime_abi() -> Result<&'static str> {
     } else if cfg!(target_env = "musl") {
         Ok("musl")
     } else {
-        anyhow::bail!("unsupported linux target environment for shuck run")
+        Err(anyhow::anyhow!(
+            "unsupported linux target environment for shuck run"
+        ))
     }
 }

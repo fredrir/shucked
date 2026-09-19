@@ -13,11 +13,11 @@ use crate::runner::{
 };
 
 const DEFAULT_ARCHIVE_URL: &str =
-    "https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache-v3.tar.zst";
+    "https://github.com/fredrir/shucked/releases/download/v0.0.0-test-files/shuck-cache-v3.tar.zst";
 const DEFAULT_ARCHIVE_SHA256: &str =
     "880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7";
 
-const DEFAULT_ZSH_ARCHIVE_URL: &str = "https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-zsh-diagnostic-corpus-v1.tar.zst";
+const DEFAULT_ZSH_ARCHIVE_URL: &str = "https://github.com/fredrir/shucked/releases/download/v0.0.0-test-files/shuck-zsh-diagnostic-corpus-v1.tar.zst";
 const DEFAULT_ZSH_ARCHIVE_SHA256: &str =
     "6fefa7c1aea0aba37e0111a73d2dea2e0ba08df2ed1a8704a3464798ac413dda";
 

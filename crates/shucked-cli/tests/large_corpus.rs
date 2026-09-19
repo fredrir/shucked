@@ -1201,7 +1201,7 @@ fn large_corpus_conforms_with_shellcheck() {
 }
 
 #[test]
-#[ignore = "requires the large corpus; run `just corpus test-zsh`"]
+#[ignore = "requires the large corpus; run `just corpus test --zsh`"]
 fn large_corpus_zsh_fixtures_parse() {
     let cfg = match resolve_large_corpus_config() {
         Some(cfg) => cfg,

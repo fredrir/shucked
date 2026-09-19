@@ -1,7 +1,4 @@
 //! Compact owned identifier-like strings for the shell AST.
-//!
-//! Adapted from Ruff's `ruff_python_ast::name::Name` implementation:
-//! `/Users/ewhauser/working/ruff/crates/ruff_python_ast/src/name.rs`
 
 use std::borrow::{Borrow, Cow};
 use std::fmt::{Debug, Display, Formatter};

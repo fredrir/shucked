@@ -24,10 +24,6 @@ cargo bench -p shucked-benchmark --bench lsp -- --save-baseline=lsp-main
 cargo bench -p shucked-benchmark --bench lsp -- --baseline=lsp-main
 ```
 
-## Historical measurements
-
-Recorded on 2026-05-03 from `/Users/ewhauser/working/shucked-lsp`.
-
 ## Benchmark gate
 
 Command:

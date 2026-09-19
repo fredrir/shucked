@@ -70,14 +70,14 @@ just corpus download
 just corpus test
 
 # Run a targeted comparison for one rule or a CSV list of selectors
-just corpus test SHUCK_LARGE_CORPUS_RULES=C001
-just corpus test SHUCK_LARGE_CORPUS_RULES=C001,C006
+just corpus test --rules C001
+just corpus test --rules C001,C006
 
 # Run a smaller sample while iterating
-just corpus test SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+just corpus test --sample-percent 10
 
 # Print only the 25 slowest Shucked fixtures and always exit successfully
-just corpus test SHUCK_LARGE_CORPUS_TIMING=1
+just corpus test --timing
 
 # Generate the large corpus compatibility report
 just corpus report

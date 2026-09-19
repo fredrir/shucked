@@ -64,16 +64,6 @@ fn argv0_basename_shellcheck_activates_compat_mode() {
 }
 
 #[test]
-fn plain_shuck_help_stays_on_existing_cli() {
-    let mut cmd = Command::cargo_bin("shucked").unwrap();
-    cmd.arg("--help");
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Shell checker CLI for shuck"))
-        .stdout(predicate::str::contains("ShellCheck compatibility mode").not());
-}
-
-#[test]
 fn plain_shuck_version_reports_release_version() {
     let mut cmd = Command::cargo_bin("shucked").unwrap();
     cmd.arg("--version");

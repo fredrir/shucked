@@ -21,8 +21,8 @@ mod vscode;
 #[derive(Parser, Debug)]
 #[command(
     name = "tooling",
-    author = "Eric Hauser <ewhauser@gmail.com>",
-    version = "0.2.2",
+    author = "Fredrik Carsten Hansteen <fhansteen@gmail.com>",
+    version = "0.0.1",
     about = "Blazingly fast developer tooling and automation for Shuck",
     propagate_version = true
 )]
