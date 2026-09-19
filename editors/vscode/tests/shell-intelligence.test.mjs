@@ -8,6 +8,7 @@ import { mkdtemp, chmod, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 const require = createRequire(import.meta.url);
 async function moduleFrom(filename) {
@@ -16,7 +17,7 @@ async function moduleFrom(filename) {
   runInNewContext(built.outputFiles[0].text, {module,exports:module.exports,process,Buffer,require:id=>id==='vscode'?{}:require(id)});
   return module.exports;
 }
-const {HistoryIndex,parseHistory} = await moduleFrom('history.ts');
+const {HistoryIndex,parseHistory,acceptedSessionCommand} = await moduleFrom('history.ts');
 const {validateSessionMessage} = await moduleFrom('terminal.ts');
 test('history index isolates targets and never proposes private, multiline, or oversized entries',()=>{
   const index = new HistoryIndex();
@@ -30,6 +31,14 @@ test('shell history formats are decoded as data and multiline commands omitted',
   assert.deepEqual(Array.from(parseHistory(': 123:0;brew install fish\n: 124:0;echo a\\\nsecret','zsh')),['brew install fish']);
   assert.deepEqual(Array.from(parseHistory('#1234\ngit status\n','bash')),['git status']);
   assert.deepEqual(Array.from(parseHistory('- cmd: brew install fish\n  when: 42\n- cmd: echo\\nsecret\n','fish')),['brew install fish']);
+});
+test('session history requires acceptance at a fresh nonprivate prompt',()=>{
+  const text='brew install fish'; const metadata={private:false,ignore:[],acceptedHistoryHash:createHash('sha256').update(text).digest('hex')};
+  assert.equal(acceptedSessionCommand(text,metadata),true);
+  assert.equal(acceptedSessionCommand(text,{...metadata,private:true}),false);
+  assert.equal(acceptedSessionCommand('brew install SECRET',metadata),false);
+  assert.equal(acceptedSessionCommand(text,{...metadata,acceptedHistoryHash:undefined}),false);
+  assert.equal(acceptedSessionCommand(text,{...metadata,ignore:['unsupported-history-filter']}),false);
 });
 test('shell metadata rejects malformed and oversized identities',()=>{
   const valid={id:'a'.repeat(32),token:'b'.repeat(64),generation:1,pid:123,shell:'zsh',cwd:process.cwd(),path:['','/usr/bin'],aliases:{ls:['eza','--icons']},functions:['greet'],options:{aliases:'on'},private:false,ignore:[],connected:true};
@@ -52,7 +61,7 @@ for (const shell of ['bash','zsh']) {
       const child=spawn(shell,['-c',`source "$1"; alias ls='eza --icons'; alias dangerous='touch should-never-be-executed'; function demo { echo PRIVATE_FUNCTION_BODY; }; __shucked_capture`,shell,hook],{env:{...process.env,SHUCKED_SESSION_ID:'a'.repeat(32),SHUCKED_SESSION_TOKEN:'b'.repeat(64),SHUCKED_SESSION_SOCKET:socket,SHUCKED_CAPTURE:fileURLToPath(new URL('../shell-integration/capture.cjs',import.meta.url)),SHUCKED_NODE:process.execPath},stdio:['ignore','pipe','pipe']});
       const exited=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error(`shell exit ${code}`)));});
       const [message]=await Promise.all([received,exited]);
-      assert.equal(message.shell,shell);assert.deepEqual(message.aliases.ls,['eza','--icons']);assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');
+      assert.equal(message.shell,shell);assert.deepEqual(message.aliases.ls,['eza','--icons']);assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');assert.equal(message.acceptedHistoryHash,undefined);
     }finally{await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
   });
 }

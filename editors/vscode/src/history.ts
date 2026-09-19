@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { EnvironmentManager } from "./environment";
+import { createHash } from "node:crypto";
+import { EnvironmentManager, type EnvironmentSelection } from "./environment";
 import type { SessionMetadata } from "./terminal";
 
 const MAX_ENTRIES = 1000;
@@ -26,6 +27,13 @@ export class HistoryIndex {
     return this.entries.get(context)?.findLast(command => command.startsWith(prefix) && command !== prefix);
   }
   public clear(context?: string): void { if (context) { this.entries.delete(context); } else { this.entries.clear(); } }
+}
+
+/** Session suggestions require a fresh prompt confirming shell history acceptance. */
+export function acceptedSessionCommand(text: string, metadata: Pick<SessionMetadata, "private" | "ignore" | "acceptedHistoryHash">): boolean {
+  return !metadata.private && metadata.ignore.every(rule => rule === "leading-space")
+    && !text.startsWith(" ") && !/[\r\n\0]/.test(text)
+    && metadata.acceptedHistoryHash === createHash("sha256").update(text.trim()).digest("hex");
 }
 
 /** Read shell formats as data, with no sourcing or shell evaluation. */
@@ -63,8 +71,7 @@ export class HistoryManager implements vscode.Disposable {
   }
   public sessionEnabled(): boolean { return vscode.workspace.isTrusted && vscode.workspace.getConfiguration("shucked").get<boolean>("history.session", false); }
   public recordSession(id: string, text: string, metadata: SessionMetadata): void {
-    if (!this.sessionEnabled() || metadata.private || metadata.ignore.some(rule => rule !== "leading-space")) { return; }
-    if (metadata.ignore.includes("leading-space") && text.startsWith(" ")) { return; }
+    if (!this.sessionEnabled() || !acceptedSessionCommand(text, metadata)) { return; }
     // Until a prompt updates state, nested shells/remotes cannot establish host-local history.
     if (/^\s*(?:ssh|mosh|su|sudo|docker|podman|bash|zsh|fish)(?:\s|$)/.test(text)) { return; }
     this.index.record(`session:${id}`, text);
@@ -77,7 +84,7 @@ export class HistoryManager implements vscode.Disposable {
     const sessionEnabled = config.get<boolean>("history.session", false);
     const filesEnabled = config.get<boolean>("history.files", false);
     if (!sessionEnabled && !filesEnabled) { return []; }
-    const selection = this.environments.selection(document);
+    const selection = this.environments.selection(document) ?? config.get<EnvironmentSelection>("environment", {});
     if (selection?.targetInventory || selection?.policy === "portable") { return []; }
     const line = document.lineAt(position.line).text;
     if (position.character !== line.length) { return []; }

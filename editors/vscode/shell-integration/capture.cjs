@@ -1,5 +1,6 @@
 'use strict';
 const net = require('node:net');
+const { createHash } = require('node:crypto');
 const MAX = 256 * 1024;
 let bytes = 0;
 const chunks = [];
@@ -21,6 +22,7 @@ process.stdin.on('end', () => {
       if (expansion.startsWith("'") && expansion.endsWith("'")) expansion = expansion.slice(1, -1).replace(/'\\''/g, "'");
       const words = simpleAlias(expansion); if (/^[\w.:-]{1,256}$/.test(name) && words) message.aliases[name] = words; else if (/^[\w.:-]{1,256}$/.test(name)) message.functions.push(name);
     } else if (key === 'private') message.private ||= value === '1';
+    else if (key === 'accepted-history') message.acceptedHistoryHash = createHash('sha256').update(value.trim()).digest('hex');
     else if (key === 'ignore') message.ignore.push(value);
     else if (key === 'option') { const at = value.indexOf('='); if (at > 0) message.options[value.slice(0, at)] = value.slice(at + 1); }
   }

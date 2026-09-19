@@ -12,9 +12,9 @@ type Shell = "bash" | "zsh" | "fish";
 export interface SessionMetadata {
   id: string; generation: number; pid: number; shell: Shell; cwd: string; path: string[];
   aliases: Record<string, string[]>; functions: string[]; options: Record<string, string>;
-  private: boolean; ignore: string[]; connected: boolean;
+  private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string;
 }
-interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; }
+interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; }
 const MAX_FRAME = 256 * 1024;
 const stringList = (value: unknown, max = 16384): value is string[] => Array.isArray(value) && value.length <= max && value.every(item => typeof item === "string" && item.length < 16384 && !item.includes("\0"));
 
@@ -26,6 +26,7 @@ export function validateSessionMessage(value: unknown): value is SessionMetadata
   if (!Number.isSafeInteger(item.generation) || Number(item.generation) < 1 || !Number.isSafeInteger(item.pid) || Number(item.pid) <= 0) { return false; }
   if (!["bash", "zsh", "fish"].includes(String(item.shell)) || typeof item.cwd !== "string" || !path.isAbsolute(item.cwd) || item.cwd.includes("\0")) { return false; }
   if (!stringList(item.path, 1024) || !stringList(item.functions) || !stringList(item.ignore, 32)) { return false; }
+  if (item.acceptedHistoryHash !== undefined && (typeof item.acceptedHistoryHash !== "string" || !/^[a-f0-9]{64}$/.test(item.acceptedHistoryHash))) { return false; }
   if (typeof item.private !== "boolean" || item.connected !== true || !item.aliases || typeof item.aliases !== "object" || Array.isArray(item.aliases)) { return false; }
   if (Object.keys(item.aliases).length > 16384 || !Object.entries(item.aliases).every(([name, words]) => /^[\w.:-]{1,256}$/.test(name) && stringList(words, 32))) { return false; }
   return !!item.options && typeof item.options === "object" && !Array.isArray(item.options) && Object.entries(item.options).length < 128 && Object.entries(item.options).every(([key, value]) => /^[\w_-]+$/.test(key) && typeof value === "string" && value.length < 128);
@@ -42,6 +43,15 @@ export class TerminalManager implements vscode.Disposable {
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly client: ClientManager, private readonly environments: EnvironmentManager, private readonly history: HistoryManager) {
     this.subscriptions.push(
+      client.onReady(() => { for (const session of this.sessions.values()) { if (session.metadata) { void this.client.notify("shucked/shellSession", session.metadata).catch(() => undefined); } } }),
+      vscode.workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration("shucked.history.session")) { for (const session of this.sessions.values()) { session.pendingHistory = undefined; if (session.historyPolicy) { void fs.writeFile(session.historyPolicy, this.history.sessionEnabled() ? "1\n" : "0\n", { mode: 0o600 }).catch(() => undefined); } } }
+      }),
+      vscode.window.onDidStartTerminalShellExecution(event => {
+        if (!this.history.sessionEnabled()) { return; }
+        const session = [...this.sessions.values()].find(session => session.terminal === event.terminal);
+        if (session) { session.executionGeneration = session.generation; }
+      }),
       vscode.commands.registerCommand("shucked.createTerminal", () => this.create()),
       vscode.commands.registerCommand("shucked.attachTerminal", () => this.attach()),
       vscode.window.registerTerminalProfileProvider("shucked.terminal", { provideTerminalProfile: async () => {
@@ -61,7 +71,9 @@ export class TerminalManager implements vscode.Disposable {
         if (!this.history.sessionEnabled()) { return; }
         const session = [...this.sessions.values()].find(session => session.terminal === event.terminal);
         if (!session?.metadata || !event.execution.commandLine.isTrusted) { return; }
-        this.history.recordSession(session.id, event.execution.commandLine.value, session.metadata);
+        const pending = { text: event.execution.commandLine.value, generation: session.executionGeneration ?? session.generation };
+        if (session.generation > pending.generation) { this.history.recordSession(session.id, pending.text, session.metadata); }
+        else { session.pendingHistory = pending; }
       }),
     );
   }
@@ -105,6 +117,10 @@ export class TerminalManager implements vscode.Disposable {
     session.generation = message.generation;
     const { token: _token, ...metadata } = message;
     session.metadata = metadata;
+    this.environments.sessionState(session.id, true, metadata);
+    if (session.pendingHistory && metadata.generation > session.pendingHistory.generation) {
+      this.history.recordSession(session.id, session.pendingHistory.text, metadata); session.pendingHistory = undefined;
+    }
     await this.client.notify("shucked/shellSession", metadata);
   }
 
@@ -119,10 +135,14 @@ export class TerminalManager implements vscode.Disposable {
     await this.ensureServer();
     const session: AttachedSession = { id: randomBytes(16).toString("hex"), token: randomBytes(32).toString("hex"), shell, generation: 0 };
     this.sessions.set(session.id, session);
+    this.environments.sessionState(session.id, undefined);
     const integration = path.join(this.context.extensionPath, "shell-integration");
     const hook = path.join(integration, shell === "zsh" ? "zsh.zsh" : shell === "fish" ? "fish.fish" : "bash.sh");
     const env: Record<string, string> = { SHUCKED_SESSION_ID: session.id, SHUCKED_SESSION_TOKEN: session.token, SHUCKED_SESSION_SOCKET: this.socketPath!, SHUCKED_NODE: process.execPath, SHUCKED_CAPTURE: path.join(integration, "capture.cjs") };
     const sessionDirectory = path.join(this.directory!, session.id); await fs.mkdir(sessionDirectory, { mode: 0o700 });
+    session.historyPolicy = path.join(sessionDirectory, "history-policy");
+    await fs.writeFile(session.historyPolicy, this.history.sessionEnabled() ? "1\n" : "0\n", { mode: 0o600 });
+    env.SHUCKED_HISTORY_POLICY = session.historyPolicy;
     let shellArgs: string[];
     if (shell === "bash") {
       const init = path.join(sessionDirectory, "bashrc");
@@ -156,7 +176,7 @@ export class TerminalManager implements vscode.Disposable {
     const terminal = vscode.window.activeTerminal; if (!terminal) { await this.create(); return; }
     const shell = await this.selectShell(); if (!shell) { return; }
     try {
-      const { session, options } = await this.prepare(shell); this.link(terminal, session.id);
+      const { session, options } = await this.prepare(shell); session.terminal = terminal;
       const hook = path.join(this.context.extensionPath, "shell-integration", shell === "zsh" ? "zsh.zsh" : shell === "fish" ? "fish.fish" : "bash.sh");
       const attachFile = path.join(this.directory!, session.id, `attach.${shell}`);
       const variables = Object.entries(options.env ?? {}).filter(([key]) => key !== "ZDOTDIR").map(([key, value]) => shell === "fish" ? `set -gx ${key} ${fishQuote(value!)};` : `export ${key}=${quote(value!)};`).join("\n");
@@ -169,6 +189,7 @@ export class TerminalManager implements vscode.Disposable {
 
   private disconnect(session: AttachedSession): void {
     this.sessions.delete(session.id); this.history.clearSession(session.id);
+    this.environments.sessionState(session.id, false, session.metadata);
     void this.client.notify("shucked/shellSession", { ...(session.metadata ?? { id: session.id, cwd: os.homedir(), path: [], aliases: {}, functions: [], options: {} }), generation: session.generation + 1, connected: false }).catch(() => undefined);
   }
 
