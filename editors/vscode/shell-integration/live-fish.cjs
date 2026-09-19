@@ -35,7 +35,9 @@ process.stdin.on('end', () => {
   const line = [...words, prefix].map(quote).join(' ');
   statePartial = Buffer.concat(state).includes(Buffer.from('# __shucked_live_state_truncated\n'));
   const program = Buffer.concat([...state, Buffer.from(`\ncomplete -C ${quote(line)}\n`)]);
-  child = spawn(shell, ['--no-config', '--private', '-c', 'source /dev/stdin'], { detached: true, stdio: ['pipe', 'pipe', 'ignore'] });
+  // Older Fish rejects Node's socket-backed stdin. A fixed cat pipeline supplies
+  // an ordinary OS pipe without writing definitions to disk or evaluating words.
+  child = spawn('/bin/sh', ['-c', '/bin/cat | "$1" --no-config --private', 'shucked-live-fish', shell], { detached: true, stdio: ['pipe', 'pipe', 'ignore'] });
   child.on('error', () => finish(true, 'Live Fish worker unavailable'));
   child.stdin.on('error', () => undefined);
   child.stdin.end(program);

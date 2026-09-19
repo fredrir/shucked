@@ -1,6 +1,7 @@
 """Exercise shipped query hooks in isolated real interactive shell processes."""
 import json
 import fcntl
+import ctypes
 import termios
 import os
 from pathlib import Path
@@ -15,9 +16,13 @@ import sys
 import tempfile
 import time
 
+# Minimal containers may have no init reaper. Adopt and reap our fixture orphans.
+if sys.platform == "linux":
+    if ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) != 0:
+        raise OSError("Could not enable fixture child reaping")
 shell = sys.argv[1]
 mode = sys.argv[2] if len(sys.argv) > 2 else "state"
-integration = Path(__file__).resolve().parents[1] / "shell-integration"
+integration = Path(os.environ.get("SHUCKED_TEST_INTEGRATION", Path(__file__).resolve().parents[1] / "shell-integration"))
 with tempfile.TemporaryDirectory(prefix="shucked-live-test-") as temporary:
     directory = Path(temporary)
     listener = socket.socket(socket.AF_UNIX)
@@ -81,6 +86,12 @@ with tempfile.TemporaryDirectory(prefix="shucked-live-test-") as temporary:
     def wait(predicate, timeout=4):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            if sys.platform == "linux":
+                try:
+                    while os.waitpid(-1, os.WNOHANG)[0]:
+                        pass
+                except ChildProcessError:
+                    pass
             ready, _, _ = select.select([master], [], [], 0)
             if ready:
                 try:
