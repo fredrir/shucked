@@ -14,8 +14,8 @@ class ArtifactManifest(unittest.TestCase):
         (root / 'bin').mkdir()
         (root / 'helpers/bin').mkdir(parents=True)
         (root / 'sources').mkdir()
-        for name in ('bash', 'fish', 'zsh'): (root / 'bin' / name).write_bytes(b'fixture')
-        for name in manifest.REQUIRED_HELPERS: (root / 'helpers/bin' / name).write_bytes(b'helper')
+        for name in ('bash', 'fish', 'zsh'): (root / 'bin' / name).write_bytes(b'fixture'); (root / 'bin' / name).chmod(0o755)
+        for name in manifest.REQUIRED_HELPERS: (root / 'helpers/bin' / name).write_bytes(b'helper'); (root / 'helpers/bin' / name).chmod(0o755)
         source = root / 'sources/source.tar'
         source.write_bytes(b'corresponding source fixture')
         sources = [dict(name='fixture', version='1', license='MIT', archives=[dict(path='sources/source.tar', url='https://example.invalid/source.tar', sha256=manifest.sha256(source))])]

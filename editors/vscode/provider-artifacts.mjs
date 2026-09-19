@@ -31,7 +31,7 @@ export function verifyProviderRuntime(root, target) {
       const resolved = fs.realpathSync(file);
       if (resolved !== realRoot && !resolved.startsWith(realRoot + path.sep)) { throw new Error('Provider symlink escapes runtime'); }
       if (entry.isDirectory()) { walk(file); }
-      else if (fs.statSync(file).isFile() && relative !== 'manifest.json') { actual.push({ path: relative, sha256: checksum(file) }); }
+      else if (fs.statSync(file).isFile() && relative !== 'manifest.json') { actual.push({ path: relative, sha256: checksum(file), executable: Boolean(fs.statSync(file).mode & 0o111) }); }
     }
   };
   walk(root);
@@ -41,6 +41,14 @@ export function verifyProviderRuntime(root, target) {
     if (!source.license || !source.archives?.length) { throw new Error('Provider source provenance missing'); }
     for (const archive of source.archives) {
       if (!actual.some(file => file.path === archive.path && file.sha256 === archive.sha256)) { throw new Error('Corresponding provider source archive missing'); }
+    }
+  }
+  if (!target.startsWith('win32-')) {
+    for (const [directory, names] of [['bin', ['bash', 'zsh', 'fish']], ['helpers/bin', requiredHelpers]]) {
+      for (const name of names) {
+        const file = path.join(root, directory, name);
+        if (!fs.existsSync(file) || !(fs.statSync(file).mode & 0o111)) { throw new Error('Provider executable permission missing'); }
+      }
     }
   }
   return manifest;

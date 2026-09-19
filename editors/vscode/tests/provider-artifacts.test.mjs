@@ -10,15 +10,21 @@ function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'shucked-runtime-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const contents = { 'sbom.spdx.json': '{}', 'source.tar': 'source fixture' };
+  const helpers = ['awk', 'basename', 'cat', 'cut', 'dirname', 'find', 'grep', 'head', 'ls', 'readlink', 'sed', 'sort', 'tail', 'tr', 'uniq', 'wc', 'xargs'];
+  for (const name of ['bash', 'zsh', 'fish']) { contents['bin/' + name] = 'engine'; }
+  for (const name of helpers) { contents['helpers/bin/' + name] = 'helper'; }
   const files = Object.entries(contents).map(([name, content]) => {
+    fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
     fs.writeFileSync(path.join(root, name), content);
-    return { path: name, sha256: createHash('sha256').update(content).digest('hex') };
+    if (name.includes('bin/')) { fs.chmodSync(path.join(root, name), 0o755); }
+    return { path: name, sha256: createHash('sha256').update(content).digest('hex'), executable: name.includes('bin/') };
   });
   const manifest = {
     schemaVersion: 2, target: 'linux-arm64', validation: { workers: 'passed', inputs: providerWorkerInputs() },
     helperNames: ['awk', 'basename', 'cat', 'cut', 'dirname', 'find', 'grep', 'head', 'ls', 'readlink', 'sed', 'sort', 'tail', 'tr', 'uniq', 'wc', 'xargs'],
     sources: [{ license: 'MIT', archives: [{ path: 'source.tar', sha256: files[1].sha256 }] }], files,
   };
+  manifest.files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const write = () => fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest));
   write();
   return { root, manifest, write };
@@ -48,4 +54,10 @@ test('runtime packaging rejects workers changed after smoke validation', t => {
   manifest.validation.inputs.workers['bash_worker.bash'] = 'old-worker';
   write();
   assert.throws(() => verifyProviderRuntime(root, 'linux-arm64'), /worker inputs changed/);
+});
+
+test('runtime packaging rejects executable bits removed after validation', t => {
+  const { root } = fixture(t);
+  fs.chmodSync(path.join(root, 'helpers/bin/grep'), 0o644);
+  assert.throws(() => verifyProviderRuntime(root, 'linux-arm64'), /inventory mismatch/);
 });

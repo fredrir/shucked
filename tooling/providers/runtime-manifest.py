@@ -22,7 +22,7 @@ def files(root):
         if path.is_symlink() and not path.resolve().is_relative_to(root.resolve()):
             raise ValueError(f'artifact symlink escapes runtime: {path}')
         if path.is_file() and path != root / 'manifest.json':
-            result.append(dict(path=path.relative_to(root).as_posix(), sha256=sha256(path)))
+            result.append(dict(path=path.relative_to(root).as_posix(), sha256=sha256(path), executable=bool(path.stat().st_mode & 0o111)))
     result.sort(key=lambda item: item['path'])
     return result
 
@@ -46,6 +46,11 @@ def validate(root, target, require_tested=True):
     if not (root / 'sbom.spdx.json').is_file(): raise ValueError('runtime SBOM missing')
     names = manifest.get('helperNames', [])
     if not set(REQUIRED_HELPERS).issubset(names): raise ValueError('private helper suite incomplete')
+    if not target.startswith('win32-'):
+        for directory, names in [('bin', ('bash','zsh','fish')), ('helpers/bin', REQUIRED_HELPERS)]:
+            for name in names:
+                path=root/directory/name
+                if not path.is_file() or not path.stat().st_mode & 0o111: raise ValueError('runtime executable permission missing')
     for source in manifest['sources']:
         for archive in source.get('archives', []):
             path = root / archive['path']
