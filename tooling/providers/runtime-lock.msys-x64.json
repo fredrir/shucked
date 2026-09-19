@@ -1,0 +1,591 @@
+{
+  "schemaVersion": 1,
+  "distributor": "https://repo.msys2.org",
+  "databaseSha256": "b4c6c7c14b2e4e7fe451d5d713cc99f3eead496b9fa2f96e0ac8525ae5635757",
+  "binaryArchitecture": "x86_64",
+  "targets": {
+    "win32-x64": "Windows 10 1809+",
+    "win32-arm64": "Windows 11 with x64 emulation"
+  },
+  "packages": [
+    {
+      "name": "bash",
+      "version": "5.3.015-1",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/bash-5.3.015-1-x86_64.pkg.tar.zst",
+        "sha256": "ecd097c0b85938b3167abd7e839a6113b25c8b581b14954aad02e1f8ce556c8e",
+        "bytes": 2582400
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/bash-5.3.015-1.src.tar.zst",
+        "sha256": "513f485881c94d0bab3ebcb2d1d3b98c19078d4abe26796bc52220db3e65b7af",
+        "bytes": 11341001
+      },
+      "dependencies": []
+    },
+    {
+      "name": "coreutils",
+      "version": "8.32-5",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/coreutils-8.32-5-x86_64.pkg.tar.zst",
+        "sha256": "62dfee1c39fd15f99c39802b35e82643bc14fffc16d6c76d4001caa385ec77e3",
+        "bytes": 2755209
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/coreutils-8.32-5.src.tar.zst",
+        "sha256": "2b8689413bc50367a9995adf50ea84cd3caaff0ec68a8f32d8328842c3f83835",
+        "bytes": 5561991
+      },
+      "dependencies": [
+        "gmp",
+        "libiconv",
+        "libintl"
+      ]
+    },
+    {
+      "name": "db",
+      "version": "6.2.32-6",
+      "license": "AGPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/db-6.2.32-6-x86_64.pkg.tar.zst",
+        "sha256": "41bc94acad3b53eaa92227ec34412305f648848ffbc963bcad88274517e13e8d",
+        "bytes": 49971
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/db-6.2.32-6.src.tar.zst",
+        "sha256": "ca33d813847b2a544faa23cc732fdef5fcb84b6a4b73f1c22eefadb7dbcb7f17",
+        "bytes": 44421183
+      },
+      "dependencies": [
+        "libdb=6.2.32"
+      ]
+    },
+    {
+      "name": "findutils",
+      "version": "4.11.0-2",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/findutils-4.11.0-2-x86_64.pkg.tar.zst",
+        "sha256": "f19d3c6b1b073d4c5759ae83f5639d11a5f0227b772f7d86d600db573d9d5d32",
+        "bytes": 582781
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/findutils-4.11.0-2.src.tar.zst",
+        "sha256": "92edf442f61f8873318811a688ba327a0d2878a63a9ed21992b5cce12b0ae146",
+        "bytes": 2454027
+      },
+      "dependencies": [
+        "libiconv",
+        "libintl"
+      ]
+    },
+    {
+      "name": "fish",
+      "version": "4.9.3-1",
+      "license": "GPL-2.0-only",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/fish-4.9.3-1-x86_64.pkg.tar.zst",
+        "sha256": "0e209f9ad7edf5f4d1cc325142add7eb5ff94e8b13c6745438276e320bf297e5",
+        "bytes": 3656178
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/fish-4.9.3-1.src.tar.zst",
+        "sha256": "976ec033f022f1e1bf669b658893230321af4aad04e49c807a9ffcd286d36800",
+        "bytes": 2633264
+      },
+      "dependencies": [
+        "gcc-libs",
+        "libpcre2_32",
+        "libpcre2_8",
+        "man-db"
+      ]
+    },
+    {
+      "name": "gawk",
+      "version": "5.4.1-1",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/gawk-5.4.1-1-x86_64.pkg.tar.zst",
+        "sha256": "4b1322cb6c83d61fde5100e229e3cabc5b7d01fc0d0d8bc311edc08df91916be",
+        "bytes": 1519178
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gawk-5.4.1-1.src.tar.zst",
+        "sha256": "d8b8cdd6cbf72431c02cb26cf92174aca5b6f1b7791aaf29fa3a11d205a66b39",
+        "bytes": 6693723
+      },
+      "dependencies": [
+        "sh",
+        "mpfr",
+        "libintl",
+        "libreadline"
+      ]
+    },
+    {
+      "name": "gcc-libs",
+      "version": "15.3.0-1",
+      "license": "GPL-3.0-or-later AND GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-3.0-or-later AND GCC-exception-3.1 AND GFDL-1.3-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/gcc-libs-15.3.0-1-x86_64.pkg.tar.zst",
+        "sha256": "0d99a122c453c05ae21ba3dcea910f2e0d93d38ae067c677a112a315b0f3cec5",
+        "bytes": 1082211
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gcc-15.3.0-1.src.tar.zst",
+        "sha256": "110eaa240aaced2ec2d05b1ce1c7d7273b9549c60ac17cb571bd28781766522d",
+        "bytes": 101292942
+      },
+      "dependencies": []
+    },
+    {
+      "name": "gdbm",
+      "version": "1.26-1",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/gdbm-1.26-1-x86_64.pkg.tar.zst",
+        "sha256": "1f8e949be2bbe488c5644132db78ecda288c9945922e7ed2447384734e2adba2",
+        "bytes": 212954
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gdbm-1.26-1.src.tar.zst",
+        "sha256": "955ecefcd32bee0ec40e3aa768b8ed068a2a1f2310f9777dcc77c02fdfa54271",
+        "bytes": 1229478
+      },
+      "dependencies": [
+        "libgdbm=1.26"
+      ]
+    },
+    {
+      "name": "gmp",
+      "version": "6.3.0-2",
+      "license": "LGPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/gmp-6.3.0-2-x86_64.pkg.tar.zst",
+        "sha256": "f84536138e618d47a1df2da83916cfebbd449f159ffad52f994a71060a41cf34",
+        "bytes": 396914
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gmp-6.3.0-2.src.tar.zst",
+        "sha256": "02356ca25ce362edb883ce7c060050de2cec5f2b1227a1c56ef7c0a0f99ff667",
+        "bytes": 2096699
+      },
+      "dependencies": []
+    },
+    {
+      "name": "grep",
+      "version": "1~3.0-7",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/grep-1~3.0-7-x86_64.pkg.tar.zst",
+        "sha256": "2909b3bbef8d33d66980339fb7bd2d3d9145bae0f04191e6671df39868aea427",
+        "bytes": 249241
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/grep-1~3.0-7.src.tar.zst",
+        "sha256": "acba43b9b2c3eb393f9a75d02a1eca34fa23d959541150a7ac4ffbafce3cae4e",
+        "bytes": 1378706
+      },
+      "dependencies": [
+        "libiconv",
+        "libintl",
+        "libpcre",
+        "sh"
+      ]
+    },
+    {
+      "name": "groff",
+      "version": "1.23.0-3",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/groff-1.23.0-3-x86_64.pkg.tar.zst",
+        "sha256": "cfc496a64765e0028d25fc7b947c5b8c54583af9d454ecb7b07ed5fefb2408dd",
+        "bytes": 2293453
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/groff-1.23.0-3.src.tar.zst",
+        "sha256": "f6ae17ef50a50d6b5b3c15efbb4d4a54838b3c662b5fcf763bdfab809fbc291f",
+        "bytes": 7405840
+      },
+      "dependencies": [
+        "perl",
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "less",
+      "version": "704-1",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/less-704-1-x86_64.pkg.tar.zst",
+        "sha256": "0fddcf47bb99487616a0044bd98cda8528952cf5097666436d34383ecffe7fd6",
+        "bytes": 151338
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/less-704-1.src.tar.zst",
+        "sha256": "58f970f43d51ec1c51317e39a7c299f2617985ffa2b60c5065d36b1d6f7a8dff",
+        "bytes": 1140293
+      },
+      "dependencies": [
+        "ncurses",
+        "libpcre2_8"
+      ]
+    },
+    {
+      "name": "libdb",
+      "version": "6.2.32-6",
+      "license": "AGPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libdb-6.2.32-6-x86_64.pkg.tar.zst",
+        "sha256": "27a35786f3aab14e625c02df7bcd8a9dda0da782ce4f0549a427a21316b4d179",
+        "bytes": 831918
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/db-6.2.32-6.src.tar.zst",
+        "sha256": "ca33d813847b2a544faa23cc732fdef5fcb84b6a4b73f1c22eefadb7dbcb7f17",
+        "bytes": 44421183
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libgdbm",
+      "version": "1.26-1",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libgdbm-1.26-1-x86_64.pkg.tar.zst",
+        "sha256": "bb4b08b720dd3194db010589812e9c63bec3d29b32545e7cbd07b6443e51c5ed",
+        "bytes": 32345
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gdbm-1.26-1.src.tar.zst",
+        "sha256": "955ecefcd32bee0ec40e3aa768b8ed068a2a1f2310f9777dcc77c02fdfa54271",
+        "bytes": 1229478
+      },
+      "dependencies": [
+        "gcc-libs",
+        "libreadline",
+        "libiconv",
+        "libintl",
+        "ncurses"
+      ]
+    },
+    {
+      "name": "libiconv",
+      "version": "1.19-1",
+      "license": "LGPL",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libiconv-1.19-1-x86_64.pkg.tar.zst",
+        "sha256": "0fa55ea2a6ccf97cf8c58b24b2615815e15e16e6e4e888091c263c2c83c5313d",
+        "bytes": 718353
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/libiconv-1.19-1.src.tar.zst",
+        "sha256": "5a8bcd3242e2be94fffd9f03fadcda8d9fd64047430050c5cbd214cd3bf7f0a7",
+        "bytes": 5133707
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libintl",
+      "version": "0.22.5-1",
+      "license": "GPL",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libintl-0.22.5-1-x86_64.pkg.tar.zst",
+        "sha256": "336d66b9d95cf9c1804958f8e260762a3e83bf158ed5981f783bc772a31073cf",
+        "bytes": 50537
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/gettext-0.22.5-1.src.tar.zst",
+        "sha256": "e07a0b3e6716aae86dc0edd2dcdc8864731d56051345592b53659a3840ccfbd8",
+        "bytes": 21732949
+      },
+      "dependencies": [
+        "gcc-libs",
+        "libiconv"
+      ]
+    },
+    {
+      "name": "libpcre",
+      "version": "8.45-5",
+      "license": "BSD",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libpcre-8.45-5-x86_64.pkg.tar.zst",
+        "sha256": "b4dc2eb7795cbacaa683101d720fa67f536262497a1d89934a58f5dab8d17d17",
+        "bytes": 96135
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/pcre-8.45-5.src.tar.zst",
+        "sha256": "f7104aa31f29655689b404ead9923332e2fa6aadfe97c060d0dfc02f4661d6b5",
+        "bytes": 1577595
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libpcre2_32",
+      "version": "10.48-1",
+      "license": "BSD-3-Clause WITH PCRE2-exception",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libpcre2_32-10.48-1-x86_64.pkg.tar.zst",
+        "sha256": "129425f14e4bfbdadc27c765dcc1ce9ea2375232c74f4042affa4bf8fedf57ea",
+        "bytes": 131800
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/pcre2-10.48-1.src.tar.zst",
+        "sha256": "c08bb91e9f51cb449adb1211cffafe1e1b5c2fff8bb4d6d704cfb9ac741a58e0",
+        "bytes": 2212153
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libpcre2_8",
+      "version": "10.48-1",
+      "license": "BSD-3-Clause WITH PCRE2-exception",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libpcre2_8-10.48-1-x86_64.pkg.tar.zst",
+        "sha256": "0e9c99ff4ef4e0e957cb4adc9f65b329c7ebd7ca00f90f66f7bb37d3ed99df9b",
+        "bytes": 151217
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/pcre2-10.48-1.src.tar.zst",
+        "sha256": "c08bb91e9f51cb449adb1211cffafe1e1b5c2fff8bb4d6d704cfb9ac741a58e0",
+        "bytes": 2212153
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libpipeline",
+      "version": "1.5.8-1",
+      "license": "BSD",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libpipeline-1.5.8-1-x86_64.pkg.tar.zst",
+        "sha256": "3a872f7f37303409f1b546964ac146dffb9b33e92e42e0219b61157e69830e28",
+        "bytes": 36606
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/libpipeline-1.5.8-1.src.tar.zst",
+        "sha256": "9de6b9bd6b2868f7da6745d93187aaf4b67875025fdcc191d8d6ad8dbea02bdd",
+        "bytes": 1071278
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "libreadline",
+      "version": "8.3.006-1",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libreadline-8.3.006-1-x86_64.pkg.tar.zst",
+        "sha256": "29e25c50bf6cd7a5e6f2253af76f54fe3c1a915313c7c18e98bedaa665c6adea",
+        "bytes": 388090
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/readline-8.3.006-1.src.tar.zst",
+        "sha256": "9ddb3eb989f6ad7d696ce5a2d92322b33a20056b293e3c4fc4f6cc568a320640",
+        "bytes": 3357587
+      },
+      "dependencies": [
+        "ncurses"
+      ]
+    },
+    {
+      "name": "libxcrypt",
+      "version": "4.5.2-1",
+      "license": "LGPL-2.1-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libxcrypt-4.5.2-1-x86_64.pkg.tar.zst",
+        "sha256": "e63db0aa2b708359e25f61f506e2d2c92c315febf5f88cc9f386e4ec0bdf4fa5",
+        "bytes": 87371
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/libxcrypt-4.5.2-1.src.tar.zst",
+        "sha256": "dc3e44cea067417ff61c25c981d7d58bb0f343b824ba10fd2a0a3b8badc55746",
+        "bytes": 672527
+      },
+      "dependencies": []
+    },
+    {
+      "name": "libzstd",
+      "version": "1.5.7-1",
+      "license": "BSD",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/libzstd-1.5.7-1-x86_64.pkg.tar.zst",
+        "sha256": "5e370b2e725a0a7e5ff58d84653c9a0cd5a10b9cfe930f2d949a28ad2a11c1f2",
+        "bytes": 399681
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/zstd-1.5.7-1.src.tar.zst",
+        "sha256": "19e11d517b005cba22d0f04969a74ffa08443429ff9dc80596d323b9483534f5",
+        "bytes": 2401343
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "man-db",
+      "version": "2.13.1-2",
+      "license": "GPL AND LGPL",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/man-db-2.13.1-2-x86_64.pkg.tar.zst",
+        "sha256": "c6c6f78004246ca4822c9070ed19a3364d6cbdc7e7e4c617309d647112e5e410",
+        "bytes": 631334
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/man-db-2.13.1-2.src.tar.zst",
+        "sha256": "f212c1faf4da121546234aaa6018deff30b9c0c59f91410df4b5c1ac6471e8a2",
+        "bytes": 2115258
+      },
+      "dependencies": [
+        "bash",
+        "gdbm",
+        "zlib",
+        "groff",
+        "libpipeline",
+        "less"
+      ]
+    },
+    {
+      "name": "mpfr",
+      "version": "4.2.2-1",
+      "license": "LGPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/mpfr-4.2.2-1-x86_64.pkg.tar.zst",
+        "sha256": "8f1b6c17c53e00494a488e03dfdf8fc742027ed03a5bd7b1b3a6a33f595a7498",
+        "bytes": 395839
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/mpfr-4.2.2-1.src.tar.zst",
+        "sha256": "e0c56e3af3819471e74dd37e32660e4eb8f58761c4d214dabd2d62f57c548869",
+        "bytes": 1507563
+      },
+      "dependencies": [
+        "gmp>=5.0"
+      ]
+    },
+    {
+      "name": "msys2-runtime",
+      "version": "3.6.10-4",
+      "license": "GPL-3.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/msys2-runtime-3.6.10-4-x86_64.pkg.tar.zst",
+        "sha256": "b13c14c3cbcd34cbcd6aaa0597444779b6102c709120bda2615a2229a482eae2",
+        "bytes": 2064348
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/msys2-runtime-3.6.10-4.src.tar.zst",
+        "sha256": "47e6e49710116d1bb57adaa24530306ee5841b58b8abca66ffcc107736393cec",
+        "bytes": 128761620
+      },
+      "dependencies": []
+    },
+    {
+      "name": "ncurses",
+      "version": "6.6-2",
+      "license": "MIT",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/ncurses-6.6-2-x86_64.pkg.tar.zst",
+        "sha256": "828c92f09b17f00d3b49362fcfa4affa58e5e50e238f290ea36eb7a690da3acb",
+        "bytes": 1286284
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/ncurses-6.6-2.src.tar.zst",
+        "sha256": "f5df12bd297e6b6930e2aa68e8014347b2193592645d93acce6774e05cbf15e6",
+        "bytes": 3785750
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "perl",
+      "version": "5.42.3-1",
+      "license": "Artistic-1.0-Perl OR GPL-1.0-or-later",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/perl-5.42.3-1-x86_64.pkg.tar.zst",
+        "sha256": "d9692a5add7b0544a78e3e8d4efda7866d3630159a9144553791d302f8f865c2",
+        "bytes": 7526327
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/perl-5.42.3-1.src.tar.zst",
+        "sha256": "d2d7500fda576e5d7255215cfa6730756bdfc1086d40ee00e8590b204ccdf477",
+        "bytes": 14513301
+      },
+      "dependencies": [
+        "db",
+        "gdbm",
+        "libxcrypt",
+        "coreutils",
+        "sh"
+      ]
+    },
+    {
+      "name": "sed",
+      "version": "4.9-1",
+      "license": "GPL3",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/sed-4.9-1-x86_64.pkg.tar.zst",
+        "sha256": "3748af28f69e946ec5a42e6670c9bbf6da7352dc93baaa537f69e99c5483b9fc",
+        "bytes": 249918
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/sed-4.9-1.src.tar.zst",
+        "sha256": "a9686da7c1f3cb2ba7ae5f20f30d9ef38f7bba993f9c777b43bd13c7fbd7cc58",
+        "bytes": 1399712
+      },
+      "dependencies": [
+        "libintl",
+        "sh"
+      ]
+    },
+    {
+      "name": "zlib",
+      "version": "1.3.2-1",
+      "license": "custom",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/zlib-1.3.2-1-x86_64.pkg.tar.zst",
+        "sha256": "a04aa79996c57f0db936be66cf94326d7e67e9cd8dbffe4cf6e97693d0a1d9ef",
+        "bytes": 52245
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/zlib-1.3.2-1.src.tar.zst",
+        "sha256": "b3ec151674ce25015b16b28394d679ac0eedee03d02be33f93367c3a2b4d426d",
+        "bytes": 1322579
+      },
+      "dependencies": [
+        "gcc-libs"
+      ]
+    },
+    {
+      "name": "zsh",
+      "version": "5.9.2-1",
+      "license": "Zsh",
+      "binary": {
+        "url": "https://repo.msys2.org/msys/x86_64/zsh-5.9.2-1-x86_64.pkg.tar.zst",
+        "sha256": "9a134200a152d90a0f1820d6aa74c3369d8539c068b523852549d74b16739fa8",
+        "bytes": 2316366
+      },
+      "source": {
+        "url": "https://repo.msys2.org/msys/sources/zsh-5.9.2-1.src.tar.zst",
+        "sha256": "a6f0132ce5e167de84e72b9551d738fefb871bda2e7cc26ff85bff41147ae5f1",
+        "bytes": 6527764
+      },
+      "dependencies": [
+        "ncurses",
+        "libpcre2_8",
+        "libiconv"
+      ]
+    }
+  ]
+}

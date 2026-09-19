@@ -29,11 +29,13 @@
 |---|---|---|
 | macOS arm64 | Relocated private Zsh/Bash/Fish and 115 helper names pass hostile-startup tests with restricted PATH | Passed locally |
 | Linux GNU arm64 | Source-built engines/helpers in Podman; ELF closure and relocated worker tests pass | Passed locally |
-| Linux musl arm64 | Actual Alpine source build underway; modern compiler compatibility under validation | Full closure and relocation |
-| Linux GNU/musl x64 | Native target-host source recipe | Target execution required |
+| Linux musl arm64 | Source-built engines/helpers in Alpine Podman; musl closure and relocated worker tests pass | Passed locally |
+| Linux GNU/musl x64 | Digest-pinned container recipes; x64 Alpine executes under local Podman emulation | Full build and worker execution required |
 | macOS x64 | Native target-host source recipe; no matching local execution host | Target execution required |
-| Windows x64 | Pinned MSYS engine, helper, library, binary/source package closure staged | Windows worker/containment validation required |
+| Windows x64 | Pinned MSYS engine/helper packages; 363 x64 PE images checked for DLL availability; full binary/source closure staged | Windows worker/containment validation required |
 | Windows ARM64 | Same x64 MSYS package closure; Windows 11 x64 emulation required | ARM64-host worker/containment validation required |
+
+Windows staging does not enable runtime dispatch or prove DLL search behavior. Both Windows targets remain blocked from release.
 
 | Build input | Value |
 |---|---|
@@ -57,6 +59,10 @@ python3 tooling/providers/bundle-runtime.py
 
 # Unix target host; C/Rust toolchains, CMake, make, curl, Python, and POSIX tools required.
 tooling/providers/build-unix.sh
+
+# Repeat the validated ARM64 container builds from pinned base images; x64 variants use the same commands with an x64 suffix.
+tooling/providers/build-container.sh linux-arm64
+tooling/providers/build-container.sh alpine-arm64
 
 # Stage Windows x64 packages; this does not produce a releasable artifact.
 python3.14 tooling/providers/bundle-msys.py --target win32-x64 --output target/provider-windows-x64

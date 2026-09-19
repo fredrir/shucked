@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 import platform
 import subprocess
-import time
+import tarfile
+import tomllib
 
 REQUIRED_HELPERS = ('awk', 'basename', 'cat', 'cut', 'dirname', 'find', 'grep', 'head', 'ls', 'readlink', 'sed', 'sort', 'tail', 'tr', 'uniq', 'wc', 'xargs')
 
@@ -70,6 +71,12 @@ def write(root, target, sources, system_dependencies, tested=False, minimum=None
     if not set(REQUIRED_HELPERS).issubset(helper_names): raise ValueError('private helper suite incomplete')
     for item in sources:
         if not item.get('license') or not item.get('archives'): raise ValueError('source license/archive metadata missing')
+    fish_sources=[source for source in sources if source['name']=='fish']
+    vendor=next((path for path in (root/'sources/fish-vendor.tar.xz',root/'sources/fish/vendor.tar.xz') if path.is_file()),None)
+    if fish_sources and vendor is None: raise ValueError('Fish corresponding Rust dependency sources missing')
+    if vendor:
+        for source in fish_sources:
+            source['archives'].append(dict(url='NOASSERTION',sha256=sha256(vendor),path=vendor.relative_to(root).as_posix()))
     packages = []
     relationships = []
     for index, source in enumerate(sources):
@@ -79,6 +86,16 @@ def write(root, target, sources, system_dependencies, tested=False, minimum=None
             licenseConcluded='NOASSERTION', licenseDeclared=source['license'], copyrightText='NOASSERTION',
             checksums=[dict(algorithm='SHA256', checksumValue=source['archives'][0]['sha256'])]))
         relationships.append(dict(spdxElementId='SPDXRef-DOCUMENT', relationshipType='DESCRIBES', relatedSpdxElement=identifier))
+    if vendor:
+        with tarfile.open(vendor) as archive:
+            for item in archive.getmembers():
+                if item.name.count('/')!=2 or not item.name.endswith('/Cargo.toml'): continue
+                package=tomllib.loads(archive.extractfile(item).read().decode()).get('package',{})
+                if not package.get('name') or not isinstance(package.get('version'),str): raise ValueError('Rust vendor package identity missing')
+                identifier=f'SPDXRef-RustPackage-{len(packages)}'
+                declared=package.get('license','NOASSERTION').replace(' / ', ' OR ').replace('/', ' OR ')
+                packages.append(dict(name=package['name'],SPDXID=identifier,versionInfo=package['version'],downloadLocation='NOASSERTION',filesAnalyzed=False,licenseConcluded='NOASSERTION',licenseDeclared=declared,copyrightText='NOASSERTION'))
+                relationships.append(dict(spdxElementId='SPDXRef-DOCUMENT',relationshipType='DESCRIBES',relatedSpdxElement=identifier))
     identity = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
     sbom = dict(spdxVersion='SPDX-2.3', dataLicense='CC0-1.0', SPDXID='SPDXRef-DOCUMENT', name='Shucked managed providers '+target,
         documentNamespace='https://shucked.dev/spdx/providers/'+target+'/'+identity,

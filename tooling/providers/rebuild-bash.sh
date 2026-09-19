@@ -15,3 +15,9 @@ cd "$build/bash-5.3"
 CPPFLAGS="-I$build/ncurses/include -I$build/ncurses/include/ncursesw" LDFLAGS="-L$build/ncurses/lib" ./configure --prefix="$prefix" --disable-nls --with-curses --enable-readline --enable-progcomp --without-bash-malloc
 make -j "${SHUCKED_BUILD_JOBS:-2}"
 make install
+# Completion workers use builtins; loadable example modules need host Bash symbols.
+python3 - "$prefix" <<'PYMODULES'
+from pathlib import Path
+import shutil,sys
+shutil.rmtree(Path(sys.argv[1])/'lib/bash',ignore_errors=True)
+PYMODULES

@@ -92,8 +92,23 @@ def main():
         # Full copy verifies relocatability, without the build prefix remaining in use.
         shutil.copytree(DEST, providers/'runtime', symlinks=False, ignore=shutil.ignore_patterns('sources'))
         (providers/'packs').symlink_to(ROOT/'tooling/providers/packs', target_is_directory=True)
-        subprocess.run(['python3', str(ROOT/'tooling/providers/tests/test_workers.py')],
-            env=dict(os.environ, SHUCKED_TEST_PROVIDER_ROOT=str(providers)), check=True)
+        # Hide the original prefix so hard-coded fallback paths cannot mask a broken relocation.
+        hidden=DEST/('.validation-'+str(os.getpid()))
+        hidden.mkdir()
+        moved=[]
+        try:
+            for entry in DEST.iterdir():
+                if entry==hidden: continue
+                entry.rename(hidden/entry.name)
+                moved.append(entry.name)
+            subprocess.run(['python3', str(ROOT/'tooling/providers/tests/test_workers.py')],
+                env=dict(os.environ, SHUCKED_TEST_PROVIDER_ROOT=str(providers)), check=True)
+        finally:
+            for name in moved:
+                if (DEST/name).exists(): raise ValueError('runtime entry recreated during validation; original kept at '+str(hidden/name))
+                (hidden/name).rename(DEST/name)
+            hidden.rmdir()
+
     arch = {'aarch64':'arm64','arm64':'arm64','x86_64':'x64','armv7l':'armhf'}[platform.machine()]
     family = 'darwin' if platform.system() == 'Darwin' else 'alpine' if Path('/etc/alpine-release').exists() else 'linux'
     minimum = {}
