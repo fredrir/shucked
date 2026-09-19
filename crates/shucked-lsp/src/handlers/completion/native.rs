@@ -59,6 +59,7 @@ impl Native {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn complete(
         &self,
         environment: &Environment,

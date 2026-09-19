@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,7 @@ pub(super) struct ManagedShell {
     root: PathBuf,
     cache: Mutex<VecDeque<Cached>>,
     running: Mutex<()>,
+    generation: AtomicU64,
     #[cfg(test)]
     home: Option<PathBuf>,
 }
@@ -33,12 +35,14 @@ impl ManagedShell {
             root: assets::root()?,
             cache: Mutex::default(),
             running: Mutex::default(),
+            generation: AtomicU64::new(0),
             #[cfg(test)]
             home: None,
         })
     }
 
     pub(super) fn invalidate(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -76,6 +80,7 @@ impl ManagedShell {
             return Some(Arc::clone(&entry.result));
         }
         let _running = self.running.try_lock().ok()?;
+        let generation = self.generation.load(Ordering::Acquire);
         let mut command = std::process::Command::new(&self.executable);
         if self.name == "fish" {
             command.args([
@@ -132,6 +137,9 @@ impl ManagedShell {
             .cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.generation.load(Ordering::Acquire) != generation {
+            return Some(result);
+        }
         cache.push_back(Cached {
             words: input,
             directory: directory.to_owned(),

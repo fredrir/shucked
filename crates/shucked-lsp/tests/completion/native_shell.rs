@@ -95,3 +95,43 @@ fn personal_startup_and_completion_configuration_is_not_loaded() {
         assert!(!marker.exists(), "{name} loaded personal startup files");
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn invalidation_during_completion_cannot_repopulate_the_cache() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let executable = root.path().join("worker");
+    std::fs::write(&executable, "#!/bin/sh\nprintf ready > started\nwhile [ ! -f release ]; do /bin/sleep 0.01; done\nprintf 'P\\0001\\000M\\000candidate\\000description\\000E\\000'\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let provider = Arc::new(ManagedShell {
+        name: "bash",
+        executable,
+        root: root.path().to_owned(),
+        cache: Mutex::default(),
+        running: Mutex::default(),
+        generation: AtomicU64::new(0),
+        home: None,
+    });
+    let worker_provider = provider.clone();
+    let directory = root.path().to_owned();
+    let worker = std::thread::spawn(move || {
+        worker_provider.complete(
+            &["tool".into()],
+            "",
+            &directory,
+            &RequestCancellationToken::default(),
+            None,
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !root.path().join("started").exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(root.path().join("started").exists());
+    provider.invalidate();
+    std::fs::write(root.path().join("release"), "").unwrap();
+    let result = worker.join().unwrap().unwrap();
+    assert_eq!(result[0].text, "candidate");
+    assert!(provider.cache.lock().unwrap().is_empty());
+}

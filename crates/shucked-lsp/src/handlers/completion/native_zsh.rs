@@ -57,6 +57,7 @@ impl NativeZsh {
             .clear();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn complete(
         &self,
         words: &[String],
