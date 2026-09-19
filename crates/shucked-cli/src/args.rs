@@ -1531,7 +1531,7 @@ pub enum TargetCommand {
     /// Verify and display an imported inventory.
     Inspect {
         /// Inventory file to verify.
-        inventory: PathBuf
+        inventory: PathBuf,
     },
     /// Compare a script against recorded targets; never query the local host.
     Compare {

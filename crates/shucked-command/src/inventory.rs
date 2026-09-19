@@ -316,6 +316,7 @@ pub struct TargetColumn {
 pub struct CommandComparison {
     pub name: Option<String>,
     pub results: Vec<CommandResolution>,
+    pub validation: Vec<crate::ValidationResult>,
 }
 
 /// Compare only recorded evidence. This operation never consults the local host.
@@ -335,6 +336,12 @@ pub fn compare_targets(targets: &[TargetInventory], sites: &[CommandSite]) -> Ta
             .iter()
             .map(|site| CommandComparison {
                 name: site.name.clone(),
+                validation: targets.iter().map(|target| {
+                    let resolution = resolve(&target.context, &target.snapshot, site);
+                    let Some(command) = resolution.resolved() else { return crate::ValidationResult::Unknown("Command identity is unresolved".into()); };
+                    let Some(evidence) = target.snapshot.validators.get(&command.name) else { return crate::ValidationResult::Unknown("No capability evidence was captured".into()); };
+                    crate::validate_invocation(command, evidence, &target.snapshot.platform)
+                }).collect(),
                 results: targets
                     .iter()
                     .map(|target| resolve(&target.context, &target.snapshot, site))
