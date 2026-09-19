@@ -1,22 +1,21 @@
 [package]
-name = "shucked-config"
-version.workspace = true
-edition.workspace = true
+name                   = "shucked-config"
+version.workspace      = true
+edition.workspace      = true
 rust-version.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-description = "Configuration loading and project-root discovery for shucked"
+license.workspace      = true
+authors.workspace      = true
+repository.workspace   = true
+description            = "Configuration loading and project-root discovery for shucked"
 
 [dependencies]
-anyhow = { workspace = true }
-clap = { workspace = true }
-etcetera = { workspace = true }
-globset = { workspace = true }
-serde = { workspace = true }
+anyhow            = { workspace = true }
+clap              = { workspace = true }
+etcetera          = { workspace = true }
+globset           = { workspace = true }
+serde             = { workspace = true }
 shucked-formatter = { workspace = true }
-shucked-run = { workspace = true }
-toml = { workspace = true }
+toml              = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

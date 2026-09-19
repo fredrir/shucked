@@ -20,14 +20,13 @@ use clap::error::{ContextKind, ContextValue, ErrorKind};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 use shucked_formatter::{IndentStyle, ShellDialect};
-use shucked_run::RunConfig;
 
 const CONFIG_FILENAMES: [&str; 2] = [".shucked.toml", "shucked.toml"];
 /// Environment variable that overrides the directory searched for the global
 /// (user-level) shucked config file. When set, only this directory is consulted
 /// for global configuration.
 const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCKED_CONFIG_HOME";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell", "run"];
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "exclude",
@@ -100,9 +99,6 @@ const CONFIG_OVERRIDE_C158_RULE_OPTION_KEYS: &[&str] = &[
 const CONFIG_OVERRIDE_C159_RULE_OPTION_KEYS: &[&str] = &["allow-conditional-init"];
 const CONFIG_OVERRIDE_C160_RULE_OPTION_KEYS: &[&str] = &["allowed-anchors"];
 const CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS: &[&str] = &["ignore-after-source"];
-const CONFIG_OVERRIDE_RUN_KEYS: &[&str] = &["shell", "shell-version", "shells"];
-const CONFIG_OVERRIDE_RUN_SHELL_NAMES: &[&str] =
-    &["bash", "gbash", "bashkit", "zsh", "dash", "mksh", "busybox"];
 
 /// Top-level Shucked configuration loaded from project config files.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -117,8 +113,6 @@ pub struct ShuckConfig {
     /// Shared per-file shell dialect overrides keyed by glob pattern.
     #[serde(rename = "per-file-shell")]
     pub per_file_shell: Option<BTreeMap<String, String>>,
-    /// Runtime shell resolution options for `shucked run`.
-    pub run: RunConfig,
 }
 
 /// Configuration for file-level checking behavior.
@@ -883,7 +877,7 @@ pub fn configuration_metadata() -> &'static [ConfigSectionMetadata] {
     &CONFIGURATION_METADATA
 }
 
-const CONFIGURATION_METADATA: [ConfigSectionMetadata; 5] = [
+const CONFIGURATION_METADATA: [ConfigSectionMetadata; 4] = [
     ConfigSectionMetadata {
         key: "check",
         docs: "File-level analysis behavior for `shuck check`.",
@@ -1468,82 +1462,6 @@ const CONFIGURATION_METADATA: [ConfigSectionMetadata; 5] = [
             },
         ],
     },
-    ConfigSectionMetadata {
-        key: "run",
-        docs: "Interpreter defaults and managed shell version pins for `shuck run` and related commands.",
-        fields: &[
-            ConfigFieldMetadata {
-                key: "shell",
-                docs: "Default managed shell to use when a script does not declare its own shell.",
-                default: "none",
-                value_type: "string",
-                example: r#"shell = "bash""#,
-            },
-            ConfigFieldMetadata {
-                key: "shell-version",
-                docs: "Default version constraint to use when no script metadata or per-shell pin is more specific.",
-                default: r#""latest""#,
-                value_type: "string",
-                example: r#"shell-version = "5.2""#,
-            },
-        ],
-        sections: &[ConfigSectionMetadata {
-            key: "shells",
-            docs: "Per-shell version pins applied after the shell has been resolved for the current script.",
-            fields: &[
-                ConfigFieldMetadata {
-                    key: "bash",
-                    docs: "Version constraint for Bash scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"bash = "5.2""#,
-                },
-                ConfigFieldMetadata {
-                    key: "gbash",
-                    docs: "Version constraint for gbash scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"gbash = "0.0.32""#,
-                },
-                ConfigFieldMetadata {
-                    key: "bashkit",
-                    docs: "Version constraint for Bashkit scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"bashkit = "0.2.1""#,
-                },
-                ConfigFieldMetadata {
-                    key: "zsh",
-                    docs: "Version constraint for Zsh scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"zsh = "5.9""#,
-                },
-                ConfigFieldMetadata {
-                    key: "dash",
-                    docs: "Version constraint for Dash scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"dash = "0.5.12""#,
-                },
-                ConfigFieldMetadata {
-                    key: "mksh",
-                    docs: "Version constraint for mksh scripts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"mksh = "59c""#,
-                },
-                ConfigFieldMetadata {
-                    key: "busybox",
-                    docs: "Version constraint for BusyBox scripts on Linux hosts.",
-                    default: "none",
-                    value_type: "string",
-                    example: r#"busybox = "1.36.1""#,
-                },
-            ],
-            sections: &[],
-        }],
-    },
 ];
 
 /// Resolved command-line configuration arguments.
@@ -1793,7 +1711,6 @@ impl ShuckConfig {
         if overrides.per_file_shell.is_some() {
             self.per_file_shell = overrides.per_file_shell;
         }
-        apply_run_overrides(&mut self.run, overrides.run);
     }
 }
 
@@ -2010,10 +1927,6 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
         }
     }
 
-    if let Some(run_value) = table.get("run") {
-        validate_run_override(run_value)?;
-    }
-
     Ok(())
 }
 
@@ -2067,48 +1980,6 @@ fn validate_lint_zsh_plugins_override(value: &toml::Value) -> std::result::Resul
     }
 
     Ok(())
-}
-
-fn validate_run_override(value: &toml::Value) -> std::result::Result<(), String> {
-    let run = value
-        .as_table()
-        .ok_or_else(|| "`run` must be a TOML table".to_owned())?;
-    for key in run.keys() {
-        if !CONFIG_OVERRIDE_RUN_KEYS.contains(&key.as_str()) {
-            return Err(format!(
-                "unsupported `[run]` option `{key}`; expected one of: {}",
-                CONFIG_OVERRIDE_RUN_KEYS.join(", ")
-            ));
-        }
-    }
-
-    if let Some(shells_value) = run.get("shells") {
-        let shells = shells_value
-            .as_table()
-            .ok_or_else(|| "`[run.shells]` must be a TOML table".to_owned())?;
-        for key in shells.keys() {
-            if !CONFIG_OVERRIDE_RUN_SHELL_NAMES.contains(&key.as_str()) {
-                return Err(format!(
-                    "unsupported `[run.shells]` shell `{key}`; expected one of: {}",
-                    CONFIG_OVERRIDE_RUN_SHELL_NAMES.join(", ")
-                ));
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_run_overrides(target: &mut RunConfig, overrides: RunConfig) {
-    if overrides.shell.is_some() {
-        target.shell = overrides.shell;
-    }
-    if overrides.shell_version.is_some() {
-        target.shell_version = overrides.shell_version;
-    }
-    if !overrides.shells.is_empty() {
-        target.shells = overrides.shells;
-    }
 }
 
 fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
@@ -2535,47 +2406,6 @@ mod tests {
     fn inline_config_overrides_validate_supported_lint_keys() {
         let config = parse_config_override("lint.select = ['C001']").unwrap();
         assert_eq!(config.lint.select, Some(vec!["C001".to_owned()]));
-    }
-
-    #[test]
-    fn inline_config_overrides_validate_supported_run_keys() {
-        let config = parse_config_override(
-            "run.shell = 'gbash'\nrun.shell-version = '0.0'\nrun.shells.gbash = '0.0'\nrun.shells.bashkit = '0.2'",
-        )
-        .unwrap();
-        assert_eq!(config.run.shell.as_deref(), Some("gbash"));
-        assert_eq!(config.run.shell_version.as_deref(), Some("0.0"));
-        assert_eq!(
-            config.run.shells.get("gbash").map(String::as_str),
-            Some("0.0")
-        );
-        assert_eq!(
-            config.run.shells.get("bashkit").map(String::as_str),
-            Some("0.2")
-        );
-    }
-
-    #[test]
-    fn inline_config_overrides_reject_unknown_run_keys() {
-        let err = parse_config_override("run.preview = true").unwrap_err();
-        assert!(err.contains("unsupported `[run]` option `preview`"));
-    }
-
-    #[test]
-    fn inline_config_overrides_reject_unknown_run_shells_keys() {
-        let err = parse_config_override("run.shells.fish = '4.0'").unwrap_err();
-        assert!(err.contains("unsupported `[run.shells]` shell `fish`"));
-    }
-
-    #[test]
-    fn inline_config_overrides_accept_busybox_shell_keys() {
-        let config =
-            parse_config_override("run.shell = 'busybox'\nrun.shells.busybox = '1.36.1'").unwrap();
-        assert_eq!(config.run.shell.as_deref(), Some("busybox"));
-        assert_eq!(
-            config.run.shells.get("busybox").map(String::as_str),
-            Some("1.36.1")
-        );
     }
 
     #[test]
@@ -3508,26 +3338,6 @@ mod tests {
                 .collect::<Vec<_>>()),
             Some(vec!["git".to_owned(), "docker".to_owned()])
         );
-    }
-
-    #[test]
-    fn run_config_arguments_allow_last_override_to_win() {
-        let tempdir = tempdir().unwrap();
-        let config = ConfigArguments::from_cli(
-            vec![
-                SingleConfigArgument::SettingsOverride(Box::new(
-                    parse_config_override("run.shell-version = '5.1'").unwrap(),
-                )),
-                SingleConfigArgument::SettingsOverride(Box::new(
-                    parse_config_override("run.shell-version = '5.2'").unwrap(),
-                )),
-            ],
-            false,
-        )
-        .unwrap();
-
-        let loaded = load_project_config(tempdir.path(), &config).unwrap();
-        assert_eq!(loaded.run.shell_version.as_deref(), Some("5.2"));
     }
 
     #[test]

@@ -4,17 +4,55 @@
   "bump-patch-for-minor-pre-major": true,
   "include-v-in-tag": true,
   "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bug Fixes" },
-    { "type": "perf", "section": "Performance" },
-    { "type": "revert", "section": "Reverts" },
-    { "type": "docs", "section": "Documentation" },
-    { "type": "refactor", "section": "Refactor" },
-    { "type": "build", "section": "Build System", "hidden": true },
-    { "type": "ci", "section": "Continuous Integration", "hidden": true },
-    { "type": "chore", "section": "Miscellaneous", "hidden": true },
-    { "type": "test", "section": "Tests", "hidden": true },
-    { "type": "style", "section": "Styles", "hidden": true }
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes"
+    },
+    {
+      "type": "perf",
+      "section": "Performance"
+    },
+    {
+      "type": "revert",
+      "section": "Reverts"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation"
+    },
+    {
+      "type": "refactor",
+      "section": "Refactor"
+    },
+    {
+      "type": "build",
+      "section": "Build System",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "Continuous Integration",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "Miscellaneous",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "Tests",
+      "hidden": true
+    },
+    {
+      "type": "style",
+      "section": "Styles",
+      "hidden": true
+    }
   ],
   "packages": {
     ".": {
@@ -25,21 +63,76 @@
       "changelog-path": "CHANGELOG.md",
       "draft": true,
       "extra-files": [
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-cli'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-ast'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-cache'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-config'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-discover'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-extract'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-formatter'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-indexer'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-linter'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-lsp'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-parser'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-run'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-semantic'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shucked-server'].version" }
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-cli'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-ast'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-cache'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-config'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-discover'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-extract'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-formatter'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-indexer'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-linter'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-lsp'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-parser'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-semantic'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-server'].version"
+        }
       ]
     }
   }

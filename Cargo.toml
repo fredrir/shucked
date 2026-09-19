@@ -30,7 +30,6 @@ shucked-formatter = { path = "crates/shucked-formatter", version = "0.0.1" }
 shucked-indexer   = { path = "crates/shucked-indexer", version = "0.0.1" }
 shucked-linter    = { path = "crates/shucked-linter", version = "0.0.1" }
 shucked-parser    = { path = "crates/shucked-parser", version = "0.0.1" }
-shucked-run       = { path = "crates/shucked-run", version = "0.0.1" }
 shucked-semantic  = { path = "crates/shucked-semantic", version = "0.0.1" }
 shucked-cli       = { path = "crates/shucked-cli", version = "0.0.1" }
 shucked-extract   = { path = "crates/shucked-extract", version = "0.0.1" }

@@ -108,39 +108,6 @@ pub enum TerminalColor {
     Never,
 }
 
-/// Managed shell names accepted by `shucked run`, `shucked install`, and `shucked shell`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum ManagedShellArg {
-    /// GNU bash.
-    Bash,
-    /// The gbash runtime.
-    Gbash,
-    /// The Bashkit runtime.
-    Bashkit,
-    /// Z shell.
-    Zsh,
-    /// Debian Almquist shell.
-    Dash,
-    /// MirBSD Korn shell.
-    Mksh,
-    /// BusyBox shell wrapper (Linux only).
-    Busybox,
-}
-
-impl From<ManagedShellArg> for shucked_run::Shell {
-    fn from(value: ManagedShellArg) -> Self {
-        match value {
-            ManagedShellArg::Bash => Self::Bash,
-            ManagedShellArg::Gbash => Self::Gbash,
-            ManagedShellArg::Bashkit => Self::Bashkit,
-            ManagedShellArg::Zsh => Self::Zsh,
-            ManagedShellArg::Dash => Self::Dash,
-            ManagedShellArg::Mksh => Self::Mksh,
-            ManagedShellArg::Busybox => Self::Busybox,
-        }
-    }
-}
-
 #[derive(Debug, Parser)]
 #[command(name = "shucked")]
 #[command(about = "Get Shucked!")]
@@ -155,12 +122,7 @@ struct StableCli {
 
 #[derive(Debug, Clone, ClapArgs)]
 struct GlobalArgs {
-    /// Either a path to a TOML configuration file (`shucked.toml`), or a TOML
-    /// `<KEY> = <VALUE>` pair (such as you might find in a `shucked.toml`
-    /// configuration file) overriding a specific configuration option.
-    /// Overrides of individual settings using this option always take
-    /// precedence over all configuration files, including configuration files
-    /// that were also specified using `--config`.
+    /// Path to shucked.toml or a TOML
     #[arg(
         long,
         action = clap::ArgAction::Append,
@@ -173,7 +135,6 @@ struct GlobalArgs {
     /// Ignore all configuration files.
     #[arg(long, global = true, help_heading = "Global options")]
     isolated: bool,
-    /// Control when colored output is used.
     #[arg(
         long,
         value_enum,
@@ -199,12 +160,6 @@ enum StableCommand {
     Check(Box<CheckCommand>),
     /// Start the language server over stdio.
     Server(ServerCommand),
-    /// Run a shell script with a managed interpreter.
-    Run(RunCommand),
-    /// Pre-install a managed shell interpreter or list available versions.
-    Install(InstallCommand),
-    /// Spawn a shell session using a managed interpreter.
-    Shell(ShellCommand),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shucked cache entries for the provided paths' projects.
@@ -246,9 +201,6 @@ impl Args {
         let command = match command {
             StableCommand::Check(command) => Command::Check(command),
             StableCommand::Server(command) => Command::Server(command),
-            StableCommand::Run(command) => Command::Run(command),
-            StableCommand::Install(command) => Command::Install(command),
-            StableCommand::Shell(command) => Command::Shell(command),
             StableCommand::Format(command) => Command::Format(command),
             StableCommand::Clean(command) => Command::Clean(command),
         };
@@ -269,12 +221,6 @@ pub enum Command {
     Check(Box<CheckCommand>),
     /// Start the language server over stdio.
     Server(ServerCommand),
-    /// Run a shell script with a managed interpreter.
-    Run(RunCommand),
-    /// Pre-install a managed shell interpreter or list available versions.
-    Install(InstallCommand),
-    /// Spawn a shell session using a managed interpreter.
-    Shell(ShellCommand),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shucked cache entries for the provided paths' projects.
@@ -364,73 +310,6 @@ impl CheckCommand {
             None
         }
     }
-}
-
-/// Arguments for `shucked run`.
-#[derive(Debug, Clone, ClapArgs)]
-pub struct RunCommand {
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
-    #[arg(short = 's', long, value_enum)]
-    pub shell: Option<ManagedShellArg>,
-    /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
-    #[arg(short = 'V', long = "shell-version", value_name = "CONSTRAINT")]
-    pub shell_version: Option<String>,
-    /// Use the system-installed interpreter instead of a managed one.
-    #[arg(long)]
-    pub system: bool,
-    /// Resolve and print the interpreter path without executing.
-    #[arg(long)]
-    pub dry_run: bool,
-    /// Show resolution and download progress.
-    #[arg(short = 'v', long)]
-    pub verbose: bool,
-    /// Evaluate a command string instead of running a script file.
-    #[arg(
-        short = 'c',
-        long = "command",
-        value_name = "COMMAND",
-        conflicts_with = "script"
-    )]
-    pub command: Option<String>,
-    /// Script path to execute, or `-` to read from stdin.
-    pub script: Option<PathBuf>,
-    /// Arguments passed through to the script or command.
-    #[arg(last = true, value_name = "ARGS")]
-    pub script_args: Vec<OsString>,
-}
-
-/// Arguments for `shucked install`.
-#[derive(Debug, Clone, ClapArgs)]
-pub struct InstallCommand {
-    /// Show available shells and versions instead of installing anything.
-    #[arg(long)]
-    pub list: bool,
-    /// Force a fresh registry fetch even if the local registry cache is still fresh.
-    #[arg(long)]
-    pub refresh: bool,
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
-    #[arg(required_unless_present = "list", value_enum)]
-    pub shell: Option<ManagedShellArg>,
-    /// Version constraint to install.
-    #[arg(required_unless_present = "list")]
-    pub version: Option<String>,
-}
-
-/// Arguments for `shucked shell`.
-#[derive(Debug, Clone, ClapArgs)]
-pub struct ShellCommand {
-    /// Shell interpreter name (`bash`, `gbash`, `bashkit`, `zsh`, `dash`, `mksh`, or Linux-only `busybox`).
-    #[arg(short = 's', long, value_enum)]
-    pub shell: Option<ManagedShellArg>,
-    /// Version constraint (for example `5.2`, `>=5.1,<6`, or `latest`).
-    #[arg(short = 'V', long = "shell-version", value_name = "CONSTRAINT")]
-    pub shell_version: Option<String>,
-    /// Use the system-installed interpreter instead of a managed one.
-    #[arg(long)]
-    pub system: bool,
-    /// Show resolution and download progress.
-    #[arg(short = 'v', long)]
-    pub verbose: bool,
 }
 
 /// A `<pattern>:<rule-selector>` mapping from the CLI.
@@ -1190,42 +1069,6 @@ mod tests {
         }
     }
 
-    fn parse_run<I, T>(args: I) -> RunCommand
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<OsString> + Clone,
-    {
-        let parsed = StableCli::try_parse_from(args).unwrap();
-        match Args::from_stable(parsed).unwrap().command {
-            Command::Run(command) => command,
-            command => panic!("expected run command, got {command:?}"),
-        }
-    }
-
-    fn parse_install<I, T>(args: I) -> InstallCommand
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<OsString> + Clone,
-    {
-        let parsed = StableCli::try_parse_from(args).unwrap();
-        match Args::from_stable(parsed).unwrap().command {
-            Command::Install(command) => command,
-            command => panic!("expected install command, got {command:?}"),
-        }
-    }
-
-    fn parse_shell<I, T>(args: I) -> ShellCommand
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<OsString> + Clone,
-    {
-        let parsed = StableCli::try_parse_from(args).unwrap();
-        match Args::from_stable(parsed).unwrap().command {
-            Command::Shell(command) => command,
-            command => panic!("expected shell command, got {command:?}"),
-        }
-    }
-
     #[test]
     fn parses_add_ignore_without_reason() {
         let command = parse_check(["shucked", "check", "--add-ignore"]);
@@ -1271,102 +1114,6 @@ mod tests {
             let command = parse_check(["shucked", "check", "--output-format", raw]);
             assert_eq!(command.output_format, expected, "failed to parse {raw}");
         }
-    }
-
-    #[test]
-    fn parses_run_command_flags_and_passthrough_args() {
-        let command = parse_run([
-            "shucked",
-            "run",
-            "--shell",
-            "bash",
-            "--shell-version",
-            "5.2",
-            "--system",
-            "--dry-run",
-            "--verbose",
-            "deploy.sh",
-            "--",
-            "--env",
-            "staging",
-        ]);
-
-        assert_eq!(command.shell, Some(ManagedShellArg::Bash));
-        assert_eq!(command.shell_version.as_deref(), Some("5.2"));
-        assert!(command.system);
-        assert!(command.dry_run);
-        assert!(command.verbose);
-        assert_eq!(
-            command.script.as_deref(),
-            Some(PathBuf::from("deploy.sh").as_path())
-        );
-        assert_eq!(
-            command.script_args,
-            vec![OsString::from("--env"), OsString::from("staging")]
-        );
-    }
-
-    #[test]
-    fn parses_run_command_string_mode() {
-        let command = parse_run([
-            "shucked", "run", "-s", "bash", "-c", "echo hi", "--", "one", "two",
-        ]);
-
-        assert_eq!(command.shell, Some(ManagedShellArg::Bash));
-        assert_eq!(command.command.as_deref(), Some("echo hi"));
-        assert!(command.script.is_none());
-        assert_eq!(
-            command.script_args,
-            vec![OsString::from("one"), OsString::from("two")]
-        );
-    }
-
-    #[test]
-    fn parses_busybox_shell_variants() {
-        let run = parse_run(["shucked", "run", "--shell", "busybox", "deploy.sh"]);
-        assert_eq!(run.shell, Some(ManagedShellArg::Busybox));
-
-        let install = parse_install(["shucked", "install", "busybox", "1.36"]);
-        assert_eq!(install.shell, Some(ManagedShellArg::Busybox));
-
-        let shell = parse_shell(["shucked", "shell", "--shell", "busybox"]);
-        assert_eq!(shell.shell, Some(ManagedShellArg::Busybox));
-    }
-
-    #[test]
-    fn parses_install_list_without_version() {
-        let command = parse_install(["shucked", "install", "--list", "bash"]);
-        assert!(command.list);
-        assert_eq!(command.shell, Some(ManagedShellArg::Bash));
-        assert!(command.version.is_none());
-    }
-
-    #[test]
-    fn parses_shell_command_flags() {
-        let command = parse_shell([
-            "shucked",
-            "shell",
-            "--shell",
-            "zsh",
-            "--shell-version",
-            "5.9",
-            "--system",
-            "--verbose",
-        ]);
-
-        assert_eq!(command.shell, Some(ManagedShellArg::Zsh));
-        assert_eq!(command.shell_version.as_deref(), Some("5.9"));
-        assert!(command.system);
-        assert!(command.verbose);
-    }
-
-    #[test]
-    fn parses_extended_managed_shell_names() {
-        let run_command = parse_run(["shucked", "run", "--shell", "gbash", "-c", "echo hi"]);
-        assert_eq!(run_command.shell, Some(ManagedShellArg::Gbash));
-
-        let install_command = parse_install(["shucked", "install", "--list", "bashkit"]);
-        assert_eq!(install_command.shell, Some(ManagedShellArg::Bashkit));
     }
 
     #[test]

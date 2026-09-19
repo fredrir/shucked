@@ -1953,7 +1953,6 @@ dependencies = [
  "shucked-indexer",
  "shucked-linter",
  "shucked-parser",
- "shucked-run",
  "shucked-semantic",
  "shucked-server",
  "similar",
@@ -1974,7 +1973,6 @@ dependencies = [
  "globset",
  "serde",
  "shucked-formatter",
- "shucked-run",
  "tempfile",
  "toml",
 ]
@@ -2085,21 +2083,6 @@ dependencies = [
  "serde_json",
  "shucked-ast",
  "smallvec",
-]
-
-[[package]]
-name = "shucked-run"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "etcetera",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "shucked-parser",
- "tempfile",
- "toml",
- "url",
 ]
 
 [[package]]
