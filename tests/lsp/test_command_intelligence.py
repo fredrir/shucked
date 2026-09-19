@@ -162,3 +162,27 @@ async def test_standard_pull_refresh_capability_delivers_environment_results(shu
             raise AssertionError("Standard plural workspace.diagnostics did not refresh environment warnings")
     finally:
         await client.shutdown_and_exit()
+
+async def test_external_source_install_and_removal_refresh_function_completions(shucked_binary, tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    library = tmp_path / "external" / "library.sh"
+    library.parent.mkdir()
+    client = await start_host(shucked_binary, workspace)
+    uri = (workspace / "script.sh").as_uri()
+    async def candidates():
+        result = await client.send_request("textDocument/completion", {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 9}})
+        return {item["label"] for item in result.get("items", [])}
+    try:
+        await client.open_document(uri, text=f"source '{library}'\nexternal_fixture\nexternal_", language_id="bash")
+        assert "external_fixture" not in await candidates()
+        library.write_text("external_fixture() { :; }\n")
+        async with asyncio.timeout(12):
+            while "external_fixture" not in await candidates():
+                await asyncio.sleep(.05)
+        library.unlink()
+        async with asyncio.timeout(12):
+            while "external_fixture" in await candidates():
+                await asyncio.sleep(.05)
+    finally:
+        await client.shutdown_and_exit()

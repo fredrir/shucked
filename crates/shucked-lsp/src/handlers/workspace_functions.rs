@@ -56,6 +56,17 @@ pub(crate) struct WorkspaceFunctionIndexCache {
 }
 
 impl WorkspaceFunctionIndexCache {
+    pub(crate) fn dependency_paths(&self) -> Vec<PathBuf> {
+        self.get(self.current_epoch())
+            .map(|index| {
+                index
+                    .files
+                    .values()
+                    .flat_map(|file| file.dependencies.iter().cloned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
     /// Drops any cached index and marks in-flight builds stale.
     pub(crate) fn invalidate(&self) {
         self.epoch.fetch_add(1, Ordering::SeqCst);
@@ -126,6 +137,7 @@ pub(crate) fn fresh_workspace_function_index(
 
 /// Source snapshot retained for one indexed file.
 pub(crate) struct IndexedWorkspaceFile {
+    dependencies: Vec<PathBuf>,
     uri: types::Url,
     open_uri: Option<types::Url>,
     source: String,
@@ -695,6 +707,7 @@ fn insert_file(
         .unwrap_or(input.uri);
     let shell = ShellDialect::infer(input.source, Some(input.path));
     let model = analyze_editor_document(input.source, Some(input.path), shell);
+    let mut dependencies = vec![input.path.to_path_buf()];
     let edges = model
         .source_refs()
         .iter()
@@ -713,6 +726,7 @@ fn insert_file(
             }
             candidates
                 .into_iter()
+                .inspect(|path| dependencies.push(path.clone()))
                 .map(|candidate| canonical_path(&candidate))
                 .find(|candidate| open_paths.contains(candidate) || candidate.is_file())
                 .map(|target| CallFactSourceEdge {
@@ -733,6 +747,7 @@ fn insert_file(
     files.insert(
         key,
         IndexedWorkspaceFile {
+            dependencies,
             uri,
             open_uri,
             source: input.source.to_owned(),

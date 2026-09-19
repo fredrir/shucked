@@ -173,6 +173,7 @@ impl Session {
 
     pub(crate) fn refresh_environment(&self) {
         self.update_environment_watches();
+        self.workspace_function_index.invalidate();
         self.workspace_diagnostics.invalidate_all();
         self.command_service.invalidate();
         self.completion_environment.invalidate();
@@ -204,8 +205,9 @@ impl Session {
                         .and_then(|options| options.cwd)
                 }),
         );
-        self.environment_watcher
-            .update(self.command_service.watch_directories(&directories));
+        let mut paths = self.command_service.watch_directories(&directories);
+        paths.extend(self.workspace_function_index.dependency_paths());
+        self.environment_watcher.update(paths);
     }
 
     pub(crate) fn schedule_all_diagnostics(&self) {

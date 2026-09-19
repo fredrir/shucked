@@ -49,10 +49,14 @@ impl EnvironmentWatcher {
                 };
                 let mut watched = BTreeSet::new();
                 let mut pending = None;
+                let mut revalidate = false;
                 let mut last_registration = Instant::now() - Duration::from_secs(30);
                 loop {
                     match receiver.recv_timeout(Duration::from_millis(100)) {
-                        Ok(()) => last_registration = Instant::now() - Duration::from_secs(2),
+                        Ok(()) => {
+                            last_registration = Instant::now() - Duration::from_secs(2);
+                            revalidate = true;
+                        }
                         Err(crossbeam::channel::RecvTimeoutError::Disconnected) => return,
                         Err(crossbeam::channel::RecvTimeoutError::Timeout) => {}
                     }
@@ -91,6 +95,11 @@ impl EnvironmentWatcher {
                         }
                         watched = next;
                         last_registration = Instant::now();
+                        // Inputs can change between analysis and native watch registration.
+                        if std::mem::take(&mut revalidate) && client.environment_changed().is_err()
+                        {
+                            return;
+                        }
                     }
                     if pending.is_some_and(|start| start.elapsed() >= Duration::from_millis(250)) {
                         pending = None;
