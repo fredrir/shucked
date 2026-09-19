@@ -2,7 +2,7 @@
 use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange, RecordedListOperator};
 use crate::{BindingId, SemanticModel, ShellDialect};
 use shucked_ast::{Name, Position, Span, Word, static_word_text};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// One original or alias-injected shell word.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +91,29 @@ struct Alias {
     unconditional: bool,
 }
 
+enum AliasChange {
+    Define(String, Alias),
+    Remove(String),
+    Clear,
+}
+fn apply_alias_changes(
+    aliases: &mut BTreeMap<String, Alias>,
+    pending: &mut VecDeque<(usize, AliasChange)>,
+    line: usize,
+) {
+    while pending.front().is_some_and(|(after, _)| *after < line) {
+        match pending.pop_front().expect("pending change").1 {
+            AliasChange::Define(name, alias) => {
+                aliases.insert(name, alias);
+            }
+            AliasChange::Remove(name) => {
+                aliases.remove(&name);
+            }
+            AliasChange::Clear => aliases.clear(),
+        }
+    }
+}
+
 impl SemanticModel {
     /// Collects command identity facts from the existing parser/semantic recording.
     /// Unsupported flow and dynamic mutations explicitly weaken host-absence evidence.
@@ -110,6 +133,7 @@ impl SemanticModel {
     ) -> (Vec<CommandSiteFacts>, Vec<AppliedAlias>) {
         let mut cursor_parse_line = cursor.map(|position| position.line()).unwrap_or(0);
         let mut aliases = BTreeMap::<String, Alias>::new();
+        let mut pending_alias_changes = VecDeque::new();
         let mut aliases_enabled = self.shell_profile().dialect != ShellDialect::Bash;
         let mut pending_alias_option = None;
         let mut environment_uncertain = None;
@@ -144,6 +168,7 @@ impl SemanticModel {
                 cursor_parse_line = parse_start_line;
                 break;
             }
+            apply_alias_changes(&mut aliases, &mut pending_alias_changes, parse_start_line);
             if let Some((line, enabled)) = pending_alias_option
                 && line < parse_start_line
             {
@@ -242,6 +267,10 @@ impl SemanticModel {
                             )
                 });
             }
+            let alias_change_line = site
+                .effective_words
+                .last()
+                .map_or(site.span.start.line(), |word| word.span.end.line());
             let raw_name = (site.visible_function.is_none()
                 && site.namespace != CommandNamespace::External)
                 .then(|| site.name())
@@ -249,24 +278,27 @@ impl SemanticModel {
             if raw_name == Some("alias") {
                 for word in site.effective_words.iter().skip(1) {
                     if word.text.is_none() {
-                        aliases.clear();
+                        pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
                         environment_uncertain =
                             Some("Dynamic alias definitions may change command lookup".into());
                     }
                     if let Some((name, expansion)) =
                         word.text.as_deref().and_then(|t| t.split_once('='))
                     {
-                        aliases.insert(
-                            name.into(),
-                            Alias {
-                                words: (!conditional)
-                                    .then(|| simple_alias_words(expansion))
-                                    .flatten(),
-                                span: word.span,
-                                available_after_line: word.span.end.line(),
-                                unconditional: !conditional,
-                            },
-                        );
+                        pending_alias_changes.push_back((
+                            alias_change_line,
+                            AliasChange::Define(
+                                name.into(),
+                                Alias {
+                                    words: (!conditional)
+                                        .then(|| simple_alias_words(expansion))
+                                        .flatten(),
+                                    span: word.span,
+                                    available_after_line: word.span.end.line(),
+                                    unconditional: !conditional,
+                                },
+                            ),
+                        ));
                     }
                 }
             } else if raw_name == Some("unalias") {
@@ -279,11 +311,12 @@ impl SemanticModel {
                         .skip(1)
                         .any(|word| word.text.is_none() || word.text.as_deref() == Some("-a"))
                     {
-                        aliases.clear();
+                        pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
                     }
                     for word in site.effective_words.iter().skip(1) {
                         if let Some(name) = &word.text {
-                            aliases.remove(name);
+                            pending_alias_changes
+                                .push_back((alias_change_line, AliasChange::Remove(name.clone())));
                         }
                     }
                 } else if site
@@ -291,13 +324,15 @@ impl SemanticModel {
                     .iter()
                     .any(|w| w.text.as_deref() == Some("-a"))
                 {
-                    aliases.clear();
+                    pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
                 } else {
                     for word in site.effective_words.iter().skip(1) {
                         if let Some(name) = &word.text {
-                            aliases.remove(name);
+                            pending_alias_changes
+                                .push_back((alias_change_line, AliasChange::Remove(name.clone())));
                         } else {
-                            aliases.clear();
+                            pending_alias_changes
+                                .push_back((alias_change_line, AliasChange::Clear));
                         }
                     }
                 }
@@ -333,7 +368,8 @@ impl SemanticModel {
                         .to_ascii_lowercase();
                     if matches!(option.as_str(), "aliases" | "noaliases") {
                         if conditional {
-                            aliases.clear();
+                            pending_alias_changes
+                                .push_back((alias_change_line, AliasChange::Clear));
                         } else {
                             pending_alias_option = Some((
                                 word.span.end.line(),
@@ -344,7 +380,7 @@ impl SemanticModel {
                 }
             }
             if matches!(raw_name, Some("source" | "." | "eval")) {
-                aliases.clear();
+                pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
             }
             if matches!(
                 raw_name,
@@ -372,6 +408,7 @@ impl SemanticModel {
                     .get_or_insert_with(|| "Earlier PATH assignment changes command lookup".into());
             }
         }
+        apply_alias_changes(&mut aliases, &mut pending_alias_changes, cursor_parse_line);
         if let Some((line, enabled)) = pending_alias_option
             && line < cursor_parse_line
         {

@@ -302,3 +302,36 @@ fn alias_name_completions_follow_source_order_options_and_removals() {
     let source = "alias myls=eza\nsource \"$UNKNOWN\"\nmy";
     assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
 }
+
+#[test]
+fn alias_removal_and_redefinition_take_effect_after_current_parse_unit() {
+    for dialect in [ShellDialect::Zsh, ShellDialect::Bash] {
+        let prefix = if dialect == ShellDialect::Bash {
+            "shopt -s expand_aliases\n"
+        } else {
+            ""
+        };
+        let source = format!("{prefix}alias mycmd=printf\nunalias mycmd; mycmd\nmycmd\n");
+        let sites = analyze(&source, dialect);
+        let names = sites
+            .iter()
+            .filter(|site| {
+                site.words.first().and_then(|word| word.text.as_deref()) == Some("mycmd")
+            })
+            .map(|site| site.name())
+            .collect::<Vec<_>>();
+        assert_eq!(names, [Some("printf"), Some("mycmd")]);
+        let cursor = source.find("; mycmd").unwrap() + "; mycmd".len();
+        assert_eq!(visible_aliases(&source, dialect, cursor), ["mycmd"]);
+        let source = format!("{prefix}alias mycmd=printf\nalias mycmd=echo; mycmd\nmycmd\n");
+        let sites = analyze(&source, dialect);
+        let names = sites
+            .iter()
+            .filter(|site| {
+                site.words.first().and_then(|word| word.text.as_deref()) == Some("mycmd")
+            })
+            .map(|site| site.name())
+            .collect::<Vec<_>>();
+        assert_eq!(names, [Some("printf"), Some("echo")]);
+    }
+}
