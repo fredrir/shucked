@@ -1,132 +1,145 @@
 # Shucked for VS Code
 
-VS Code extension for **Shucked**: Industry-grade Shellscript & ZSH Language Server, Linter, and Formatter.
+Shell diagnostics, completion, formatting, navigation, and execution-context awareness.
 
-## Features
+## Execution context
 
-- **Rich Language Features**: Diagnostics, code actions, completions, formatting, hovers, navigation, and symbol indexing powered by the Shucked language server.
-- **Platform Binary Discovery**: Automatically detects bundled platform binaries, workspace build targets, or system PATH binaries.
-- **Resilient Client Management**: Automatic crash-loop protection with exponential backoff and interactive error recovery.
-- **Multi-Root Workspace & Remote Ready**: Full support for Remote SSH, WSL, Dev Containers, and multi-root workspaces.
+| Context | Behavior |
+|---|---|
+| Workspace (default) | Resolve commands against the workspace host's exact inherited `PATH` |
+| Portable | Keep syntax and document analysis; suppress host-dependent absence warnings |
+| Captured target | Use an explicitly selected inventory offline; do not run local providers for it |
+| Attached terminal | Use that session's aliases, functions, options, `PATH`, and working directory |
+| Startup file | Analyze definitions in source order; do not treat post-startup state as entry state |
+| Launch directory | Workspace directory is an assumption; select an explicit directory when needed |
 
-## Settings
+Use **Shucked: Select Execution Context** or the context status item. Per-document selections override workspace settings. Session attachment is explicit and temporary.
 
-| Setting                    | Default | Description                                                                                                                                             |
-| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shucked.server.path`      | `""`    | Path to custom `shucked` executable. Bundled platform binaries are the standard supported mode; custom binary paths are unsupported and provided as-is. |
-| `shucked.server.extraArgs` | `[]`    | Extra CLI arguments passed to `shucked server`.                                                                                                         |
-| `shucked.trace.server`     | `"off"` | Traces communication between VS Code and the Shucked language server (`"off"`, `"messages"`, `"verbose"`).                                              |
+| Setting | Default |
+|---|---|
+| `shucked.environment.policy` | `workspace` (`portable` opt-in) |
+| `shucked.environment.cwd` | Empty; assumed workspace directory |
+| `shucked.environment.targetInventory` | Empty |
+| `shucked.environment.declarations` | Empty command-to-dependency-kind map |
+| `shucked.history.session` | `false` |
+| `shucked.history.files` | `false` |
+| `shucked.server.path` | Empty; bundled platform server |
+| `shucked.server.extraArgs` | `[]` |
+| `shucked.trace.server` | `off` |
 
-> `shucked.server.path` expands `~`, `$VAR`, and `${VAR}`.
+`shucked.server.path` expands `~`, `$VAR`, and `${VAR}`. Custom server binaries must support the extension's protocol.
 
-| Completion setting                                  | Default                     |
-| --------------------------------------------------- | --------------------------- |
-| `shucked.server.completion.includeEnvironment`      | `true`                      |
-| `shucked.server.completion.includePaths`            | `true`                      |
-| `shucked.server.completion.includeCommandArguments` | `true`                      |
-| `shucked.server.completion.includeNative`           | `true` (trusted workspaces) |
-| `shucked.server.completion.useShellConfig`          | `false` (machine setting)   |
-| `shucked.server.completion.includeRuntimeNames`     | `true`                      |
-| `shucked.server.completion.includeKeywords`         | `true`                      |
-| `shucked.server.completion.maxItems`                | `200` (1–2000)              |
+## Completion and diagnostics
 
-## Completion behavior
+| Source | Behavior |
+|---|---|
+| Commands | Exact target `PATH`, applicable aliases/functions, and shell builtins |
+| Symbols | Document and sourced functions, variables, keywords, and shell options |
+| Paths | Selected launch directory; quoted/escaped names and supported home expansions |
+| Arguments | Bundled definitions plus bounded installed-tool queries |
+| Native engines | Managed Zsh, Bash, and Fish adapters; personal dotfiles are unnecessary |
+| Packages | Installed package tools and their available metadata; no package installation or database refresh |
+| Aliases | Preserve injected arguments and source ranges; standalone scripts do not inherit interactive aliases |
+| Missing commands | Debounced warning and invalid semantic classification when absence is established |
+| Uncertain context | Unknown; incomplete inventories and dynamic commands do not prove absence |
+| Subcommands/flags | Validate only with complete applicable tool evidence; missing suggestions are not errors |
+| Typo corrections | Explicit quick fixes, checked again against document/target state; excluded from fix-all |
+| Syntax | Parser diagnostics enabled by default; Fish uses its own frontend |
+| Refresh | Watched changes, terminal prompts, explicit refresh, and a 30-second host refresh fallback |
 
-| Source              | Behavior                                                                                                                      |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Symbols             | Visible variables, functions, sourced functions, builtins, shell keywords, Zsh options                                        |
-| Commands            | Server host's `PATH`, then standard system and Homebrew directories; first match wins                                         |
-| Variables           | Inherited environment names; values are not included in suggestions                                                           |
-| Paths               | Script directory; server working directory for untitled buffers                                                               |
-| Path syntax         | Absolute/relative paths, `~/`, `$HOME/`, `${HOME}/`, quoted and escaped names                                                 |
-| Directories         | Directory-only suggestions for `cd`, `pushd`, and `rmdir`                                                                     |
-| Arguments           | Bundled flags and subcommands for Git, Homebrew, Pacman, curl, SSH, Docker, kubectl, common file tools, and selected builtins |
-| Native flags        | Installed `ls`, `gls`, `eza`, `exa`, `rg`, `fd`, and `bat` help output; managed Zsh completion fallback                       |
-| Packages            | `pacman -S` uses repository package names; `pacman -R` / `-Q` use installed names                                             |
-| Homebrew            | `brew install` suggests formulae and casks; `--formula` / `--cask` narrow the list; removal and upgrade use installed names   |
-| Descriptions        | Native help/completion descriptions appear beside flags                                                                       |
-| Personal aliases    | Optional `useShellConfig` loads Zsh login/interactive startup files for flag completion                                       |
-| Edits               | Replace the word suffix; negotiate insert/replace edits with the editor                                                       |
-| Limits              | Bounded directory caches and result counts; partial lists request further completion                                          |
-| Refresh             | Directories: 2 seconds; native queries: 60 seconds; Zsh: 30 seconds; watched-file changes invalidate caches                   |
-| Execution           | Trusted workspaces only; fixed help/package queries and Zsh completion scripts, with deadlines and cancellation               |
-| Default shell setup | Zsh starts with `-f`; Shucked initializes completion without `.zshrc`, plugins, or a completion dump                          |
-| Native platforms    | Unix workspace hosts; other platforms retain bundled metadata, paths, and symbols                                             |
+| Completion setting | Default |
+|---|---|
+| `shucked.server.completion.includeEnvironment` | `true` |
+| `shucked.server.completion.includePaths` | `true` |
+| `shucked.server.completion.includeCommandArguments` | `true` |
+| `shucked.server.completion.includeNative` | `true` in trusted workspaces |
+| `shucked.server.completion.includeRuntimeNames` | `true` |
+| `shucked.server.completion.includeKeywords` | `true` |
+| `shucked.server.completion.maxItems` | `200` (1–2000) |
+| `shucked.server.completion.useShellConfig` | Deprecated; attach a terminal instead |
 
-The providers ship inside the server binary bundled with the extension. Homebrew and Pacman completion requires the corresponding tool and its package metadata on the workspace host; Zsh is not required for those providers. Missing tools, unavailable metadata, failed queries, and timeouts fall back to bundled metadata and paths.
+Managed completion workers bypass personal startup files. Creating a Shucked terminal starts a real shell with its normal trusted startup configuration. Attaching an existing terminal copies an attachment command for you to run at an idle prompt; it does not inject commands or modify dotfiles. Analysis never executes editor-buffer contents or follows sources by executing them.
 
-Flags reflect the installed executable: macOS `ls`, GNU `ls`, and `eza` have different options. Personal aliases such as `ls=eza` are used only with `useShellConfig` enabled. The default needs no personal shell configuration.
+History suggestions are separately opt-in for accepted session commands and history files. Entries stay in bounded memory caches and are cleared when disabled. Session collection requires an authenticated prompt confirmation.
 
-Completion never runs the edited command, installs packages, or explicitly refreshes package databases. Package names and help are queried through fixed arguments. Personal shell configuration, when enabled, runs its normal startup code.
+## Project dependencies
 
-## Remote workspaces
+Declare expected commands in `.shucked.toml`:
 
-| Environment                              | Server and completion source   |
-| ---------------------------------------- | ------------------------------ |
-| Local                                    | Local workspace extension host |
-| Remote SSH                               | SSH host                       |
-| WSL                                      | WSL distribution               |
-| Dev Container                            | Container                      |
-| Other LSP editors                        | Host running `shucked-server`  |
-| Virtual filesystem without a native host | Unsupported                    |
-
-Install the extension on the workspace host. VSIX packages target that host's OS, architecture, and Linux/Alpine family. Incompatible bundled binaries are skipped; discovery continues through build artifacts and `PATH`.
-
-`PATH`, home, and environment names are captured when the server starts. Restart the language server after changing its inherited environment. An editor launched from a desktop session can inherit a different environment from an interactive terminal.
-
-```json
-{
-  "nativeExecutionAllowed": true,
-  "server": {
-    "completion": {
-      "includeEnvironment": true,
-      "includePaths": true,
-      "includeCommandArguments": true,
-      "includeNative": true,
-      "useShellConfig": false,
-      "maxItems": 200
-    }
-  }
-}
+```toml
+[environment.commands.codegen]
+kind = "generated"
+files = ["scripts/**"]
+targets = ["deployment"]
 ```
 
-Other editors pass this object as LSP initialization options for trusted workspaces. VS Code sets `nativeExecutionAllowed` from workspace trust automatically. Later workspace configuration cannot grant this permission; granting VS Code trust restarts the server.
+| Field | Values |
+|---|---|
+| `kind` | `required`, `optional`, `generated`, `deployment` |
+| `files` | Optional workspace-relative glob list |
+| `targets` | Optional target-ID list |
+
+Declarations distinguish expected dependencies from spelling mistakes; they do not fabricate an installed executable. Supported availability guards also suppress warnings within the guarded branch.
+
+## Remote workspaces and targets
+
+| Environment | Server and provider host |
+|---|---|
+| Local | Local workspace extension host |
+| Remote SSH | SSH host |
+| WSL | WSL distribution |
+| Dev Container | Container |
+| Other LSP editors | Host running the server |
+
+Install the extension on the workspace host. The VSIX must match that host's platform. Inherited environment changes outside a linked terminal require a server restart; installing/removing files on the existing `PATH` does not.
+
+**Capture Target Inventory** exports a bounded, checksummed inventory without running discovered programs. **Compare Target Inventories** compares the active document against selected inventories. Captured capability validation remains Unknown where no authoritative grammar was recorded.
+
+```sh
+shucked target capture --label deployment --shell bash --output deployment.json
+shucked target inspect deployment.json
+shucked target compare --target deployment.json --target workstation.json script.sh
+```
+
+Other editors initialize trusted native execution with `{"nativeExecutionAllowed": true}`. VS Code derives this permission from workspace trust; later workspace settings cannot grant it.
 
 ## Commands
 
-- **Shucked: Restart Language Server** (`shucked.restartServer`)
-- **Shucked: Show Language Server Logs** (`shucked.showOutputChannel`)
-- **Shucked: Show Version** (`shucked.showVersion`)
+| Command | ID |
+|---|---|
+| Select Execution Context | `shucked.selectEnvironment` |
+| Refresh Environment | `shucked.refreshEnvironment` |
+| Create Terminal | `shucked.createTerminal` |
+| Attach Terminal | `shucked.attachTerminal` |
+| Capture Target Inventory | `shucked.captureTarget` |
+| Compare Target Inventories | `shucked.compareTargets` |
+| Clear History Suggestions | `shucked.clearHistorySuggestions` |
+| Restart Language Server | `shucked.restartServer` |
+| Show Language Server Logs | `shucked.showOutputChannel` |
+| Show Version | `shucked.showVersion` |
 
-## Status Bar
+## Coverage and distribution
 
-The status bar displays the current state of Shucked:
-- `$(sync~spin) Shucked: Starting` — Language server is starting.
-- `$(check) Shucked` — Ready and idle.
-- `$(sync~spin) Shucked: Indexing` — Indexing files or analyzing workspace.
-- `$(error) Shucked: Error` — An error occurred or the server failed to start (click to restart or view logs).
+| Area | Current boundary |
+|---|---|
+| Bundled engines | macOS arm64 tested; other runtime distributions require their platform gates |
+| Linux | GNU/musl source-build recipes; target-host execution required before release |
+| Windows | Process-tree cancellation implemented; compatible private shell runtime distribution remains outstanding |
+| Unix helpers | Some definitions require standard POSIX utilities from the host |
+| Tool validation | Brew/Git inventories and selected exact-version flag grammars; unsupported versions remain Unknown |
+| Fish | Dedicated syntax/command frontend; not full Bash/Zsh lint-rule or formatting parity |
+| Themes | Standard warning diagnostics plus semantic classifications; token color depends on theme |
+| Remote validation | Workspace-host architecture; real SSH/WSL/container acceptance runs remain required |
+
+See [provider builds and licenses](../../tooling/providers/README.md) and the [implementation ledger](../../plans/shell-intelligence.md). No full platform-parity claim is implied by the available build recipes.
 
 ## Development
 
-| Task                 | Command               |
-| -------------------- | --------------------- |
-| Install dependencies | `bun install`         |
-| Typecheck            | `bun run check-types` |
-| Lint                 | `bun run lint`        |
-| Build                | `bun run build`       |
-| Watch                | `bun run watch`       |
-| Platform tests       | `bun run test`        |
-| Package host VSIX    | `bun run vsix`        |
-
-## Architecture
-
-| File               | Responsibility                                                                        |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `src/extension.ts` | Extension activation, log channel creation, workspace event dispatching.              |
-| `src/binary.ts`    | Resolves binary through custom path, bundled binary, workspace artifacts, or PATH.    |
-| `src/client.ts`    | LanguageClient lifecycle, error handler, crash-loop detection, and progress handling. |
-| `src/status.ts`    | Status bar item state management and interactions.                                    |
-| `src/commands.ts`  | Command registrations (`restartServer`, `showOutputChannel`, `showVersion`).          |
-| `src/config.ts`    | Configuration watcher and live server reload.                                         |
-| `platform.mjs`     | Native executable and host-platform detection                                         |
-| `vsix.mjs`         | Package/publish a VSIX for the current host                                           |
+| Task | Command |
+|---|---|
+| Install | `npm ci` |
+| Typecheck | `npm run check-types` |
+| Lint | `npm run lint` |
+| Build | `npm run build` |
+| Unit and hook tests | `npm test` |
+| Package host VSIX | `npm run vsix` |

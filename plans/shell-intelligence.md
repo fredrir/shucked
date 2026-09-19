@@ -1,6 +1,24 @@
 # Environment-aware shell intelligence implementation plan
 
-Status: implementation plan; application code unchanged by this planning pass.
+Status: implementation in progress. The original acceptance gates below remain binding; implementation availability does not mean platform release validation is complete.
+
+## Implementation evidence
+
+| Area | Implemented | Remaining gate |
+|---|---|---|
+| Shared resolution | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results | Integrated editor regression review |
+| Editor feedback | Command tokens, resolution hover, parser/environment workers, manual snapshot-checked corrections | Real Extension Development Host and installed-VSIX acceptance |
+| Context | Workspace/Portable, captured targets, terminal selection, explicit cwd | Real SSH/WSL/container and untitled workspace-association tests |
+| Validators | Brew/Git command inventories; exact-version eza/rg/fd/bat/GNU ls/Pacman/curl flags | Broader versions, BSD ls, SSH/Docker/kubectl grammars where authoritative evidence is available |
+| Providers | Vendored definitions; managed Zsh/Bash/Fish adapters; private macOS arm64 engines | All advertised native runtime targets and private Unix helper closure |
+| Fish | Dedicated command/syntax frontend and completion routing | Broader Fish grammar fixtures; full existing lint-rule parity is not claimed |
+| Refresh/dependencies | Environment refresh, scoped declarations, guarded optional commands | Package/plugin/configuration watcher coverage beyond TTL fallback |
+| Live sessions | Authenticated Bash/Zsh/Fish prompt hooks, explicit attach/profile | Real remote reconnect and existing hook coexistence matrix |
+| Inventories/comparison | Versioned bounded capture/import and target-labelled comparison | Capturing authoritative capability evidence beyond executable inventory |
+| History | Separate opt-ins, bounded memory, authenticated accepted-command confirmation | Real editor inline suggestion/revocation matrix |
+| Distribution | Pinned hashes, licenses/source archives, fail-closed runtime checks, Linux build recipes | Linux/macOS x64/Windows runtime artifacts and installed-package matrix |
+
+Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
 
 ## Confirmed scope
 
@@ -39,7 +57,7 @@ Status: implementation plan; application code unchanged by this planning pass.
 | C3  | Could    | Comparisons across deployment targets                                              | P9              |
 | C4  | Could    | Optional history-based inline suggestions                                          | P10             |
 
-## Current implementation gaps
+## Baseline gaps addressed by the work packages
 
 | Area                                | Finding                                                                                                              | Required change                                                                     |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
