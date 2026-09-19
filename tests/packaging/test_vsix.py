@@ -6,12 +6,11 @@ Validates:
 - Manifest correctness: name, displayName, workspace trust, extensionKind, language activation
 - Bundled assets: extension/dist/extension.js
 - Exclusions: .vscode-extension-samples/ and other development artifacts
-- Binary bundling paths and executable permissions
+- Binary bundling: extension/bin/shucked and extension/bin/shucked-server presence and executable permissions
 """
 
 import json
 import os
-import shutil
 import stat
 import subprocess
 import tempfile
@@ -24,6 +23,13 @@ import pytest
 def vsix_path(repo_root: Path) -> Path:
     """Build and locate the packaged .vsix file in editors/vscode."""
     vscode_dir = repo_root / "editors" / "vscode"
+
+    # Ensure target release binaries are built first
+    subprocess.run(
+        ["cargo", "build", "--release", "-p", "shucked-cli", "-p", "shucked-server"],
+        cwd=repo_root,
+        check=True,
+    )
 
     # Run packaging commands
     build_result = subprocess.run(
@@ -61,6 +67,8 @@ def test_vsix_archive_structure(vsix_path: Path):
         assert "extension.vsixmanifest" in namelist
         assert "extension/package.json" in namelist
         assert "extension/dist/extension.js" in namelist
+        assert "extension/bin/shucked" in namelist
+        assert "extension/bin/shucked-server" in namelist
 
 
 def test_vsix_manifest_metadata(vsix_path: Path):
@@ -115,50 +123,40 @@ def test_vsix_excludes_development_files(vsix_path: Path):
             assert not name.startswith("extension/src/"), (
                 f"TypeScript source directory leaked into VSIX: {name}"
             )
-
-
-def test_vsix_binary_bundling_and_permissions(repo_root: Path):
-    """Verify bundled binary path and preserved executable permissions in VSIX."""
-    vscode_dir = repo_root / "editors" / "vscode"
-    bin_dir = vscode_dir / "bin"
-    bin_dir.mkdir(exist_ok=True)
-    dummy_bin = bin_dir / "shucked"
-
-    try:
-        # Create an executable script simulating the target binary
-        dummy_bin.write_text("#!/bin/sh\necho 'shucked binary'\n")
-        dummy_bin.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-
-        # Repackage to test binary inclusion
-        res = subprocess.run(
-            ["bun", "run", "vsix"],
-            cwd=vscode_dir,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert res.returncode == 0, f"vsix packaging with bin failed: {res.stderr}"
-
-        vsix_file = max(vscode_dir.glob("*.vsix"), key=lambda p: p.stat().st_mtime)
-        with zipfile.ZipFile(vsix_file, "r") as archive:
-            assert "extension/bin/shucked" in archive.namelist(), (
-                "extension/bin/shucked should be bundled in the archive"
+            assert name != "extension/bundle-bins.mjs", (
+                f"bundle-bins.mjs helper leaked into VSIX: {name}"
             )
-            info = archive.getinfo("extension/bin/shucked")
-            mode = (info.external_attr >> 16) & 0o777
-            assert mode & 0o111 != 0, f"Bundled binary must have executable permissions, got: {oct(mode)}"
 
-    finally:
-        # Clean up the test binary and re-package cleanly
-        if dummy_bin.exists():
-            dummy_bin.unlink()
-        if bin_dir.exists():
-            shutil.rmtree(bin_dir, ignore_errors=True)
-        # Restore clean vsix package
-        subprocess.run(
-            ["bun", "run", "vsix"],
-            cwd=vscode_dir,
+
+def test_vsix_binary_bundling_and_permissions(vsix_path: Path):
+    """Verify bundled shucked and shucked-server binaries and preserved executable permissions in VSIX."""
+    with zipfile.ZipFile(vsix_path, "r") as archive:
+        namelist = archive.namelist()
+        for bin_name in ["extension/bin/shucked", "extension/bin/shucked-server"]:
+            assert bin_name in namelist, f"{bin_name} should be bundled in the archive"
+            info = archive.getinfo(bin_name)
+            assert info.file_size > 1_000_000, f"{bin_name} is too small ({info.file_size} bytes)"
+            mode = (info.external_attr >> 16) & 0o777
+            assert mode & 0o111 != 0, f"Bundled binary {bin_name} must have executable permissions, got: {oct(mode)}"
+
+    # Test extracting and executing the bundled CLI binary
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        with zipfile.ZipFile(vsix_path, "r") as archive:
+            archive.extract("extension/bin/shucked", tmp_path)
+            archive.extract("extension/bin/shucked-server", tmp_path)
+
+        cli_bin = tmp_path / "extension" / "bin" / "shucked"
+        server_bin = tmp_path / "extension" / "bin" / "shucked-server"
+
+        os.chmod(cli_bin, 0o755)
+        os.chmod(server_bin, 0o755)
+
+        version_run = subprocess.run(
+            [str(cli_bin), "--version"],
             capture_output=True,
             text=True,
-            check=False,
+            check=True,
         )
+        assert "shucked" in version_run.stdout.lower()
+        assert server_bin.is_file()

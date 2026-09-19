@@ -3,4 +3,5 @@ dist/
 out/
 .vscode-test/
 .vscode-extension-samples/
+bin/
 *.vsix

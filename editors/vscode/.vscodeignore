@@ -5,6 +5,7 @@ node_modules/**
 vscode-extension-samples/**
 .vscode-extension-samples/**
 esbuild.mjs
+bundle-bins.mjs
 eslint.config.mts
 tsconfig.json
 bun.lock

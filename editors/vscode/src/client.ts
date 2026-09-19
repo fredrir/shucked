@@ -11,7 +11,7 @@ import {
   ServerOptions,
   State,
 } from "vscode-languageclient/node";
-import { resolveBinary } from "./binary";
+import { resolveServerCommand, ServerCommand } from "./binary";
 import { StatusBarManager } from "./status";
 
 /**
@@ -172,23 +172,23 @@ export class ClientManager implements vscode.Disposable {
     this.manualShutdown = false;
     this.statusManager.setStatus("starting", "Resolving Shucked binary...");
 
-    let binaryPath: string;
+    const config = vscode.workspace.getConfiguration("shucked");
+    const extraArgs = config.get<string[]>("server.extraArgs", []);
+
+    let serverCmd: ServerCommand;
     try {
-      binaryPath = await resolveBinary(this.context, this.outputChannel);
+      serverCmd = await resolveServerCommand(this.context, this.outputChannel, extraArgs);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.statusManager.setStatus("error", msg);
-      this.outputChannel.error(`Failed to resolve binary: ${msg}`);
+      this.outputChannel.error(`Failed to resolve server binary: ${msg}`);
       this.reportStartFailure(msg);
       return;
     }
 
-    const config = vscode.workspace.getConfiguration("shucked");
-    const extraArgs = config.get<string[]>("server.extraArgs", []);
-
     const serverOptions: ServerOptions = {
-      command: binaryPath,
-      args: ["server", ...extraArgs],
+      command: serverCmd.command,
+      args: serverCmd.args,
     };
 
     if (!this.traceChannel) {

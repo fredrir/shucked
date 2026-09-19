@@ -3,10 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 
-/**
- * Expands leading `~` to user's home directory and replaces `$VAR` / `${VAR}`
- * with environment variable values.
- */
+
 export function expandVariables(value: string): string {
   const home = value.replace(/^~(?=$|[/\\])/, os.homedir());
   return home.replace(
@@ -15,10 +12,6 @@ export function expandVariables(value: string): string {
   );
 }
 
-/**
- * Validates that the specified file exists, is a regular file, and has execute permissions.
- * On POSIX systems, attempts to `chmod 0o755` if execute permission is initially missing.
- */
 export function ensureExecutable(filePath: string): boolean {
   try {
     if (!fs.existsSync(filePath)) {
@@ -46,9 +39,6 @@ export function ensureExecutable(filePath: string): boolean {
   }
 }
 
-/**
- * Searches system PATH for the given executable name.
- */
 export function findInPath(exeName: string): string | undefined {
   const pathEnv = process.env.PATH;
   if (!pathEnv) {
@@ -78,21 +68,20 @@ export function findInPath(exeName: string): string | undefined {
   return undefined;
 }
 
-/**
- * Resolves the `shucked` executable using the defined priority order:
- * 1. User-configured `shucked.server.path`
- * 2. Bundled platform binary in `bin/shucked`
- * 3. Local workspace build artifacts (`../../target/release/shucked`, `../../target/debug/shucked`)
- * 4. System PATH
- */
+export interface ServerCommand {
+  command: string;
+  args: string[];
+}
+
+
 export async function resolveBinary(
   context: vscode.ExtensionContext,
   outputChannel: vscode.LogOutputChannel,
+  binaryName: "shucked" | "shucked-server" = "shucked",
 ): Promise<string> {
   const config = vscode.workspace.getConfiguration("shucked");
   const customPath = config.get<string>("server.path", "").trim();
 
-  // 1. User-configured binary path
   if (customPath.length > 0) {
     const expanded = expandVariables(customPath);
     outputChannel.warn(
@@ -106,16 +95,15 @@ export async function resolveBinary(
     );
   }
 
-  const exeName = process.platform === "win32" ? "shucked.exe" : "shucked";
+  const isWin = process.platform === "win32";
+  const exeName = isWin ? `${binaryName}.exe` : binaryName;
 
-  // 2. Bundled platform binary in extension directory: bin/shucked (or bin/shucked.exe)
   const bundledPath = path.join(context.extensionPath, "bin", exeName);
   if (ensureExecutable(bundledPath)) {
     outputChannel.info(`Found bundled binary: "${bundledPath}"`);
     return bundledPath;
   }
 
-  // 3. Local workspace build artifacts for local development
   const releaseArtifact = path.resolve(
     context.extensionPath,
     "../../target/release",
@@ -136,46 +124,115 @@ export async function resolveBinary(
     return debugArtifact;
   }
 
-  // Fallback to 'shuck' binary in target during development if present
-  const altExeName = process.platform === "win32" ? "shuck.exe" : "shuck";
-  const altReleaseArtifact = path.resolve(
-    context.extensionPath,
-    "../../target/release",
-    altExeName,
-  );
-  if (ensureExecutable(altReleaseArtifact)) {
-    outputChannel.info(
-      `Found workspace release build artifact (shuck): "${altReleaseArtifact}"`,
-    );
-    return altReleaseArtifact;
-  }
-
-  const altDebugArtifact = path.resolve(
-    context.extensionPath,
-    "../../target/debug",
-    altExeName,
-  );
-  if (ensureExecutable(altDebugArtifact)) {
-    outputChannel.info(
-      `Found workspace debug build artifact (shuck): "${altDebugArtifact}"`,
-    );
-    return altDebugArtifact;
-  }
-
-  // 4. System PATH
   const pathBinary = findInPath(exeName);
   if (pathBinary) {
     outputChannel.info(`Found binary in system PATH: "${pathBinary}"`);
     return pathBinary;
   }
 
-  const altPathBinary = findInPath(altExeName);
-  if (altPathBinary) {
-    outputChannel.info(`Found fallback binary in system PATH: "${altPathBinary}"`);
-    return altPathBinary;
+
+  throw new Error(
+    `Error: '${binaryName}' not found in PATH`,
+  );
+}
+
+
+export async function resolveServerCommand(
+  context: vscode.ExtensionContext,
+  outputChannel: vscode.LogOutputChannel,
+  extraArgs: string[] = [],
+): Promise<ServerCommand> {
+  const config = vscode.workspace.getConfiguration("shucked");
+  const customPath = config.get<string>("server.path", "").trim();
+
+  if (customPath.length > 0) {
+    const expanded = expandVariables(customPath);
+    outputChannel.warn(
+      `Using custom binary path from 'shucked.server.path': "${expanded}". Custom binaries are unsupported and provided as-is.`,
+    );
+    if (ensureExecutable(expanded)) {
+      const base = path.basename(expanded).toLowerCase();
+      const isDedicated = base.startsWith("shucked-server");
+      return {
+        command: expanded,
+        args: isDedicated ? [...extraArgs] : ["server", ...extraArgs],
+      };
+    }
+    throw new Error(
+      `Configured 'shucked.server.path' is not an executable file: "${expanded}"`,
+    );
+  }
+
+  const isWin = process.platform === "win32";
+  const serverExeName = isWin ? "shucked-server.exe" : "shucked-server";
+  const cliExeName = isWin ? "shucked.exe" : "shucked";
+
+  const bundledServer = path.join(context.extensionPath, "bin", serverExeName);
+  if (ensureExecutable(bundledServer)) {
+    outputChannel.info(`Found bundled language server binary: "${bundledServer}"`);
+    return { command: bundledServer, args: [...extraArgs] };
+  }
+
+  const bundledCli = path.join(context.extensionPath, "bin", cliExeName);
+  if (ensureExecutable(bundledCli)) {
+    outputChannel.info(`Found bundled CLI binary: "${bundledCli}"`);
+    return { command: bundledCli, args: ["server", ...extraArgs] };
+  }
+
+  const releaseServer = path.resolve(
+    context.extensionPath,
+    "../../target/release",
+    serverExeName,
+  );
+  if (ensureExecutable(releaseServer)) {
+    outputChannel.info(`Found workspace release build artifact: "${releaseServer}"`);
+    return { command: releaseServer, args: [...extraArgs] };
+  }
+
+  const releaseCli = path.resolve(
+    context.extensionPath,
+    "../../target/release",
+    cliExeName,
+  );
+  if (ensureExecutable(releaseCli)) {
+    outputChannel.info(`Found workspace release build artifact: "${releaseCli}"`);
+    return { command: releaseCli, args: ["server", ...extraArgs] };
+  }
+
+  const debugServer = path.resolve(
+    context.extensionPath,
+    "../../target/debug",
+    serverExeName,
+  );
+  if (ensureExecutable(debugServer)) {
+    outputChannel.info(`Found workspace debug build artifact: "${debugServer}"`);
+    return { command: debugServer, args: [...extraArgs] };
+  }
+
+  const debugCli = path.resolve(
+    context.extensionPath,
+    "../../target/debug",
+    cliExeName,
+  );
+
+  if (ensureExecutable(debugCli)) {
+    outputChannel.info(`Found workspace debug build artifact: "${debugCli}"`);
+    return { command: debugCli, args: ["server", ...extraArgs] };
+  }
+
+  const pathServer = findInPath(serverExeName);
+  if (pathServer) {
+    outputChannel.info(`Found language server binary in system PATH: "${pathServer}"`);
+    return { command: pathServer, args: [...extraArgs] };
+  }
+
+  const pathCli = findInPath(cliExeName);
+  if (pathCli) {
+    outputChannel.info(`Found CLI binary in system PATH: "${pathCli}"`);
+    return { command: pathCli, args: ["server", ...extraArgs] };
   }
 
   throw new Error(
-    `Could not find a valid '${exeName}' binary. Please ensure 'shucked' is installed and available in PATH, or set 'shucked.server.path'.`,
+    `Could not find a valid 'shucked-server' or 'shucked' binary. Please ensure 'shucked' or 'shucked-server' is installed and available in PATH, or set 'shucked.server.path'.`,
   );
 }

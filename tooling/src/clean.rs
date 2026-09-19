@@ -28,6 +28,7 @@ pub fn run_clean(all: bool, dry_run: bool) -> Result<()> {
         repo_root.join("target/large-corpus-report"),
         repo_root.join("target/npm"),
         repo_root.join("target/wasm-test"),
+        repo_root.join("editors/vscode/bin"),
     ];
 
     for path in &cleanup_targets {
