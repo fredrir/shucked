@@ -7,8 +7,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKERS = ROOT / 'crates/shucked-lsp/src/handlers/completion'
-RUNTIME = ROOT / 'target/provider-runtime'
-PACKS = ROOT / 'tooling/providers/packs'
+PROVIDERS = Path(os.environ['SHUCKED_TEST_PROVIDER_ROOT']) if 'SHUCKED_TEST_PROVIDER_ROOT' in os.environ else None
+RUNTIME = PROVIDERS / 'runtime' if PROVIDERS else ROOT / 'target/provider-runtime'
+PACKS = PROVIDERS / 'packs' if PROVIDERS else ROOT / 'tooling/providers/packs'
 
 
 class ManagedWorkers(unittest.TestCase):

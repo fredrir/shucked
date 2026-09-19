@@ -45,4 +45,8 @@ tooling/providers/build-linux.sh
 
 # Exercise the actual private engines with hostile personal startup files.
 python3 -m unittest discover -s tooling/providers/tests -v
+
+# Repeat against an isolated installed VSIX, including relocated private libraries.
+SHUCKED_TEST_PROVIDER_ROOT=/path/to/installed/extension/bin/providers \
+  python3 -m unittest discover -s tooling/providers/tests -v
 ```
