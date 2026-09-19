@@ -2149,10 +2149,11 @@ fn parse_source_directive_override(
 /// remaining directive body when present.
 fn strip_shuck_directive_prefix(text: &str) -> Option<&str> {
     let trimmed = text.trim_start();
-    let prefix = trimmed.get(..6)?;
+    const PREFIX: &str = "shucked:";
+    let prefix = trimmed.get(..PREFIX.len())?;
     prefix
-        .eq_ignore_ascii_case("shucked:")
-        .then(|| trimmed[6..].trim_start())
+        .eq_ignore_ascii_case(PREFIX)
+        .then(|| trimmed[PREFIX.len()..].trim_start())
 }
 
 fn source_directive_override(
