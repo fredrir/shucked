@@ -21,6 +21,12 @@ class ArtifactManifest(unittest.TestCase):
         sources = [dict(name='fixture', version='1', license='MIT', archives=[dict(path='sources/source.tar', url='https://example.invalid/source.tar', sha256=manifest.sha256(source))])]
         return manifest.write(root, 'darwin-arm64', sources, [], tested=tested)
 
+    def test_ambiguous_upstream_licenses_are_not_guessed(self):
+        for value in ('GPL3','BSD','Zsh','GPL-3.0-only AND GCC-exception-3.1','MIT OR'):
+            self.assertEqual(manifest.spdx_declared(value),'NOASSERTION')
+        for value in ('MIT','GPL-3.0-only WITH GCC-exception-3.1','(MIT OR Apache-2.0) AND Unicode-3.0'):
+            self.assertEqual(manifest.spdx_declared(value),value)
+
     def test_target_and_real_execution_receipt_are_required(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

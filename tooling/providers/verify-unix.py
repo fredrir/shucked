@@ -80,7 +80,7 @@ def main():
         subprocess.run([str(DEST/'bin'/name), '--version'], check=True, stdout=subprocess.DEVNULL)
     subprocess.run([str(DEST/'bin/bash'), '--noprofile', '--norc', '-c', 'type compgen complete >/dev/null'], check=True)
     verify_links()
-    for name in ('build-unix.sh','rebuild-bash.sh','build-helpers.sh','fetch-linux.py','verify-unix.py','runtime-manifest.py','runtime-sources.json'):
+    for name in ('build-unix.sh','rebuild-bash.sh','build-helpers.sh','fetch-linux.py','verify-unix.py','runtime-manifest.py','runtime-sources.json','spdx-identifiers.json','build-container.sh'):
         shutil.copy2(Path(__file__).with_name(name), DEST/'sources'/name)
     vendor = DEST/'sources/fish-vendor'
     if vendor.is_dir():

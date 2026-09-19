@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Artifact inventory, source provenance, and SPDX SBOM for managed runtimes."""
 import argparse
+from functools import cache
 import hashlib
 import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import tarfile
 import tomllib
@@ -60,6 +62,41 @@ def validate(root, target, require_tested=True):
     return manifest
 
 
+@cache
+def spdx_declared(value):
+    identifiers=json.loads(Path(__file__).with_name('spdx-identifiers.json').read_text())
+    licenses=set(identifiers['licenses'])
+    exceptions=set(identifiers['exceptions'])
+    tokens=re.findall(r'[A-Za-z0-9.+-]+|[()]',value)
+    if ''.join(tokens) != re.sub(r'\s+','',value): return 'NOASSERTION'
+    position=0
+    def atom(depth=0):
+        nonlocal position
+        if depth>32 or position>=len(tokens): raise ValueError()
+        token=tokens[position]
+        position+=1
+        if token=='(':
+            expression(depth+1)
+            if position>=len(tokens) or tokens[position]!=')': raise ValueError()
+            position+=1
+        else:
+            if token not in licenses: raise ValueError()
+            if position<len(tokens) and tokens[position]=='WITH':
+                position+=1
+                if position>=len(tokens) or tokens[position] not in exceptions: raise ValueError()
+                position+=1
+    def expression(depth):
+        nonlocal position
+        atom(depth)
+        while position<len(tokens) and tokens[position] in ('AND','OR'):
+            position+=1
+            atom(depth)
+    try:
+        expression(0)
+        return value if position==len(tokens) else 'NOASSERTION'
+    except ValueError: return 'NOASSERTION'
+
+
 def write(root, target, sources, system_dependencies, tested=False, minimum=None):
     windows = target.startswith('win32-')
     bin_dir = root / ('msys/usr/bin' if windows else 'bin')
@@ -83,7 +120,7 @@ def write(root, target, sources, system_dependencies, tested=False, minimum=None
         identifier = f'SPDXRef-Package-{index}'
         packages.append(dict(name=source['name'], SPDXID=identifier, versionInfo=source['version'],
             downloadLocation=source['archives'][0]['url'], filesAnalyzed=False,
-            licenseConcluded='NOASSERTION', licenseDeclared=source['license'], copyrightText='NOASSERTION',
+            licenseConcluded='NOASSERTION', licenseDeclared=spdx_declared(source['license']), licenseComments='Upstream metadata: '+source['license'], copyrightText='NOASSERTION',
             checksums=[dict(algorithm='SHA256', checksumValue=source['archives'][0]['sha256'])]))
         relationships.append(dict(spdxElementId='SPDXRef-DOCUMENT', relationshipType='DESCRIBES', relatedSpdxElement=identifier))
     if vendor:
@@ -94,7 +131,7 @@ def write(root, target, sources, system_dependencies, tested=False, minimum=None
                 if not package.get('name') or not isinstance(package.get('version'),str): raise ValueError('Rust vendor package identity missing')
                 identifier=f'SPDXRef-RustPackage-{len(packages)}'
                 declared=package.get('license','NOASSERTION').replace(' / ', ' OR ').replace('/', ' OR ')
-                packages.append(dict(name=package['name'],SPDXID=identifier,versionInfo=package['version'],downloadLocation='NOASSERTION',filesAnalyzed=False,licenseConcluded='NOASSERTION',licenseDeclared=declared,copyrightText='NOASSERTION'))
+                packages.append(dict(name=package['name'],SPDXID=identifier,versionInfo=package['version'],downloadLocation='NOASSERTION',filesAnalyzed=False,licenseConcluded='NOASSERTION',licenseDeclared=spdx_declared(declared),copyrightText='NOASSERTION'))
                 relationships.append(dict(spdxElementId='SPDXRef-DOCUMENT',relationshipType='DESCRIBES',relatedSpdxElement=identifier))
     identity = hashlib.sha256(json.dumps(sources, sort_keys=True).encode()).hexdigest()
     sbom = dict(spdxVersion='SPDX-2.3', dataLicense='CC0-1.0', SPDXID='SPDXRef-DOCUMENT', name='Shucked managed providers '+target,
@@ -104,7 +141,7 @@ def write(root, target, sources, system_dependencies, tested=False, minimum=None
     manifest = dict(schemaVersion=2, platform='linux' if target.startswith(('linux-', 'alpine-')) else target.split('-')[0],
         architecture='x86_64' if windows else platform.machine(), target=target, sources=sources, helperNames=helper_names,
         minimumHost=minimum or {}, systemDependencies=system_dependencies,
-        validation=dict(workers='passed' if tested else 'not-run', host=platform.platform(), inputs=worker_inputs()), files=files(root))
+        validation=dict(workers='passed' if tested else 'not-run', host=platform.platform(), execution=os.environ.get('SHUCKED_PROVIDER_EXECUTION','native'), inputs=worker_inputs()), files=files(root))
     (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     return manifest
 

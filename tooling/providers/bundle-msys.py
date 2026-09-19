@@ -77,7 +77,8 @@ def main():
         shutil.copy2(archive, dest / 'sources' / archive.name)
         sources.append(dict(name=package['name'], version=package['version'], license=package['license'],
             archives=[dict(**package['source'], path='sources/' + archive.name)], binary=package['binary']))
-    shutil.copy2(Path(__file__), dest / 'sources/bundle-msys.py')
+    for name in ('bundle-msys.py','runtime-manifest.py','runtime-sources.json','spdx-identifiers.json'):
+        shutil.copy2(Path(__file__).with_name(name), dest/'sources'/name)
     shutil.copy2(Path(__file__).with_name('runtime-lock.msys-x64.json'), dest / 'sources/runtime-lock.msys-x64.json')
     # The 32-bit process-inspection helper is unrelated to managed completion workers.
     (dest/'msys/usr/libexec/getprocaddr32.exe').unlink(missing_ok=True)
