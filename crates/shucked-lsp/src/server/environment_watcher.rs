@@ -105,11 +105,15 @@ impl EnvironmentWatcher {
     }
 
     pub(crate) fn update(&self, paths: Vec<PathBuf>) {
-        *self
+        let paths = paths.into_iter().take(4096).collect();
+        let mut current = self
             .targets
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            paths.into_iter().take(4096).collect();
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *current == paths {
+            return;
+        }
+        *current = paths;
         let _ = self.updates.try_send(());
     }
 }

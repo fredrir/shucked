@@ -176,6 +176,7 @@ impl Server {
                     }
                     if result.environment_complete {
                         completed_diagnostics.insert(result.uri.clone(), diagnostic_key);
+                        self.session.update_environment_watches();
                     }
                     let client = Client::new(
                         self.main_loop_sender.clone(),

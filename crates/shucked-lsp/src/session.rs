@@ -180,8 +180,32 @@ impl Session {
     }
 
     pub(crate) fn update_environment_watches(&self) {
+        let mut directories = self.workspace_roots().to_vec();
+        directories.extend(
+            self.global_settings
+                .options()
+                .environment
+                .as_ref()
+                .and_then(|options| options.cwd.clone()),
+        );
+        directories.extend(
+            self.environment_overrides
+                .values()
+                .filter_map(|options| options.cwd.clone()),
+        );
+        directories.extend(
+            self.index
+                .workspace_settings_snapshot()
+                .into_iter()
+                .filter_map(|workspace| {
+                    workspace
+                        .options
+                        .and_then(|options| options.environment)
+                        .and_then(|options| options.cwd)
+                }),
+        );
         self.environment_watcher
-            .update(self.command_service.watch_directories());
+            .update(self.command_service.watch_directories(&directories));
     }
 
     pub(crate) fn schedule_all_diagnostics(&self) {

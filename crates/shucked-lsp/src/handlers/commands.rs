@@ -42,7 +42,7 @@ pub(crate) struct CommandAnalysis {
 }
 
 impl CommandService {
-    pub(crate) fn watch_directories(&self) -> Vec<PathBuf> {
+    pub(crate) fn watch_directories(&self, launch_directories: &[PathBuf]) -> Vec<PathBuf> {
         let cwd = std::env::current_dir().unwrap_or_default();
         let mut paths = self
             .path
@@ -50,6 +50,19 @@ impl CommandService {
             .flatten()
             .map(|path| cwd.join(path))
             .collect::<Vec<_>>();
+        for cwd in launch_directories {
+            paths.extend(self.path.iter().flatten().map(|path| cwd.join(path)));
+        }
+        for cached in self
+            .host_snapshots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+        {
+            if let Some(cwd) = &cached.context.cwd {
+                paths.extend(cached.paths.iter().map(|path| cwd.join(path)));
+            }
+        }
         for state in self
             .sessions
             .lock()
