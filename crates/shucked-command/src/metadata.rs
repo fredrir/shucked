@@ -23,6 +23,7 @@ const METADATA_TIMEOUT: Duration = Duration::from_millis(1200);
 const CACHE_TTL: Duration = Duration::from_secs(20);
 const SUPPORTED_TOOLS: &[&str] = &[
     "brew", "git", "eza", "rg", "fd", "fdfind", "bat", "batcat", "ls", "gls", "pacman", "curl",
+    "ssh",
 ];
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -184,11 +185,19 @@ fn acquire_uncached(
     name: &str,
     cancellation: &dyn Fn() -> bool,
 ) -> Option<ValidationEvidence> {
+    if name == "ls"
+        && environment.platform == "macos"
+        && let Some(version) = apple_ls_version(&identity.path)
+    {
+        return evidence_from_manifest(context, environment, identity, "apple-ls", &version);
+    }
     let version_output = query(
         context,
         environment,
         &identity.path,
-        if name == "curl" {
+        if name == "ssh" {
+            &["-V"]
+        } else if name == "curl" {
             &["-q", "--version"]
         } else {
             &["--version"]
@@ -322,6 +331,14 @@ fn acquire_flag_manifest(
     output: &str,
 ) -> Option<ValidationEvidence> {
     let (tool, version) = match name {
+        "ssh" => (
+            "openssh",
+            output
+                .trim()
+                .strip_prefix("OpenSSH_")?
+                .split([',', ' '])
+                .next()?,
+        ),
         "eza"
             if output
                 .lines()
@@ -391,6 +408,16 @@ fn acquire_flag_manifest(
         ),
         _ => return None,
     };
+    evidence_from_manifest(context, environment, identity, tool, version)
+}
+
+fn evidence_from_manifest(
+    context: &ExecutionContext,
+    environment: &EnvironmentSnapshot,
+    identity: &ExecutableIdentity,
+    tool: &str,
+    version: &str,
+) -> Option<ValidationEvidence> {
     let manifest = crate::known_tool_grammar(tool, version)?;
     let crate::LookupEvidence::Present(current) =
         crate::host::exact_lookup(context, environment, identity.path.to_str()?)
@@ -453,7 +480,11 @@ fn query(
     if let Some(cwd) = &context.cwd {
         command.current_dir(cwd);
     }
-    let output = crate::process::capture(&mut command, METADATA_TIMEOUT, cancellation, false)?;
+    let output = if arguments == ["-V"] {
+        crate::process::capture_stderr(&mut command, METADATA_TIMEOUT, cancellation)?
+    } else {
+        crate::process::capture(&mut command, METADATA_TIMEOUT, cancellation, false)?
+    };
     String::from_utf8(output).ok()
 }
 
@@ -471,6 +502,43 @@ fn parse_command_names(text: &str) -> Option<BTreeSet<String>> {
         result.insert(name.to_owned());
     }
     (!result.is_empty()).then_some(result)
+}
+
+fn apple_ls_version(path: &Path) -> Option<String> {
+    use std::io::Read;
+    const PREFIX: &[u8] = b"@(#)PROGRAM:ls  PROJECT:file_cmds-";
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(16 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+    let versions: BTreeSet<_> = bytes
+        .windows(PREFIX.len())
+        .enumerate()
+        .filter(|(_, value)| *value == PREFIX)
+        .filter_map(|(offset, _)| {
+            let value: Vec<_> = bytes[offset + PREFIX.len()..]
+                .iter()
+                .copied()
+                .take_while(|byte| byte.is_ascii_digit() || *byte == b'.')
+                .take(64)
+                .collect();
+            (!value.is_empty())
+                .then(|| String::from_utf8(value).ok())
+                .flatten()
+        })
+        .collect();
+    (versions.len() == 1)
+        .then(|| versions.into_iter().next())
+        .flatten()
 }
 
 fn extend_file_commands(

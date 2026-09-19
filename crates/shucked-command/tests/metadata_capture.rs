@@ -114,3 +114,97 @@ fn bounded_stderr_capture_supports_version_interfaces() {
         Some(b"version".to_vec())
     );
 }
+
+#[test]
+fn ssh_version_query_validates_local_options_without_touching_hosts_or_config() {
+    let root = tempfile::tempdir().unwrap();
+    executable(
+        &root.path().join("ssh"),
+        "[ \"$*\" = -V ] || exit 99\nprintf 'OpenSSH_10.3p1, fixture\\n' >&2",
+    );
+    let context = context(root.path());
+    let mut environment = host::capture(&context, vec![root.path().into()], 0);
+    assert!(
+        metadata::capture_capabilities(&context, &mut environment, &|| false)
+            .recorded
+            .contains("ssh")
+    );
+    let target = TargetInventory::capture("SSH target", &context, &environment);
+    let sites = [
+        CommandSite {
+            arguments: vec!["--typo".into(), "some-host".into()],
+            ..CommandSite::literal("ssh")
+        },
+        CommandSite {
+            arguments: vec!["some-host".into(), "--remote-argument".into()],
+            ..CommandSite::literal("ssh")
+        },
+        CommandSite {
+            arguments: vec![
+                "-p22".into(),
+                "-o".into(),
+                "ProxyCommand=arbitrary-editor-text".into(),
+            ],
+            ..CommandSite::literal("ssh")
+        },
+    ];
+    let comparison = compare_targets(&[target], &sites);
+    assert!(matches!(
+        comparison.commands[0].validation[0],
+        ValidationResult::Invalid(_)
+    ));
+    assert!(matches!(
+        comparison.commands[1].validation[0],
+        ValidationResult::Unknown(_)
+    ));
+    assert!(matches!(
+        comparison.commands[2].validation[0],
+        ValidationResult::Valid
+    ));
+}
+
+#[test]
+fn apple_ls_embedded_version_records_bsd_capabilities_without_running_the_binary() {
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join("executed");
+    executable(
+        &root.path().join("ls"),
+        &format!(
+            "# @(#)PROGRAM:ls  PROJECT:file_cmds-479\nprintf x > '{}'",
+            marker.display()
+        ),
+    );
+    let context = context(root.path());
+    let mut environment = host::capture(&context, vec![root.path().into()], 0);
+    environment.platform = "macos".into();
+    assert!(
+        metadata::capture_capabilities(&context, &mut environment, &|| false)
+            .recorded
+            .contains("ls")
+    );
+    assert!(!marker.exists());
+    let target = TargetInventory::capture("BSD target", &context, &environment);
+    std::fs::remove_file(root.path().join("ls")).unwrap();
+    let comparison = compare_targets(
+        &[target],
+        &[
+            CommandSite {
+                arguments: vec!["--time-style=long-iso".into()],
+                ..CommandSite::literal("ls")
+            },
+            CommandSite {
+                arguments: vec!["-@e".into()],
+                ..CommandSite::literal("ls")
+            },
+        ],
+    );
+    assert!(matches!(
+        comparison.commands[0].validation[0],
+        ValidationResult::Invalid(_)
+    ));
+    assert!(matches!(
+        comparison.commands[1].validation[0],
+        ValidationResult::Valid
+    ));
+    assert!(known_tool_grammar("apple-ls", "487.0.1").is_none());
+}

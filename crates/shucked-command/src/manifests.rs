@@ -35,6 +35,17 @@ fn yes() -> bool {
 /// version or parsing a completion/help list is deliberately insufficient.
 pub fn known_tool_grammar(tool: &str, version: &str) -> Option<VersionedGrammar> {
     let data = match (tool, version) {
+        ("openssh", "9.8p1") => include_str!("../data/validators/openssh-9.8p1.json"),
+        ("openssh", "9.9p2") => include_str!("../data/validators/openssh-9.9p2.json"),
+        ("openssh", "10.0p1") => include_str!("../data/validators/openssh-10.0p1.json"),
+        ("openssh", "10.1p1") => include_str!("../data/validators/openssh-10.1p1.json"),
+        ("openssh", "10.2p1") => include_str!("../data/validators/openssh-10.2p1.json"),
+        ("openssh", "10.3p1") => include_str!("../data/validators/openssh-10.3p1.json"),
+        ("openssh", "10.4p1") => include_str!("../data/validators/openssh-10.4p1.json"),
+        ("openssh", "10.5p1") => include_str!("../data/validators/openssh-10.5p1.json"),
+        ("apple-ls", "479") => include_str!("../data/validators/apple-ls-479.json"),
+        ("apple-ls", "475") => include_str!("../data/validators/apple-ls-475.json"),
+        ("apple-ls", "457.140.3") => include_str!("../data/validators/apple-ls-457.140.3.json"),
         ("curl", "8.7.1") => include_str!("../data/validators/curl-8.7.1.json"),
         ("curl", "8.12.1") => include_str!("../data/validators/curl-8.12.1.json"),
         ("curl", "8.14.1") => include_str!("../data/validators/curl-8.14.1.json"),
