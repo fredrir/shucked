@@ -91,3 +91,38 @@ async def test_startup_dynamic_and_unavailable_contexts_skip_live_queries(shucke
         assert not (tmp_path / "marker").exists()
     finally:
         await client.shutdown_and_exit()
+
+@pytest.mark.parametrize("candidate,count", [
+    ({"text": "alpha\0choice", "description": ""}, 1),
+    ({"text": "alpha", "description": "x" * 16385}, 1),
+    ({"text": "alpha", "description": ""}, 2001),
+    ({"text": "alpha", "description": "x" * 1024}, 1024),
+])
+async def test_invalid_or_oversized_live_responses_do_not_reach_completion_items(shucked_binary, tmp_path, candidate, count):
+    client, uri, _ = await setup(shucked_binary, tmp_path)
+    async def respond(message):
+        await client.send_message({"jsonrpc": "2.0", "id": message["id"], "result": {"candidates": [candidate] * count}})
+    client.finish_live = respond
+    try:
+        assert not any(item["label"].startswith("alpha") for item in await complete(client, uri))
+        assert not client.live_requests.empty()
+    finally:
+        await client.shutdown_and_exit()
+
+@pytest.mark.parametrize("change", ["edit", "close", "portable"])
+async def test_document_changes_discard_inflight_live_responses(shucked_binary, tmp_path, change):
+    client, uri, _ = await setup(shucked_binary, tmp_path)
+    client.respond_live = False
+    try:
+        task = asyncio.create_task(complete(client, uri))
+        request = await asyncio.wait_for(client.live_requests.get(), 2)
+        if change == "edit":
+            await client.change_document(uri, "private_tool different", version=2)
+        elif change == "close":
+            await client.send_notification("textDocument/didClose", {"textDocument": {"uri": uri}})
+        else:
+            await client.send_notification("shucked/selectEnvironment", {"uri": uri, "options": {"policy": "portable"}})
+        await client.finish_live(request)
+        assert not any(item["label"] == "alpha choice" for item in await task)
+    finally:
+        await client.shutdown_and_exit()

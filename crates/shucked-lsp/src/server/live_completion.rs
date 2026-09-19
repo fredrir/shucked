@@ -160,7 +160,12 @@ pub(crate) fn start(pending: Pending, session: &Session, client: &Client) -> cra
                     .and_then(|result| serde_json::from_value::<Response>(result).ok())
                     .filter(|result| {
                         result.candidates.len() <= 2000
-                            && result.candidates.iter().map(|candidate| candidate.text.len() + candidate.description.len()).sum::<usize>() <= 1024 * 1024
+                            && result
+                                .candidates
+                                .iter()
+                                .map(|candidate| candidate.text.len() + candidate.description.len())
+                                .sum::<usize>()
+                                <= 1024 * 1024
                             && result.candidates.iter().all(|candidate| {
                                 candidate.text.len() <= 8192
                                     && !candidate.text.contains('\0')
