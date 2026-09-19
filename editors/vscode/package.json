@@ -41,7 +41,12 @@
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": "limited",
+      "description": "Native shell providers, terminal integration, and history suggestions require workspace trust.",
+      "restrictedConfigurations": [
+        "shucked.server.path",
+        "shucked.server.extraArgs"
+      ]
     },
     "virtualWorkspaces": {
       "supported": false,

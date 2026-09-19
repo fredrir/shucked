@@ -92,6 +92,13 @@ export function findInPath(exeName: string): string | undefined {
   return undefined;
 }
 
+function serverSetting<T>(config: vscode.WorkspaceConfiguration, key: string, fallback: T): T {
+  if (vscode.workspace.isTrusted) { return config.get<T>(key, fallback); }
+  // Workspace and folder settings cannot choose programs or arguments before trust.
+  const inspected = config.inspect<T>(key);
+  return inspected?.globalValue ?? inspected?.defaultValue ?? fallback;
+}
+
 export interface ServerCommand {
   command: string;
   args: string[];
@@ -104,7 +111,7 @@ export async function resolveBinary(
   binaryName: "shucked" | "shucked-server" = "shucked",
 ): Promise<string> {
   const config = vscode.workspace.getConfiguration("shucked");
-  const customPath = config.get<string>("server.path", "").trim();
+  const customPath = serverSetting(config, "server.path", "").trim();
 
   if (customPath.length > 0) {
     const expanded = expandVariables(customPath);
@@ -167,7 +174,8 @@ export async function resolveServerCommand(
   extraArgs: string[] = [],
 ): Promise<ServerCommand> {
   const config = vscode.workspace.getConfiguration("shucked");
-  const customPath = config.get<string>("server.path", "").trim();
+  const customPath = serverSetting(config, "server.path", "").trim();
+  if (!vscode.workspace.isTrusted) { extraArgs = serverSetting<string[]>(config, "server.extraArgs", []); }
 
   if (customPath.length > 0) {
     const expanded = expandVariables(customPath);

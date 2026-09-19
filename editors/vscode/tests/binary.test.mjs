@@ -18,7 +18,7 @@ const compiled = await build({
   write: false,
 });
 
-function resolver(environment, config = {}) {
+function resolver(environment, config = {}, trusted = true, globalConfig = {}) {
   const module = { exports: {} };
   runInNewContext(compiled.outputFiles[0].text, {
     module,
@@ -26,7 +26,7 @@ function resolver(environment, config = {}) {
     Buffer,
     process: environment,
     require: (id) => id === "vscode"
-      ? { workspace: { getConfiguration: () => ({ get: (name, fallback) => config[name] ?? fallback }) } }
+      ? { workspace: { isTrusted: trusted, getConfiguration: () => ({ get: (name, fallback) => config[name] ?? fallback, inspect: name => ({ globalValue: globalConfig[name] }) }) } }
       : require(id),
   });
   return module.exports;
@@ -71,4 +71,21 @@ test("discovery does not grant executable permissions to a custom binary", { ski
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("untrusted workspace cannot choose the server program or arguments", async () => {
+  const root = mkdtempSync(join(tmpdir(), "shucked-untrusted-"));
+  try {
+    const userServer = join(root, "shucked-server-user");
+    const workspaceServer = join(root, "shucked-server-workspace");
+    writeFileSync(userServer, "user selected server", { mode: 0o755 });
+    writeFileSync(workspaceServer, "workspace selected server", { mode: 0o755 });
+    const api = resolver(process, { "server.path": workspaceServer, "server.extraArgs": ["--workspace-code"] }, false,
+      { "server.path": userServer, "server.extraArgs": ["--user-option"] });
+    const output = { info() {}, warn() {} };
+    const server = await api.resolveServerCommand({ extensionPath: root }, output, ["--workspace-code"]);
+    assert.equal(server.command, userServer);
+    assert.deepEqual(Array.from(server.args), ["--user-option"]);
+    assert.equal(await api.resolveBinary({ extensionPath: root }, output), userServer);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
