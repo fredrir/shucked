@@ -23,7 +23,7 @@ if (vsix) {
   // A tiny runner hosts tests while fredrir.shucked comes from the installed package.
   developmentExtension = join(root, 'runner');
   await mkdir(developmentExtension, { mode: 0o700 });
-  await writeFile(join(developmentExtension, 'package.json'), JSON.stringify({ name: 'shucked-acceptance-runner', publisher: 'shucked-tests', version: '0.0.1', engines: { vscode: '^1.138.0' }, main: './index.cjs', activationEvents: ['*'] }));
+  await writeFile(join(developmentExtension, 'package.json'), JSON.stringify({ name: 'shucked-acceptance-runner', publisher: 'shucked-tests', version: '0.0.2', engines: { vscode: '^1.138.0' }, main: './index.cjs', activationEvents: ['*'] }));
   await writeFile(join(developmentExtension, 'index.cjs'), 'exports.activate = () => undefined;\n');
   execFileSync(process.env.SHUCKED_CODE_COMMAND ?? 'code', ['--user-data-dir', user, '--extensions-dir', extensions, '--use-inmemory-secretstorage', '--install-extension', vsix, '--force'], { env: launchEnvironment, stdio: 'pipe', timeout: 60000 });
 }

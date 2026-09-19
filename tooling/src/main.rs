@@ -22,7 +22,7 @@ mod vscode;
 #[command(
     name = "tooling",
     author = "Fredrik Carsten Hansteen <fhansteen@gmail.com>",
-    version = "0.0.1",
+    version = "0.0.2",
     about = "Blazingly fast developer tooling and automation for Shuck",
     propagate_version = true
 )]
