@@ -35,6 +35,7 @@ serde_json        = { workspace = true }
 quick-junit       = { workspace = true }
 shucked-ast       = { workspace = true }
 shucked-cache     = { workspace = true }
+shucked-command   = { workspace = true }
 shucked-config    = { workspace = true }
 shucked-discover  = { workspace = true }
 shucked-extract   = { workspace = true }

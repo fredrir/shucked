@@ -160,6 +160,10 @@ enum StableCommand {
     Check(Box<CheckCommand>),
     /// Start the language server over stdio.
     Server(ServerCommand),
+    /// Capture, inspect and compare execution targets without running script commands.
+    /// Work with captured execution targets.
+    #[command(subcommand)]
+    Target(TargetCommand),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shucked cache entries for the provided paths' projects.
@@ -201,6 +205,7 @@ impl Args {
         let command = match command {
             StableCommand::Check(command) => Command::Check(command),
             StableCommand::Server(command) => Command::Server(command),
+            StableCommand::Target(command) => Command::Target(command),
             StableCommand::Format(command) => Command::Format(command),
             StableCommand::Clean(command) => Command::Clean(command),
         };
@@ -221,6 +226,9 @@ pub enum Command {
     Check(Box<CheckCommand>),
     /// Start the language server over stdio.
     Server(ServerCommand),
+    /// Work with captured execution targets.
+    #[command(subcommand)]
+    Target(TargetCommand),
     /// Format shell files.
     Format(FormatCommand),
     /// Remove shucked cache entries for the provided paths' projects.
@@ -1500,4 +1508,37 @@ mod tests {
         assert_eq!(command.file_selection.exclude, vec!["base.sh"]);
         assert_eq!(command.file_selection.extend_exclude, vec!["extra.sh"]);
     }
+}
+
+/// Offline execution target inventory operations.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TargetCommand {
+    /// Capture filesystem command availability; execute no programs.
+    Capture {
+        #[arg(long, default_value = "workspace")]
+        /// Target display name.
+        label: String,
+        #[arg(long, default_value = "bash", value_parser = ["bash", "zsh", "fish", "sh", "ksh"])]
+        /// Target interpreter dialect.
+        shell: String,
+        #[arg(long)]
+        /// New inventory file; stdout when omitted.
+        output: Option<PathBuf>,
+        #[arg(long)]
+        /// Explicit launch directory.
+        cwd: Option<PathBuf>,
+    },
+    /// Verify and display an imported inventory.
+    Inspect {
+        /// Inventory file to verify.
+        inventory: PathBuf
+    },
+    /// Compare a script against recorded targets; never query the local host.
+    Compare {
+        #[arg(long = "target", required = true)]
+        /// Inventory files to compare.
+        targets: Vec<PathBuf>,
+        /// Source file to analyze statically.
+        script: PathBuf,
+    },
 }
