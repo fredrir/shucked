@@ -121,7 +121,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn maybe_expand_current_alias_chain(&mut self) {
-        if !self.expand_aliases {
+        if self.preserve_alias_words || !self.expand_aliases {
             self.expand_next_word = false;
             return;
         }

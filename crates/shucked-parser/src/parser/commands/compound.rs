@@ -491,6 +491,7 @@ impl<'a> Parser<'a> {
             Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
         nested.aliases = self.aliases.clone();
         nested.expand_aliases = self.expand_aliases;
+        nested.preserve_alias_words = self.preserve_alias_words;
         nested.expand_next_word = self.expand_next_word;
 
         let inner_start = self.current_span.start.advanced_by("{");
@@ -545,6 +546,7 @@ impl<'a> Parser<'a> {
             Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
         nested.aliases = self.aliases.clone();
         nested.expand_aliases = self.expand_aliases;
+        nested.preserve_alias_words = self.preserve_alias_words;
         nested.expand_next_word = self.expand_next_word;
 
         let word_span = self.current_span;

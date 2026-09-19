@@ -371,6 +371,8 @@ pub(crate) struct RecordedElifBranch {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedCommandInfo {
+    pub(crate) original_words: Vec<crate::CommandWord>,
+    pub(crate) changes_search_path: bool,
     pub(crate) static_callee: Option<compact_str::CompactString>,
     pub(crate) dynamic_name_span: Option<Span>,
     pub(crate) static_args: Box<[Option<compact_str::CompactString>]>,
@@ -381,7 +383,8 @@ pub(crate) struct RecordedCommandInfo {
 
 impl RecordedCommandInfo {
     pub(crate) fn is_empty(&self) -> bool {
-        self.static_callee.is_none()
+        self.original_words.is_empty()
+            && self.static_callee.is_none()
             && self.dynamic_name_span.is_none()
             && self.static_args.is_empty()
             && self.source_path_template.is_none()

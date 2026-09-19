@@ -97,6 +97,14 @@ pub(super) fn recorded_simple_command_info_with(
     let source_path_template = resolved_source_path_template.map(|resolved| resolved.template);
 
     let mut info = RecordedCommandInfo {
+        original_words: std::iter::once(&command.name)
+            .chain(command.args.iter())
+            .map(|word| crate::CommandWord::from_word(word, source))
+            .collect(),
+        changes_search_path: command
+            .assignments
+            .iter()
+            .any(|a| matches!(a.target.name.as_str(), "PATH" | "path")),
         static_callee,
         dynamic_name_span,
         static_args,

@@ -12,7 +12,15 @@ mod builder;
 mod call_facts;
 mod call_graph;
 mod cfg;
+mod command_sites;
 mod command_topology;
+mod fish;
+/// Source-backed command identity facts.
+pub use command_sites::{
+    AppliedAlias, CommandNamespace, CommandSiteFacts, CommandWord, simple_alias_words,
+};
+/// Fish syntax and command frontend independent of Bourne parsing.
+pub use fish::{FishDiagnostic, FishDocument, FishFunction, analyze_fish};
 mod contract;
 mod dataflow;
 mod declaration;

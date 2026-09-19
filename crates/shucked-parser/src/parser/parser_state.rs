@@ -135,6 +135,7 @@ pub struct Parser<'a> {
     pub(super) aliases: HashMap<String, AliasDefinition>,
     /// Whether alias expansion is currently enabled.
     pub(super) expand_aliases: bool,
+    pub(super) preserve_alias_words: bool,
     /// Whether the next fetched word is eligible for alias expansion because
     /// the previous alias expansion ended with trailing whitespace.
     pub(super) expand_next_word: bool,

@@ -1,6 +1,13 @@
 use super::*;
 
 impl<'a> Parser<'a> {
+    /// Preserve authored alias invocations and source spans for static editor analysis.
+    /// Alias semantics can then be resolved without creating synthetic AST source ranges.
+    pub fn without_alias_expansion(mut self) -> Self {
+        self.preserve_alias_words = true;
+        self
+    }
+
     /// Create a new bash-profile parser for the given input.
     pub fn new(input: &'a str) -> Self {
         Self::with_limits_and_profile(
@@ -126,6 +133,7 @@ impl<'a> Parser<'a> {
             comments,
             aliases: HashMap::new(),
             expand_aliases: false,
+            preserve_alias_words: false,
             expand_next_word: false,
             brace_group_depth: 0,
             brace_body_stack: Vec::new(),
