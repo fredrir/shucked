@@ -35,6 +35,10 @@ fn yes() -> bool {
 /// version or parsing a completion/help list is deliberately insufficient.
 pub fn known_tool_grammar(tool: &str, version: &str) -> Option<VersionedGrammar> {
     let data = match (tool, version) {
+        ("curl", "8.7.1") => include_str!("../data/validators/curl-8.7.1.json"),
+        ("curl", "8.12.1") => include_str!("../data/validators/curl-8.12.1.json"),
+        ("curl", "8.14.1") => include_str!("../data/validators/curl-8.14.1.json"),
+        ("curl", "8.15.0") => include_str!("../data/validators/curl-8.15.0.json"),
         ("eza", "0.23.1") => include_str!("../data/validators/eza-0.23.1.json"),
         ("eza", "0.23.2") => include_str!("../data/validators/eza-0.23.2.json"),
         ("eza", "0.23.3") => include_str!("../data/validators/eza-0.23.3.json"),

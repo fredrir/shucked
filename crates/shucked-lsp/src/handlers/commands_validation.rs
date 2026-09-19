@@ -198,7 +198,11 @@ fn acquire_uncached(
         context,
         environment,
         &identity.path,
-        &["--version"],
+        if name == "curl" {
+            &["-q", "--version"]
+        } else {
+            &["--version"]
+        },
         cancellation,
     )?;
     if !matches!(name, "brew" | "git") {
@@ -343,6 +347,15 @@ fn acquire_flag_manifest(
                     .next()?,
             )
         }
+        "curl" => (
+            "curl",
+            output
+                .lines()
+                .next()?
+                .strip_prefix("curl ")?
+                .split_whitespace()
+                .next()?,
+        ),
         "rg" => (
             "ripgrep",
             output

@@ -140,3 +140,47 @@ fn options_after_end_marker_are_filenames_and_short_values_are_consumed() {
         ValidationResult::Valid
     );
 }
+
+#[test]
+fn curl_negated_and_expanded_flags_keep_value_boundaries() {
+    assert_eq!(
+        validate(
+            "curl",
+            "8.7.1",
+            &[
+                "--no-alpn",
+                "--expand-header",
+                "Auth: {{token}}",
+                "--proxy1.0",
+                "http://proxy",
+                "https://example.test"
+            ]
+        ),
+        ValidationResult::Valid
+    );
+    assert_eq!(
+        validate(
+            "curl",
+            "8.15.0",
+            &[
+                "--ssl-sessions",
+                "sessions.txt",
+                "--no-ca-native",
+                "https://example.test"
+            ]
+        ),
+        ValidationResult::Valid
+    );
+    assert!(matches!(
+        validate("curl", "8.15.0", &["--heade", "value"]),
+        ValidationResult::Invalid(_)
+    ));
+    assert!(matches!(
+        validate(
+            "curl",
+            "8.15.0",
+            &["--config", "client.cfg", "--whatever-follows"]
+        ),
+        ValidationResult::Unknown(_)
+    ));
+}

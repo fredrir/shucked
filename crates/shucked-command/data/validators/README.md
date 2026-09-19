@@ -9,6 +9,7 @@ These records describe option names and argument arity, including hidden aliases
 | fd | 10.3.0 | Execution tails after `--exec`/`--exec-batch` remain Unknown |
 | bat | 0.25.0 | Initial options only; positional/subcommand contexts remain Unknown |
 | GNU ls | 9.7 | Abbreviated long options remain Unknown |
+| curl | 8.7.1, 8.12.1, 8.14.1, 8.15.0 | Boolean negations and expanded values; configuration-loading scopes remain Unknown |
 | Pacman | 7.0.0, 7.1.0 | Union of operation option names; operation-specific validity remains unchecked |
 
 Each JSON file links to the corresponding version's option registration. Updating coverage requires reviewing parser changes and testing aliases, argument consumption, end-of-options, and delegated arguments. A similar help listing or matching major version is insufficient. Other versions and unidentified BSD `ls` builds remain Unknown.
