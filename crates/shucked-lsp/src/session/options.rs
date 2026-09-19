@@ -32,6 +32,8 @@ impl GlobalOptions {
 pub struct ClientOptions {
     /// Permission from initialization; later workspace settings cannot grant it.
     pub native_execution_allowed: bool,
+    /// Command resolution and execution target options.
+    pub environment: Option<super::environment_options::EnvironmentOptions>,
     /// Shared per-file shell dialect overrides.
     pub per_file_shell: Option<BTreeMap<String, String>>,
     /// Lint configuration overrides.
@@ -104,6 +106,8 @@ struct RawClientOptions {
     #[serde(default)]
     native_execution_allowed: bool,
     #[serde(default)]
+    environment: Option<super::environment_options::EnvironmentOptions>,
+    #[serde(default)]
     per_file_shell: Option<BTreeMap<String, String>>,
     #[serde(default)]
     lint: Option<RawLintOptions>,
@@ -147,6 +151,7 @@ impl<'de> Deserialize<'de> for ClientOptions {
 
         Ok(Self {
             native_execution_allowed: raw.native_execution_allowed,
+            environment: raw.environment,
             per_file_shell: raw.per_file_shell,
             lint,
             format,

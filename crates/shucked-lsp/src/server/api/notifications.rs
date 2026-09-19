@@ -13,3 +13,6 @@ pub(super) use did_change_watched_files::DidChangeWatchedFiles;
 pub(super) use did_change_workspace::DidChangeWorkspace;
 pub(super) use did_close::DidClose;
 pub(super) use did_open::DidOpen;
+
+mod environment;
+pub(super) use environment::{SelectEnvironment, ShellSession};

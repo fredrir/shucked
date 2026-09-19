@@ -4,7 +4,6 @@ use lsp_types::notification as notif;
 
 use crate::server::Result;
 use crate::server::api::LSPResult;
-use crate::server::api::diagnostics::publish_diagnostics_for_document;
 use crate::session::{Client, Session};
 
 pub(crate) struct DidChange;
@@ -16,7 +15,7 @@ impl super::super::traits::NotificationHandler for DidChange {
 impl super::super::traits::SyncNotificationHandler for DidChange {
     fn run(
         session: &mut Session,
-        client: &Client,
+        _client: &Client,
         types::DidChangeTextDocumentParams {
             text_document:
                 types::VersionedTextDocumentIdentifier {
@@ -31,15 +30,7 @@ impl super::super::traits::SyncNotificationHandler for DidChange {
             .update_text_document(&key, content_changes, new_version)
             .with_failure_code(ErrorCode::InternalError)?;
 
-        if !session.resolved_client_capabilities().pull_diagnostics {
-            let snapshot = session.take_snapshot(key.into_url()).ok_or_else(|| {
-                crate::server::Error::new(
-                    anyhow::anyhow!("failed to take document snapshot after change"),
-                    ErrorCode::InternalError,
-                )
-            })?;
-            publish_diagnostics_for_document(&snapshot, client)?;
-        }
+        session.schedule_diagnostics(key.into_url());
 
         Ok(())
     }

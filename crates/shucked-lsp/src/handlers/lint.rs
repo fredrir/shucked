@@ -61,6 +61,25 @@ pub(crate) struct ParseErrorDiagnostic {
 
 /// Generate LSP diagnostics for a document snapshot.
 pub fn generate_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnostic> {
+    let mut diagnostics = generate_static_diagnostics(snapshot);
+    if !snapshot.analysis_cancellation().is_cancelled() {
+        diagnostics.extend(crate::handlers::commands::diagnostics(snapshot));
+    }
+    diagnostics
+}
+
+pub(crate) fn generate_available_diagnostics(
+    snapshot: &DocumentSnapshot,
+) -> Vec<types::Diagnostic> {
+    let mut diagnostics = generate_static_diagnostics(snapshot);
+    diagnostics.extend(crate::handlers::commands::cached_diagnostics(snapshot));
+    diagnostics
+}
+
+pub(crate) fn generate_static_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types::Diagnostic> {
+    if crate::handlers::commands::dialect(snapshot) == "fish" {
+        return crate::handlers::commands::fish_syntax_diagnostics(snapshot);
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Vec::new();
     };
@@ -468,7 +487,7 @@ fn language_id_preference(language_id: Option<LanguageId>) -> LanguageIdPreferen
         Some(LanguageId::Zsh) => LanguageIdPreference::Concrete(ShellDialect::Zsh),
         Some(LanguageId::Ksh) => LanguageIdPreference::Concrete(ShellDialect::Ksh),
         Some(LanguageId::ShellScript) => LanguageIdPreference::GenericShell,
-        Some(LanguageId::Other) | None => LanguageIdPreference::Unknown,
+        Some(LanguageId::Fish) | Some(LanguageId::Other) | None => LanguageIdPreference::Unknown,
     }
 }
 

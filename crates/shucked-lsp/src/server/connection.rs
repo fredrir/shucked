@@ -17,7 +17,15 @@ impl ConnectionInitializer {
     pub(crate) fn initialize_start(
         &self,
     ) -> crate::Result<(lsp::RequestId, lsp_types::InitializeParams)> {
-        let (id, params) = self.connection.initialize_start()?;
+        let (id, mut params) = self.connection.initialize_start()?;
+        // lsp-types names this field singular; LSP clients send workspace.diagnostics.
+        if let Some(workspace) = params
+            .pointer_mut("/capabilities/workspace")
+            .and_then(serde_json::Value::as_object_mut)
+            && let Some(diagnostics) = workspace.get("diagnostics").cloned()
+        {
+            workspace.insert("diagnostic".into(), diagnostics);
+        }
         Ok((id, serde_json::from_value(params)?))
     }
 

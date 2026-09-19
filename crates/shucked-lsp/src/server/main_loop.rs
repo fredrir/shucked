@@ -16,7 +16,9 @@ pub(crate) type MainLoopReceiver = crossbeam::channel::Receiver<Event>;
 impl Server {
     pub(super) fn main_loop(&mut self) -> crate::Result<()> {
         let mut scheduler = schedule::Scheduler::new(self.worker_threads);
-        while let Ok(next_event) = self.next_event() {
+        let mut completed_diagnostics = std::collections::HashMap::new();
+        let environment_tick = crossbeam::channel::tick(std::time::Duration::from_secs(30));
+        while let Ok(next_event) = self.next_event(&environment_tick) {
             let Some(next_event) = next_event else {
                 return Ok(());
             };
@@ -50,6 +52,15 @@ impl Server {
                             api::request(req)
                         }
                         Message::Notification(notification) => {
+                            if notification.method
+                                == types::notification::DidCloseTextDocument::METHOD
+                                && let Ok(params) =
+                                    serde_json::from_value::<types::DidCloseTextDocumentParams>(
+                                        notification.params.clone(),
+                                    )
+                            {
+                                completed_diagnostics.remove(&params.text_document.uri);
+                            }
                             if notification.method == lsp_types::notification::Exit::METHOD {
                                 if !self.session.is_shutdown_requested() {
                                     return Err(anyhow!(
@@ -85,6 +96,63 @@ impl Server {
 
                     scheduler.dispatch(task, &mut self.session, client);
                 }
+                Event::EnvironmentTick => self.session.refresh_environment(),
+                Event::DiagnosticsReady(result) => {
+                    let Some(current) = self.session.take_snapshot(result.uri.clone()) else {
+                        continue;
+                    };
+                    if current.query().document().version() != result.version
+                        || crate::handlers::commands::source_fingerprint(&current)
+                            != result.source_fingerprint
+                        || current.analysis_settings_epoch() != result.settings_epoch
+                        || current.environment_generation() != result.environment_generation
+                    {
+                        continue;
+                    }
+                    let diagnostic_key = (
+                        result.version,
+                        result.settings_epoch,
+                        result.source_fingerprint,
+                        result.environment_generation,
+                    );
+                    if !result.environment_complete
+                        && completed_diagnostics.get(&result.uri) == Some(&diagnostic_key)
+                    {
+                        continue;
+                    }
+                    if result.environment_complete {
+                        completed_diagnostics.insert(result.uri.clone(), diagnostic_key);
+                    }
+                    let client = Client::new(
+                        self.main_loop_sender.clone(),
+                        self.connection.sender.clone(),
+                    );
+                    let capabilities = self.session.resolved_client_capabilities();
+                    if capabilities.pull_diagnostics {
+                        if capabilities.diagnostic_refresh {
+                            client.send_request::<types::request::WorkspaceDiagnosticRefresh>(
+                                &self.session,
+                                (),
+                                |_, _, ()| {},
+                            )?;
+                        }
+                    } else {
+                        client.send_notification::<types::notification::PublishDiagnostics>(
+                            types::PublishDiagnosticsParams {
+                                uri: result.uri,
+                                version: Some(result.version),
+                                diagnostics: result.diagnostics,
+                            },
+                        )?;
+                    }
+                    if result.environment_complete && capabilities.semantic_token_refresh {
+                        client.send_request::<types::request::SemanticTokensRefresh>(
+                            &self.session,
+                            (),
+                            |_, _, ()| {},
+                        )?;
+                    }
+                }
                 Event::SendResponse(response) => {
                     if self
                         .session
@@ -104,10 +172,14 @@ impl Server {
         Ok(())
     }
 
-    fn next_event(&self) -> Result<Option<Event>, crossbeam::channel::RecvError> {
+    fn next_event(
+        &self,
+        environment_tick: &crossbeam::channel::Receiver<std::time::Instant>,
+    ) -> Result<Option<Event>, crossbeam::channel::RecvError> {
         select!(
             recv(self.connection.receiver) -> msg => Ok(msg.ok().map(Event::Message)),
             recv(self.main_loop_receiver) -> event => event.map(Some),
+            recv(environment_tick) -> _ => Ok(Some(Event::EnvironmentTick)),
         )
     }
 
@@ -199,6 +271,8 @@ fn watched_files() -> Vec<FileSystemWatcher> {
 pub enum Event {
     Message(lsp_server::Message),
     SendResponse(lsp_server::Response),
+    DiagnosticsReady(crate::server::diagnostic_worker::DiagnosticsReady),
+    EnvironmentTick,
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@ use crate::session::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClientSettings {
+    environment: super::environment_options::EnvironmentOptions,
     fix_all: bool,
     unsafe_fixes: bool,
     show_syntax_errors: bool,
@@ -30,9 +31,10 @@ pub(crate) struct ClientSettings {
 impl Default for ClientSettings {
     fn default() -> Self {
         Self {
+            environment: Default::default(),
             fix_all: true,
             unsafe_fixes: false,
-            show_syntax_errors: false,
+            show_syntax_errors: true,
             disable_rule_comments: true,
             completion: CompletionFeatureOptions::default(),
             rename: RenameFeatureOptions::default(),
@@ -42,6 +44,7 @@ impl Default for ClientSettings {
 
 #[derive(Clone, Debug)]
 pub struct ShuckSettings {
+    command_declarations: BTreeMap<String, shucked_config::ProjectCommand>,
     linter: LinterSettings,
     formatter: ShellFormatOptions,
     format_dialect_error: Option<String>,
@@ -58,6 +61,7 @@ pub(crate) struct SettingsResolveContext {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedProjectSettings {
+    command_declarations: BTreeMap<String, shucked_config::ProjectCommand>,
     linter: ResolvedLinterSettings,
     formatter: ShellFormatOptions,
     format_exclusions: FormatExclusions,
@@ -76,6 +80,18 @@ pub struct GlobalClientSettings {
 }
 
 impl ClientSettings {
+    pub(crate) fn override_environment(
+        &mut self,
+        options: &super::environment_options::EnvironmentOptions,
+    ) {
+        self.environment = options.clone();
+        self.environment.normalize();
+    }
+
+    pub(crate) fn environment(&self) -> &super::environment_options::EnvironmentOptions {
+        &self.environment
+    }
+
     pub(crate) fn fix_all(&self) -> bool {
         self.fix_all
     }
@@ -101,6 +117,7 @@ impl ClientSettings {
     }
 
     pub(crate) fn from_layered_options(option_layers: &[&ClientOptions]) -> Self {
+        let mut environment = super::environment_options::EnvironmentOptions::default();
         let mut fix_all = None;
         let mut unsafe_fixes = None;
         let mut show_syntax_errors = None;
@@ -109,6 +126,9 @@ impl ClientSettings {
         let mut rename = RenameFeatureOptions::default();
 
         for options in option_layers {
+            if let Some(next) = &options.environment {
+                environment.overlay(next);
+            }
             if options.fix_all.is_some() {
                 fix_all = options.fix_all;
             }
@@ -131,9 +151,13 @@ impl ClientSettings {
         }
 
         Self {
+            environment: {
+                environment.normalize();
+                environment
+            },
             fix_all: fix_all.unwrap_or(true),
             unsafe_fixes: unsafe_fixes.unwrap_or(false),
-            show_syntax_errors: show_syntax_errors.unwrap_or(false),
+            show_syntax_errors: show_syntax_errors.unwrap_or(true),
             disable_rule_comments: disable_rule_comments.unwrap_or(true),
             completion,
             rename,
@@ -151,6 +175,10 @@ impl ShuckSettings {
             .map(|file_path| SettingsResolveContext::for_file(file_path, workspace_roots))
             .unwrap_or_else(|| SettingsResolveContext::without_file(workspace_roots));
         ResolvedProjectSettings::resolve(&context, option_layers).for_file(file_path)
+    }
+
+    pub(crate) fn command_declarations(&self) -> &BTreeMap<String, shucked_config::ProjectCommand> {
+        &self.command_declarations
     }
 
     pub(crate) fn linter(&self) -> &LinterSettings {
@@ -181,6 +209,7 @@ impl ShuckSettings {
 impl Default for ShuckSettings {
     fn default() -> Self {
         Self {
+            command_declarations: BTreeMap::new(),
             linter: LinterSettings::default(),
             formatter: ShellFormatOptions::default(),
             format_dialect_error: None,
@@ -249,6 +278,7 @@ impl ResolvedProjectSettings {
             });
 
         Self {
+            command_declarations: project_config.environment.commands.clone(),
             linter: resolved_linter_settings_for_layers(
                 context.config_root(),
                 &project_config,
@@ -264,6 +294,7 @@ impl ResolvedProjectSettings {
     pub(crate) fn for_file(&self, file_path: Option<&Path>) -> ShuckSettings {
         let (formatter, format_dialect_error) = self.formatter_for_file(file_path);
         ShuckSettings {
+            command_declarations: self.command_declarations.clone(),
             linter: self.linter.for_file(file_path),
             formatter,
             format_dialect_error,
@@ -801,7 +832,7 @@ mod tests {
         let settings = ClientSettings::from_layered_options(&[&ClientOptions::default()]);
         assert!(settings.fix_all());
         assert!(!settings.unsafe_fixes());
-        assert!(!settings.show_syntax_errors());
+        assert!(settings.show_syntax_errors());
         assert!(settings.rename().allow_cross_file);
 
         let options = serde_json::from_value(serde_json::json!({

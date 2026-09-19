@@ -151,6 +151,8 @@ pub(super) fn request(req: server::Request) -> Task {
 
 pub(super) fn notification(notif: server::Notification) -> Task {
     match notif.method.as_str() {
+        "shucked/selectEnvironment" => sync_notification_task::<notification::SelectEnvironment>(notif),
+        "shucked/shellSession" => sync_notification_task::<notification::ShellSession>(notif),
         notification::DidChange::METHOD => sync_notification_task::<notification::DidChange>(notif),
         notification::DidChangeConfiguration::METHOD => {
             sync_notification_task::<notification::DidChangeConfiguration>(notif)
@@ -272,6 +274,7 @@ where
                 respond::<R>(&id, R::run_without_snapshot(client, params), client);
             });
         };
+        let snapshot = snapshot.with_analysis_cancellation(cancellation_token.clone());
         Box::new(move |client| {
             if cancellation_token.is_cancelled() {
                 return;
@@ -698,6 +701,7 @@ mod tests {
             .cancel(&mut session, request_id.clone())
             .expect("cancel should succeed");
         handle.join().expect("diagnostic thread should join");
-        assert!(event_rx.try_recv().is_err());
+        assert!(!event_rx.try_iter().any(|event| matches!(event,
+            crate::server::main_loop::Event::SendResponse(response) if response.id == request_id)));
     }
 }

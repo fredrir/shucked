@@ -1,7 +1,6 @@
 use lsp_types::{
     SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensLegend,
 };
-use rustc_hash::FxHashSet;
 use shucked_ast::{
     ArithmeticCommand, ArithmeticExpr, ArithmeticExprNode, ArithmeticForCommand, ArrayElem,
     AssignmentValue, BuiltinCommand, CaseCommand, Command, CompoundCommand, File, ForCommand,
@@ -23,6 +22,8 @@ pub const SUPPORTED_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::OPERATOR,
     SemanticTokenType::COMMENT,
     SemanticTokenType::TYPE,
+    SemanticTokenType::new("shellCommand"),
+    SemanticTokenType::new("shellAlias"),
 ];
 
 pub const SUPPORTED_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
@@ -30,6 +31,7 @@ pub const SUPPORTED_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
     SemanticTokenModifier::DEFINITION,
     SemanticTokenModifier::READONLY,
     SemanticTokenModifier::DEFAULT_LIBRARY,
+    SemanticTokenModifier::new("invalid"),
 ];
 
 pub(crate) const TOKEN_TYPE_KEYWORD: u32 = 0;
@@ -73,6 +75,9 @@ struct RawSemanticToken {
 pub fn semantic_tokens_full(
     snapshot: DocumentSnapshot,
 ) -> crate::server::Result<Option<SemanticTokens>> {
+    if crate::handlers::commands::dialect(&snapshot) == "fish" {
+        return Ok(Some(super::semantic_tokens_fish::full(&snapshot)));
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -113,32 +118,35 @@ pub fn semantic_tokens_full(
         }
     }
 
-    // Function calls
-    let defined_functions: FxHashSet<&str> = analysis
-        .semantic()
-        .function_definition_bindings()
-        .map(|b| b.name.as_str())
-        .collect();
-
-    for site in analysis.semantic().all_call_sites() {
-        let name_str = site.callee.as_str();
-        if defined_functions.contains(name_str)
-            || analysis
-                .semantic()
-                .analysis()
-                .visible_function_binding_at_call(&site.callee, site.name_span)
-                .is_some()
-        {
-            let start = site.name_span.start.offset();
-            let end = site.name_span.end.offset();
-            if start < end && end <= source.len() {
-                specific_tokens.push(TokenSpan {
-                    start,
-                    end,
-                    token_type: TOKEN_TYPE_FUNCTION,
-                    modifiers: 0,
-                });
-            }
+    // The same resolution snapshot supplies diagnostics, hover and highlighting.
+    let commands = snapshot.command_service.analysis(&snapshot);
+    for (site, resolution) in &commands.sites {
+        let (token_type, modifiers) = match resolution {
+            shucked_command::CommandResolution::Missing(_) => (9, 1 << 4),
+            shucked_command::CommandResolution::Resolved(command) => (
+                if !site.aliases.is_empty() || !command.alias_chain.is_empty() {
+                    10
+                } else if command.kind == shucked_command::CommandKind::Function {
+                    TOKEN_TYPE_FUNCTION
+                } else {
+                    9
+                },
+                if command.kind == shucked_command::CommandKind::Builtin {
+                    1 << 3
+                } else {
+                    0
+                },
+            ),
+            shucked_command::CommandResolution::Unknown(_) => (9, 0),
+        };
+        let span = site.name_span();
+        if span.start.offset() < span.end.offset() && span.end.offset() <= source.len() {
+            specific_tokens.push(TokenSpan {
+                start: span.start.offset(),
+                end: span.end.offset(),
+                token_type,
+                modifiers,
+            });
         }
     }
 
@@ -975,7 +983,7 @@ mod tests {
     #[test]
     fn test_legend_structure() {
         let legend = semantic_tokens_legend();
-        assert_eq!(legend.token_types.len(), 9);
+        assert_eq!(legend.token_types.len(), 11);
         assert_eq!(legend.token_types[0], SemanticTokenType::KEYWORD);
         assert_eq!(legend.token_types[1], SemanticTokenType::FUNCTION);
         assert_eq!(legend.token_types[2], SemanticTokenType::VARIABLE);
@@ -986,7 +994,7 @@ mod tests {
         assert_eq!(legend.token_types[7], SemanticTokenType::COMMENT);
         assert_eq!(legend.token_types[8], SemanticTokenType::TYPE);
 
-        assert_eq!(legend.token_modifiers.len(), 4);
+        assert_eq!(legend.token_modifiers.len(), 5);
         assert_eq!(
             legend.token_modifiers[0],
             SemanticTokenModifier::DECLARATION

@@ -33,7 +33,9 @@ impl super::super::traits::BackgroundRequestHandler for Hover {
             .uri
             .clone();
         Ok(HoverSnapshot {
-            document: session.take_snapshot(uri),
+            document: session
+                .take_snapshot(uri)
+                .map(|snapshot| snapshot.with_analysis_cancellation(cancellation.clone())),
             workspace: session.workspace_function_context(cancellation),
         })
     }
@@ -46,7 +48,32 @@ impl super::super::traits::BackgroundRequestHandler for Hover {
         let Some(document) = snapshot.document else {
             return Ok(None);
         };
-        hover(document, snapshot.workspace, client, params)
+        let offset = params.text_document_position_params.position.to_offset(
+            document.query().document().contents(),
+            document.query().document().index(),
+            document.encoding(),
+        );
+        let environment_hover = crate::handlers::commands::hover(&document, offset);
+        let existing = hover(document, snapshot.workspace, client, params)?;
+        Ok(match (existing, environment_hover) {
+            (Some(mut existing), Some(environment)) => {
+                if let types::HoverContents::Markup(details) = environment.contents
+                    && let types::HoverContents::Markup(content) = &mut existing.contents
+                {
+                    if content.kind == types::MarkupKind::Markdown {
+                        content.value.push_str(&format!(
+                            "\n\n```text\n{}\n```",
+                            details.value.replace("```", "` ` `")
+                        ));
+                    } else {
+                        content.value.push_str(&format!("\n\n{}", details.value));
+                    }
+                }
+                Some(existing)
+            }
+            (Some(existing), None) => Some(existing),
+            (None, environment) => environment,
+        })
     }
 }
 
@@ -56,6 +83,9 @@ fn hover(
     client: &Client,
     params: types::HoverParams,
 ) -> crate::server::Result<Option<types::Hover>> {
+    if crate::handlers::commands::dialect(&snapshot) == "fish" {
+        return Ok(None);
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };

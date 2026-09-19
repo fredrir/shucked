@@ -19,6 +19,7 @@ impl super::super::traits::SyncNotificationHandler for DidChangeConfiguration {
         let all_options = crate::session::AllOptions::from_value(params.settings);
         let global_settings = all_options.global.into_settings(client.clone());
         session.update_configuration(global_settings.options().clone(), all_options.workspace);
+        session.schedule_all_diagnostics();
         Ok(())
     }
 }

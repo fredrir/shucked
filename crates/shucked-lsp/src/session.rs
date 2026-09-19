@@ -28,6 +28,7 @@ pub use client::Client;
 
 mod capabilities;
 mod client;
+pub(crate) mod environment_options;
 mod index;
 mod options;
 mod request_queue;
@@ -35,6 +36,9 @@ mod settings;
 
 /// Mutable LSP session state for open documents, workspaces, and settings.
 pub struct Session {
+    environment_overrides: std::collections::HashMap<Url, environment_options::EnvironmentOptions>,
+    diagnostic_worker: crate::server::diagnostic_worker::DiagnosticWorker,
+    command_service: Arc<crate::handlers::commands::CommandService>,
     pub(crate) completion_environment: Arc<crate::handlers::completion::environment::Environment>,
     index: index::Index,
     position_encoding: PositionEncoding,
@@ -51,6 +55,11 @@ pub struct Session {
 /// Immutable view of one document plus resolved settings.
 #[derive(Clone)]
 pub struct DocumentSnapshot {
+    analysis_cancellation: RequestCancellationToken,
+    pub(crate) workspace_functions: Option<crate::workspace_functions::WorkspaceFunctionContext>,
+    pub(crate) command_service: Arc<crate::handlers::commands::CommandService>,
+    pub(crate) environment_generation: u64,
+    pub(crate) workspace_cwd: Option<PathBuf>,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     client_settings: Arc<ClientSettings>,
     document_ref: index::DocumentQuery,
@@ -61,6 +70,7 @@ pub struct DocumentSnapshot {
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceDocumentSnapshotFactory {
+    command_service: Arc<crate::handlers::commands::CommandService>,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     position_encoding: PositionEncoding,
     analysis_cache: Arc<DocumentAnalysisCache>,
@@ -77,6 +87,13 @@ impl Session {
         client: &Client,
     ) -> crate::Result<Self> {
         Ok(Self {
+            environment_overrides: Default::default(),
+            diagnostic_worker: crate::server::diagnostic_worker::DiagnosticWorker::new(
+                client.clone(),
+            ),
+            command_service: Arc::new(crate::handlers::commands::CommandService::new(
+                global.options().native_execution_allowed,
+            )),
             completion_environment: Arc::new(
                 crate::handlers::completion::environment::Environment::detect(
                     global.options().native_execution_allowed,
@@ -122,13 +139,68 @@ impl Session {
         self.index.key_from_url(url)
     }
 
+    pub(crate) fn select_environment(
+        &mut self,
+        uri: Url,
+        options: Option<environment_options::EnvironmentOptions>,
+    ) {
+        if let Some(options) = options {
+            self.environment_overrides.insert(uri.clone(), options);
+        } else {
+            self.environment_overrides.remove(&uri);
+        }
+        self.command_service.invalidate();
+        self.schedule_diagnostics(uri);
+    }
+
+    pub(crate) fn update_shell_session(&self, state: crate::handlers::commands::ShellSessionState) {
+        self.command_service.update_session(state);
+        self.schedule_all_diagnostics();
+    }
+
+    pub(crate) fn schedule_diagnostics(&self, uri: Url) {
+        if let Some(snapshot) = self.take_snapshot(uri) {
+            self.diagnostic_worker.schedule(snapshot);
+        }
+    }
+
+    pub(crate) fn refresh_environment(&self) {
+        self.workspace_diagnostics.invalidate_all();
+        self.command_service.invalidate();
+        self.completion_environment.invalidate();
+        self.schedule_all_diagnostics();
+    }
+
+    pub(crate) fn schedule_all_diagnostics(&self) {
+        for document in self.index.open_documents_snapshot() {
+            self.schedule_diagnostics(document.uri);
+        }
+    }
+
     /// Capture a document snapshot for diagnostics, hovers, or code actions.
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
-        let (settings, client_settings) = self
+        let (settings, mut client_settings) = self
             .index
             .resolve_snapshot_settings(&url, self.global_settings.options());
+        if let Some(options) = self.environment_overrides.get(&url) {
+            Arc::make_mut(&mut client_settings).override_environment(options);
+        }
+        let workspace_cwd = url.to_file_path().ok().and_then(|path| {
+            self.workspace_roots()
+                .iter()
+                .filter(|root| path.starts_with(root))
+                .max_by_key(|root| root.components().count())
+                .cloned()
+        });
         let key = self.key_from_url(url);
         Some(DocumentSnapshot {
+            analysis_cancellation: RequestCancellationToken::default(),
+            workspace_functions: Some(
+                self.workspace_function_context(RequestCancellationToken::default()),
+            ),
+            command_service: self.command_service.clone(),
+            environment_generation: self.command_service.generation(),
+            workspace_cwd,
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             client_settings,
             document_ref: self.index.make_document_ref(key, settings)?,
@@ -165,6 +237,7 @@ impl Session {
     }
 
     pub(crate) fn close_document(&mut self, key: &DocumentKey) -> crate::Result<()> {
+        self.diagnostic_worker.cancel(&key.clone().into_url());
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
         self.workspace_diagnostics
@@ -176,6 +249,7 @@ impl Session {
     }
 
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
+        self.command_service.invalidate();
         self.completion_environment.invalidate();
         self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
@@ -230,6 +304,7 @@ impl Session {
         options: ClientOptions,
         workspace_options: Option<WorkspaceOptionsMap>,
     ) {
+        self.command_service.invalidate();
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
@@ -269,6 +344,7 @@ impl Session {
 
     pub(crate) fn workspace_document_snapshot_factory(&self) -> WorkspaceDocumentSnapshotFactory {
         WorkspaceDocumentSnapshotFactory {
+            command_service: self.command_service.clone(),
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             position_encoding: self.position_encoding,
             analysis_cache: self.analysis_cache.clone(),
@@ -359,6 +435,24 @@ impl Session {
 }
 
 impl DocumentSnapshot {
+    pub(crate) fn with_analysis_cancellation(
+        mut self,
+        cancellation: RequestCancellationToken,
+    ) -> Self {
+        if let Some(workspace) = &mut self.workspace_functions {
+            workspace.cancellation = cancellation.clone();
+        }
+        self.analysis_cancellation = cancellation;
+        self
+    }
+
+    pub(crate) fn analysis_cancellation(&self) -> &RequestCancellationToken {
+        &self.analysis_cancellation
+    }
+
+    pub(crate) fn environment_generation(&self) -> u64 {
+        self.environment_generation
+    }
     pub(crate) fn resolved_client_capabilities(&self) -> &ResolvedClientCapabilities {
         &self.resolved_client_capabilities
     }
@@ -398,6 +492,11 @@ impl WorkspaceDocumentSnapshotFactory {
         client_settings: Arc<ClientSettings>,
     ) -> DocumentSnapshot {
         DocumentSnapshot {
+            analysis_cancellation: RequestCancellationToken::default(),
+            workspace_functions: None,
+            command_service: self.command_service.clone(),
+            environment_generation: self.command_service.generation(),
+            workspace_cwd: settings.project_root().map(PathBuf::from),
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             client_settings,
             document_ref: DocumentQuery::Text {

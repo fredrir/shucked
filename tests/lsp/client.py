@@ -98,9 +98,10 @@ class LspClient:
                     self._diagnostics_queues[uri] = asyncio.Queue()
                 self._diagnostics_queues[uri].put_nowait(diagnostics)
             elif "id" in message:
-                # Server-initiated request: auto-reply with empty success
+                # This harness records edits without applying them to an editor buffer.
+                result = {"applied": False} if method == "workspace/applyEdit" else None
                 asyncio.create_task(
-                    self.send_message({"jsonrpc": "2.0", "id": message["id"], "result": None})
+                    self.send_message({"jsonrpc": "2.0", "id": message["id"], "result": result})
                 )
 
     async def send_message(self, message: Dict[str, Any]) -> None:

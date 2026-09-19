@@ -32,6 +32,7 @@ use crate::symbols::WorkspaceOpenDocument;
 use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget};
 
 /// Immutable session state needed to build or query the cross-file symbol index.
+#[derive(Clone)]
 pub(crate) struct WorkspaceFunctionContext {
     pub(crate) workspace_roots: Vec<PathBuf>,
     pub(crate) settings_workspace_roots: Vec<PathBuf>,

@@ -32,6 +32,10 @@ pub(crate) fn code_actions(
     let mut suppression_actions = Vec::new();
 
     if include_quickfix {
+        actions.extend(crate::handlers::commands::code_actions(
+            &snapshot,
+            &params.range,
+        ));
         for diagnostic in diagnostics_for_range(&snapshot, &params.range) {
             let Some(data) = associated_diagnostic_data(&snapshot, &diagnostic) else {
                 continue;
@@ -215,6 +219,10 @@ pub(crate) fn execute_command(
             )?
             .unwrap_or_default();
             apply_workspace_edit(session, client, "Shucked: apply format", &snapshot, edits)?;
+            Ok(None)
+        }
+        "shucked.refreshEnvironment" => {
+            session.refresh_environment();
             Ok(None)
         }
         "shucked.printDebugInformation" => {

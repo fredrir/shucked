@@ -4,7 +4,7 @@ use types::{
     RelatedFullDocumentDiagnosticReport,
 };
 
-use crate::lint::generate_diagnostics;
+use crate::lint::generate_available_diagnostics;
 use crate::server::Result;
 use crate::session::{Client, DocumentSnapshot};
 
@@ -35,16 +35,32 @@ impl super::BackgroundDocumentRequestHandler for DocumentDiagnostic {
     fn run_with_snapshot(
         snapshot: DocumentSnapshot,
         _client: &Client,
-        _params: types::DocumentDiagnosticParams,
+        params: types::DocumentDiagnosticParams,
     ) -> Result<DocumentDiagnosticReportResult> {
-        Ok(DocumentDiagnosticReportResult::Report(
+        use sha2::{Digest, Sha256};
+        let items = generate_available_diagnostics(&snapshot);
+        let bytes = serde_json::to_vec(&items).unwrap_or_default();
+        let result_id = Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let report = if params.previous_result_id.as_ref() == Some(&result_id) {
+            types::DocumentDiagnosticReport::Unchanged(
+                types::RelatedUnchangedDocumentDiagnosticReport {
+                    related_documents: None,
+                    unchanged_document_diagnostic_report:
+                        types::UnchangedDocumentDiagnosticReport { result_id },
+                },
+            )
+        } else {
             types::DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
                 related_documents: None,
                 full_document_diagnostic_report: FullDocumentDiagnosticReport {
-                    result_id: None,
-                    items: generate_diagnostics(&snapshot),
+                    result_id: Some(result_id),
+                    items,
                 },
-            }),
-        ))
+            })
+        };
+        Ok(DocumentDiagnosticReportResult::Report(report))
     }
 }

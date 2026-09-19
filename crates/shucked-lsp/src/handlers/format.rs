@@ -13,6 +13,9 @@ pub(crate) fn format_document(
     _client: &Client,
     _params: types::DocumentFormattingParams,
 ) -> crate::server::Result<FormatResponse> {
+    if crate::handlers::commands::dialect(&snapshot) == "fish" {
+        return Ok(None);
+    }
     let query = snapshot.query();
     let file_path = query.file_path();
     if snapshot

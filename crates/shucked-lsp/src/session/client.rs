@@ -27,6 +27,15 @@ impl Client {
         }
     }
 
+    pub(crate) fn queue_diagnostics(
+        &self,
+        result: crate::server::diagnostic_worker::DiagnosticsReady,
+    ) -> crate::Result<()> {
+        self.main_loop_sender
+            .send(Event::DiagnosticsReady(result))
+            .map_err(Into::into)
+    }
+
     pub(crate) fn send_request<R>(
         &self,
         session: &Session,

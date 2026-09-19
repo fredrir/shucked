@@ -1495,7 +1495,11 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
             "position": { "line": 10, "character": 0 },
         }),
     );
-    assert!(recv_response(&client_connection, 5).is_null());
+    let uncertain = recv_response(&client_connection, 5);
+    let details = uncertain["contents"]["value"].as_str().unwrap();
+    assert!(details.contains("Unknown"), "{details}");
+    assert!(!details.contains("Defined at"));
+    assert!(!details.contains(&imported_path.display().to_string()));
 
     send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
     let _ = recv_response(&client_connection, 99);
@@ -2529,6 +2533,7 @@ fn workspace_diagnostics_are_incremental_and_shadow_open_buffers() {
             ],
             "initializationOptions": {
                 "shucked": {
+                    "showSyntaxErrors": false,
                     "server": {
                         "workspaceDiagnostics": {
                             "maxFiles": 10,

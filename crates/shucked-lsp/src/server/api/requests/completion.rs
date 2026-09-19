@@ -29,7 +29,9 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
     ) -> crate::server::Result<Self::Snapshot> {
         let uri = params.text_document_position.text_document.uri.clone();
         Ok(CompletionSnapshot {
-            document: session.take_snapshot(uri),
+            document: session
+                .take_snapshot(uri)
+                .map(|snapshot| snapshot.with_analysis_cancellation(cancellation.clone())),
             environment: session.completion_environment.clone(),
             cancellation: cancellation.clone(),
             workspace: session.workspace_function_context(cancellation),

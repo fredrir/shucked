@@ -90,6 +90,13 @@ pub(crate) fn completion_with_environment<F>(
 where
     F: FnOnce(&DocumentAnalysis, usize) -> Vec<VisibleSourcedFunction>,
 {
+    if crate::handlers::commands::dialect(&snapshot) == "fish" {
+        return Ok(super::completion::fish::complete(
+            &snapshot,
+            &params,
+            environment,
+        ));
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };

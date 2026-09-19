@@ -171,6 +171,8 @@ pub enum SupportedCommand {
     ApplyDirective,
     /// Print debug information command.
     PrintDebugInformation,
+    /// Refresh execution environment evidence.
+    RefreshEnvironment,
 }
 
 impl SupportedCommand {
@@ -181,6 +183,7 @@ impl SupportedCommand {
             Self::ApplyAutofix,
             Self::ApplyDirective,
             Self::PrintDebugInformation,
+            Self::RefreshEnvironment,
         ]
         .into_iter()
     }
@@ -192,6 +195,7 @@ impl SupportedCommand {
             Self::ApplyAutofix => "shucked.applyAutofix",
             Self::ApplyDirective => "shucked.applyDirective",
             Self::PrintDebugInformation => "shucked.printDebugInformation",
+            Self::RefreshEnvironment => "shucked.refreshEnvironment",
         }
     }
 }
@@ -310,7 +314,7 @@ mod tests {
             options.full,
             Some(types::SemanticTokensFullOptions::Bool(true))
         );
-        assert_eq!(options.legend.token_types.len(), 9);
-        assert_eq!(options.legend.token_modifiers.len(), 4);
+        assert_eq!(options.legend.token_types.len(), 11);
+        assert_eq!(options.legend.token_modifiers.len(), 5);
     }
 }

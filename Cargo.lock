@@ -1946,6 +1946,7 @@ dependencies = [
  "sha2 0.11.0",
  "shucked-ast",
  "shucked-cache",
+ "shucked-command",
  "shucked-config",
  "shucked-discover",
  "shucked-extract",
@@ -2067,6 +2068,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "globset",
  "libc",
  "lsp-server",
  "lsp-types",
@@ -2075,6 +2077,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shucked-ast",
+ "shucked-command",
  "shucked-config",
  "shucked-discover",
  "shucked-formatter",

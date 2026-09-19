@@ -14,6 +14,7 @@ fuzzing = []
 [dependencies]
 anyhow = { workspace = true }
 crossbeam = { workspace = true }
+globset = { workspace = true }
 lsp-server = { workspace = true }
 lsp-types = { workspace = true }
 rustc-hash = { workspace = true }
@@ -21,6 +22,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 shucked-ast = { workspace = true }
+shucked-command = { workspace = true }
 shucked-config = { workspace = true }
 shucked-discover = { workspace = true }
 shucked-formatter = { workspace = true }

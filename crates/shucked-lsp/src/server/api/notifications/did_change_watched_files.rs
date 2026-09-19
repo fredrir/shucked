@@ -17,6 +17,7 @@ impl super::super::traits::SyncNotificationHandler for DidChangeWatchedFiles {
         params: types::DidChangeWatchedFilesParams,
     ) -> Result<()> {
         session.reload_settings(&params.changes, client);
+        session.schedule_all_diagnostics();
         Ok(())
     }
 }

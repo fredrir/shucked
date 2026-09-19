@@ -135,6 +135,9 @@ impl DocumentAnalysisCache {
 
 impl DocumentAnalysis {
     fn new(snapshot: &DocumentSnapshot) -> Option<Self> {
+        if crate::handlers::commands::dialect(snapshot) == "fish" {
+            return None;
+        }
         let query = snapshot.query();
         let document = query.document().clone();
         let source = document.contents();
@@ -146,7 +149,9 @@ impl DocumentAnalysis {
             path.as_deref(),
         )?;
         let shell_profile = shell.shell_profile();
-        let parse_result = Parser::with_profile(source, shell_profile.clone()).parse();
+        let parse_result = Parser::with_profile(source, shell_profile.clone())
+            .without_alias_expansion()
+            .parse();
         let indexer = Indexer::new_with_options(
             source,
             &parse_result,

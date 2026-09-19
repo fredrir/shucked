@@ -276,7 +276,12 @@ pub(crate) fn workspace_diagnostics(
         }
         source_bytes += document_bytes;
         open_paths.insert(canonical_or_original(&document.path));
-        let diagnostics = generate_diagnostics(&document.snapshot);
+        let diagnostics = generate_diagnostics(
+            &document
+                .snapshot
+                .clone()
+                .with_analysis_cancellation(context.cancellation.clone()),
+        );
         let result_id = diagnostic_result_id(&diagnostics);
         seen.insert(document.uri.to_string());
         reports.push(document_report(
@@ -412,7 +417,9 @@ pub(crate) fn workspace_diagnostics(
                 Arc::new(settings),
                 Arc::new(client_settings),
             );
-            let diagnostics = generate_diagnostics(&snapshot);
+            let diagnostics = generate_diagnostics(
+                &snapshot.with_analysis_cancellation(context.cancellation.clone()),
+            );
             let result_id = diagnostic_result_id(&diagnostics);
             context.cache.insert(
                 &uri,

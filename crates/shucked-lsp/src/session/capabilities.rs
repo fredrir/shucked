@@ -7,6 +7,8 @@ pub(crate) struct ResolvedClientCapabilities {
     pub(crate) apply_edit: bool,
     pub(crate) document_changes: bool,
     pub(crate) pull_diagnostics: bool,
+    pub(crate) diagnostic_refresh: bool,
+    pub(crate) semantic_token_refresh: bool,
     pub(crate) hierarchical_document_symbols: bool,
     pub(crate) folding_range_limit: Option<u32>,
     pub(crate) line_folding_only: bool,
@@ -73,6 +75,18 @@ impl ResolvedClientCapabilities {
             apply_edit,
             document_changes,
             pull_diagnostics,
+            diagnostic_refresh: client_capabilities
+                .workspace
+                .as_ref()
+                .and_then(|w| w.diagnostic.as_ref())
+                .and_then(|d| d.refresh_support)
+                .unwrap_or(false),
+            semantic_token_refresh: client_capabilities
+                .workspace
+                .as_ref()
+                .and_then(|w| w.semantic_tokens.as_ref())
+                .and_then(|d| d.refresh_support)
+                .unwrap_or(false),
             hierarchical_document_symbols,
             folding_range_limit,
             line_folding_only,
