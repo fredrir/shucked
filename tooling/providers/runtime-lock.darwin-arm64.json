@@ -1,0 +1,366 @@
+[
+  {
+    "name": "bash",
+    "license": "GPL-3.0-or-later",
+    "urls": {
+      "stable": {
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3.tar.gz",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+      },
+      "head": {
+        "url": "https://git.savannah.gnu.org/git/bash.git",
+        "branch": "master",
+        "using": null
+      }
+    },
+    "patches": [
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-001",
+        "sha256": "1f608434364af86b9b45c8b0ea3fb3b165fb830d27697e6cdfc7ac17dee3287f"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-002",
+        "sha256": "e385548a00130765ec7938a56fbdca52447ab41fabc95a25f19ade527e282001"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-003",
+        "sha256": "f245d9c7dc3f5a20d84b53d249334747940936f09dc97e1dcb89fc3ab37d60ed"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-004",
+        "sha256": "9591d245045529f32f0812f94180b9d9ce9023f5a765c039b852e5dfc99747d0"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-005",
+        "sha256": "cca1ef52dbbf433bc98e33269b64b2c814028efe2538be1e2c9a377da90bc99d"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-006",
+        "sha256": "29119addefed8eff91ae37fd51822c31780ee30d4a28376e96002706c995ff10"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-007",
+        "sha256": "c0976bbfffa1453c7cfdd62058f206a318568ff2d690f5d4fa048793fa3eb299"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-008",
+        "sha256": "097cd723cbfb8907674ac32214063a3fd85282657ec5b4e544d2c0f719653fb4"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-009",
+        "sha256": "eee30fe78a4b0cb2fe20e010e00308899cfc613e0774ebb3c8557a1552f24f8c"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-010",
+        "sha256": "cf76f1cce2ea300c18bff9f002d21f280cc931acd17c28518110b93fe6e72569"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-011",
+        "sha256": "0298df8f5ea2a31d3be43ed7d269c5b3c7c342dd5b570bea7f64d66dcbbe7531"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-012",
+        "sha256": "d71379b39bebaedaf123414414e77fb458a0a43b9ad3116594c6df7ca6754573"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-013",
+        "sha256": "042f9cda967e24bf4211944697441e93d06ff42b4b998629a98a1b249279f200"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-014",
+        "sha256": "bd4360b401d38507e358783dcad8536a99c6789f0d3a5bd0cfb8c4a34144696c"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-015",
+        "sha256": "55b79ceee2fc27f6767eed697e939a7eb2fe2a28c01556bd75f18d581014f46e"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-016",
+        "sha256": "9ea29b266b7d24cb34d0ff3f1c4631e4d527bfe2d1ef15d17cdb924bf31ef767"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-017",
+        "sha256": "443b927b45c1558ca72052410f8b8f6e5152b617ed707061a2781d4375b0d1c3"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-018",
+        "sha256": "ae715d76c50341d7d7095e9a8d2eeed1ca9546152c2ac7289206f90cf30ac697"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-019",
+        "sha256": "a25c581e4d0057dea3833918438a930e2e86ee4c6dc17fe15267b7f04cbc4e3d"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/bash/bash-5.3-patches/bash53-020",
+        "sha256": "df217ed3a9122aa2286d9b67bbe348661b6a9db262b580c29150dae55d532896"
+      }
+    ],
+    "installed": [
+      {
+        "version": "5.3.20",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1789564886,
+        "runtime_dependencies": [
+          {
+            "full_name": "ncurses",
+            "version": "6.6",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "6.6",
+            "declared_directly": true
+          },
+          {
+            "full_name": "readline",
+            "version": "8.3.6",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "8.3.6",
+            "declared_directly": true
+          },
+          {
+            "full_name": "json-c",
+            "version": "0.19",
+            "revision": 0,
+            "bottle_rebuild": 1,
+            "pkg_version": "0.19",
+            "declared_directly": false
+          },
+          {
+            "full_name": "libunistring",
+            "version": "1.4.2",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "1.4.2",
+            "declared_directly": false
+          },
+          {
+            "full_name": "gettext",
+            "version": "1.0",
+            "revision": 0,
+            "bottle_rebuild": 1,
+            "pkg_version": "1.0",
+            "declared_directly": true
+          }
+        ],
+        "installed_on_request": false
+      }
+    ]
+  },
+  {
+    "name": "fish",
+    "license": "GPL-2.0-only",
+    "urls": {
+      "stable": {
+        "url": "https://github.com/fish-shell/fish-shell/releases/download/4.9.3/fish-4.9.3.tar.xz",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "20998a25f73217ddcc19f499055fd587e9912d1ad6e7109120fbcf2871f0b98c"
+      },
+      "head": {
+        "url": "https://github.com/fish-shell/fish-shell.git",
+        "branch": "master",
+        "using": null
+      }
+    },
+    "patches": [],
+    "installed": [
+      {
+        "version": "4.9.3",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1789850192,
+        "runtime_dependencies": [
+          {
+            "full_name": "pcre2",
+            "version": "10.48",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "10.48",
+            "declared_directly": true
+          }
+        ],
+        "installed_on_request": true
+      }
+    ]
+  },
+  {
+    "name": "gettext",
+    "license": "GPL-3.0-or-later AND LGPL-2.1-or-later",
+    "urls": {
+      "stable": {
+        "url": "https://ftpmirror.gnu.org/gettext/gettext-1.0.tar.gz",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "85d99b79c981a404874c02e0342176cf75c7698e2b51fe41031cf6526d974f1a"
+      }
+    },
+    "patches": [],
+    "installed": [
+      {
+        "version": "1.0",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1785778003,
+        "runtime_dependencies": [
+          {
+            "full_name": "json-c",
+            "version": "0.19",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "0.19",
+            "declared_directly": true
+          },
+          {
+            "full_name": "libunistring",
+            "version": "1.4.2",
+            "revision": 0,
+            "bottle_rebuild": 0,
+            "pkg_version": "1.4.2",
+            "declared_directly": true
+          }
+        ],
+        "installed_on_request": false
+      }
+    ]
+  },
+  {
+    "name": "ncurses",
+    "license": "X11-distribute-modifications-variant",
+    "urls": {
+      "stable": {
+        "url": "https://invisible-mirror.net/archives/ncurses/ncurses-6.6.tar.gz",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
+      }
+    },
+    "patches": [],
+    "installed": [
+      {
+        "version": "6.6",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1785778978,
+        "runtime_dependencies": [],
+        "installed_on_request": false
+      }
+    ]
+  },
+  {
+    "name": "pcre2",
+    "license": "BSD-3-Clause",
+    "urls": {
+      "stable": {
+        "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.48/pcre2-10.48.tar.bz2",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "b6c68fdf6f3ac31388b50aa89ff0fc49c00c987c16e7b5146491d12003f2c8ed"
+      },
+      "head": {
+        "url": "https://github.com/PCRE2Project/pcre2.git",
+        "branch": "main",
+        "using": null
+      }
+    },
+    "patches": [],
+    "installed": [
+      {
+        "version": "10.48",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1788293249,
+        "runtime_dependencies": [],
+        "installed_on_request": false
+      }
+    ]
+  },
+  {
+    "name": "readline",
+    "license": "GPL-3.0-or-later",
+    "urls": {
+      "stable": {
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3.tar.gz",
+        "tag": null,
+        "revision": null,
+        "using": null,
+        "checksum": "fe5383204467828cd495ee8d1d3c037a7eba1389c22bc6a041f627976f9061cc"
+      }
+    },
+    "patches": [
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-001",
+        "sha256": "21f0a03106dbe697337cd25c70eb0edbaa2bdb6d595b45f83285cdd35bac84de"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-002",
+        "sha256": "e27364396ba9f6debf7cbaaf1a669e2b2854241ae07f7eca74ca8a8ba0c97472"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-003",
+        "sha256": "72dee13601ce38f6746eb15239999a7c56f8e1ff5eb1ec8153a1f213e4acdb29"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-004",
+        "sha256": "1f189c4566aa35950964647b9ec3be1a821e42b86048129c63eb7f9d4d2f5a74"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-005",
+        "sha256": "5481adbe161c9f6ba972c74db9e18c7aa351d3df3035cc4a673a1aa06247d1c6"
+      },
+      {
+        "strip": "p0",
+        "url": "https://ftpmirror.gnu.org/readline/readline-8.3-patches/readline83-006",
+        "sha256": "4ebd261a608287796e171af0ea9af5a1e3122e46672accda2484b6698c47c1a4"
+      }
+    ],
+    "installed": [
+      {
+        "version": "8.3.6",
+        "used_options": [],
+        "built_as_bottle": true,
+        "poured_from_bottle": true,
+        "time": 1789564883,
+        "runtime_dependencies": [],
+        "installed_on_request": false
+      }
+    ]
+  }
+]

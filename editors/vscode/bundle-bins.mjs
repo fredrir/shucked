@@ -69,3 +69,37 @@ for (const name of binaries) {
 }
 
 fs.writeFileSync(path.join(binDir, "platform.json"), JSON.stringify({ target: hostTarget() }) + "\n");
+
+const providerSource = path.join(repoRoot, "tooling", "providers", "packs");
+const providerRuntime = path.join(repoRoot, "target", "provider-runtime");
+const providerDestination = path.join(binDir, "providers");
+const packManifest = JSON.parse(fs.readFileSync(path.join(providerSource, "manifest.json"), "utf8"));
+const crypto = await import("node:crypto");
+for (const source of packManifest.sources) {
+  for (const file of source.files) {
+    const bytes = fs.readFileSync(path.join(providerSource, file.path));
+    if (crypto.createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
+      throw new Error(`Provider pack checksum mismatch: ${file.path}`);
+    }
+  }
+}
+if (!fs.existsSync(path.join(providerRuntime, "manifest.json"))) {
+  throw new Error("Provider runtimes missing. Run tooling/providers/build-zsh.sh and bundle-runtime.py before packaging.");
+}
+const runtimeManifest = JSON.parse(fs.readFileSync(path.join(providerRuntime, "manifest.json"), "utf8"));
+const runtimeArch = { arm64: "aarch64", x64: "x86_64" }[process.arch] ?? process.arch;
+if (runtimeManifest.platform !== process.platform ||
+    ![process.arch, runtimeArch].includes(runtimeManifest.architecture)) {
+  throw new Error("Provider runtime platform does not match this VSIX target.");
+}
+for (const file of runtimeManifest.files) {
+  const bytes = fs.readFileSync(path.join(providerRuntime, file.path));
+  if (crypto.createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
+    throw new Error(`Provider runtime checksum mismatch: ${file.path}`);
+  }
+}
+fs.rmSync(providerDestination, { recursive: true, force: true });
+fs.mkdirSync(providerDestination, { recursive: true });
+fs.cpSync(providerSource, path.join(providerDestination, "packs"), { recursive: true });
+fs.cpSync(providerRuntime, path.join(providerDestination, "runtime"), { recursive: true, dereference: true });
+console.log(`Bundled ${packManifest.sources.length} completion packs and ${runtimeManifest.sources.length} runtime source packages`);

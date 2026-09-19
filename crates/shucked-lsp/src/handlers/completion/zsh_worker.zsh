@@ -1,6 +1,12 @@
 # Managed completion session; personal startup files require explicit opt-in.
 builtin unsetopt xtrace verbose
 exec 2>/dev/null
+if [[ -d $SHUCKED_PROVIDER_ROOT/packs/zsh ]]; then
+  fpath=("$SHUCKED_PROVIDER_ROOT"/packs/zsh-completions/src
+         "$SHUCKED_PROVIDER_ROOT"/packs/zsh/Completion
+         "$SHUCKED_PROVIDER_ROOT"/packs/zsh/Completion/**/(N/)
+         $fpath)
+fi
 autoload -Uz compinit
 (($+functions[compdef])) || compinit -i -D
 zmodload zsh/zutil || exit 1

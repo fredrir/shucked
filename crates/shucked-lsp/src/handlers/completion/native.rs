@@ -1,3 +1,8 @@
+#[path = "native_assets.rs"]
+pub(super) mod assets;
+#[path = "native_shell.rs"]
+mod shell;
+
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +21,8 @@ pub(super) struct Native {
     cache: Mutex<VecDeque<Cached>>,
     running: Mutex<()>,
     zsh: Option<NativeZsh>,
+    bash: Option<shell::ManagedShell>,
+    fish: Option<shell::ManagedShell>,
     generation: AtomicU64,
 }
 
@@ -23,6 +30,7 @@ struct Cached {
     executable: PathBuf,
     arguments: Vec<&'static str>,
     directory: PathBuf,
+    execution_path: Option<std::ffi::OsString>,
     created: Instant,
     result: Option<Arc<Vec<Candidate>>>,
 }
@@ -31,6 +39,8 @@ impl Native {
     pub(super) fn detect() -> Self {
         Self {
             zsh: NativeZsh::detect(),
+            bash: shell::ManagedShell::detect("bash"),
+            fish: shell::ManagedShell::detect("fish"),
             ..Self::default()
         }
     }
@@ -41,6 +51,9 @@ impl Native {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
+        for shell in [&self.bash, &self.fish].into_iter().flatten() {
+            shell.invalidate();
+        }
         if let Some(zsh) = &self.zsh {
             zsh.invalidate();
         }
@@ -54,48 +67,91 @@ impl Native {
         directory: &Path,
         cancellation: &RequestCancellationToken,
         personal: bool,
+        dialect: &str,
     ) -> Option<Arc<Vec<Candidate>>> {
+        let execution_path = environment.execution_path();
+        let execution_path = execution_path.as_deref();
         let command = words.first()?;
         let name = command.rsplit('/').next()?;
         if personal
-            && prefix.starts_with('-')
-            && !words.iter().any(|word| word == "--")
+            && dialect == "zsh"
             && let Some(zsh) = &self.zsh
-            && let Some(entries) = zsh.complete(words, prefix, directory, 1500, true, cancellation)
+            && let Some(entries) = zsh.complete(
+                words,
+                prefix,
+                directory,
+                1500,
+                true,
+                cancellation,
+                execution_path,
+            )
             && !entries.is_empty()
         {
             return Some(entries);
         }
-        let executable = environment.executable_path(command, directory)?;
-        if let Some(queries) = package_queries(name, words, prefix) {
+        let executable = environment.executable_path(command, directory);
+        if let Some(executable) = &executable
+            && let Some(queries) = package_queries(name, words, prefix)
+        {
             let mut result = Vec::new();
             for arguments in queries {
-                let entries =
-                    self.query(&executable, &arguments, directory, false, cancellation)?;
+                let entries = self.query(
+                    executable,
+                    &arguments,
+                    directory,
+                    false,
+                    cancellation,
+                    execution_path,
+                )?;
                 result.extend(entries.iter().cloned());
             }
             result.sort_by(|a, b| a.text.cmp(&b.text));
             result.dedup_by(|a, b| a.text == b.text);
             return Some(Arc::new(result));
         }
-        if !prefix.starts_with('-') || words.iter().any(|word| word == "--") {
-            return None;
-        }
         // Only known read-only help interfaces may be invoked. Never forward the
         // edited command's arguments to an executable.
-        if matches!(
-            name,
-            "ls" | "gls" | "eza" | "exa" | "rg" | "fd" | "fdfind" | "bat" | "batcat"
-        ) && let Some(entries) =
-            self.query(&executable, &["--help"], directory, true, cancellation)
+        if prefix.starts_with('-')
+            && !words.iter().any(|word| word == "--")
+            && matches!(
+                name,
+                "ls" | "gls" | "eza" | "exa" | "rg" | "fd" | "fdfind" | "bat" | "batcat"
+            )
+            && let Some(executable) = &executable
+            && let Some(entries) = self.query(
+                executable,
+                &["--help"],
+                directory,
+                true,
+                cancellation,
+                execution_path,
+            )
             && !entries.is_empty()
         {
             return Some(entries);
         }
-        self.zsh
-            .as_ref()?
-            .complete(words, prefix, directory, 1200, false, cancellation)
-            .filter(|entries| !entries.is_empty())
+        match dialect {
+            "fish" => {
+                self.fish
+                    .as_ref()?
+                    .complete(words, prefix, directory, cancellation, execution_path)
+            }
+            "bash" | "sh" => {
+                self.bash
+                    .as_ref()?
+                    .complete(words, prefix, directory, cancellation, execution_path)
+            }
+            _ => self.zsh.as_ref()?.complete(
+                words,
+                prefix,
+                directory,
+                1200,
+                false,
+                cancellation,
+                execution_path,
+            ),
+        }
+        .filter(|entries| !entries.is_empty())
     }
 
     fn query(
@@ -105,6 +161,7 @@ impl Native {
         directory: &Path,
         help: bool,
         cancellation: &RequestCancellationToken,
+        execution_path: Option<&std::ffi::OsStr>,
     ) -> Option<Arc<Vec<Candidate>>> {
         {
             let cache = self
@@ -115,6 +172,7 @@ impl Native {
                 entry.executable == executable
                     && entry.arguments == arguments
                     && entry.directory == directory
+                    && entry.execution_path.as_deref() == execution_path
                     && entry.created.elapsed() < TTL
             }) {
                 return entry.result.clone();
@@ -131,6 +189,9 @@ impl Native {
             .env("TERM", "dumb")
             .env("HOMEBREW_NO_AUTO_UPDATE", "1")
             .env("HOMEBREW_NO_ANALYTICS", "1");
+        if let Some(path) = execution_path {
+            command.env("PATH", path);
+        }
         let result = capture(
             &mut command,
             Duration::from_millis(1500),
@@ -160,6 +221,7 @@ impl Native {
             executable: executable.to_owned(),
             arguments: arguments.to_vec(),
             directory: directory.to_owned(),
+            execution_path: execution_path.map(ToOwned::to_owned),
             created: Instant::now(),
             result: result.clone(),
         });

@@ -19,6 +19,7 @@ fn managed_zsh_completes_described_flags_without_personal_startup_files() {
             5000,
             false,
             &RequestCancellationToken::default(),
+            None,
         )
         .expect("managed Zsh completion");
     assert!(
@@ -45,6 +46,7 @@ fn edited_shell_syntax_is_never_executed() {
         5000,
         false,
         &RequestCancellationToken::default(),
+        None,
     );
     assert!(!marker.exists());
 }
@@ -81,11 +83,11 @@ compdef _shucked_listing shucked_listing
     let words = ["ls".to_owned()];
     let token = RequestCancellationToken::default();
     let managed = provider
-        .complete(&words, "-", root.path(), 5000, false, &token)
+        .complete(&words, "-", root.path(), 5000, false, &token, None)
         .unwrap();
     assert!(!managed.iter().any(|entry| entry.text == "--absolute"));
     let personal = provider
-        .complete(&words, "-", root.path(), 5000, true, &token)
+        .complete(&words, "-", root.path(), 5000, true, &token, None)
         .unwrap();
     assert!(
         personal

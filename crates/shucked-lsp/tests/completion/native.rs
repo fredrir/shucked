@@ -23,6 +23,7 @@ fn complete(environment: &Environment, words: &[&str], prefix: &str) -> Vec<Cand
             &environment.cwd,
             &RequestCancellationToken::default(),
             false,
+            "zsh",
         )
         .unwrap()
         .as_ref()
@@ -99,6 +100,7 @@ fn native_flags_keep_descriptions_and_cached_queries_refresh() {
                 root.path(),
                 &RequestCancellationToken::default(),
                 false,
+                "zsh",
             )
             .is_none()
     );
@@ -150,6 +152,7 @@ fn does_not_run_unknown_help_interfaces_or_package_install_operations() {
                 root.path(),
                 &RequestCancellationToken::default(),
                 false,
+                "zsh",
             )
             .is_none()
     );

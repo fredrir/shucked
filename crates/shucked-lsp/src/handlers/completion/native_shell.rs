@@ -1,0 +1,151 @@
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use super::super::native_zsh::{Candidate, parse_output};
+use super::assets;
+use crate::session::RequestCancellationToken;
+
+pub(super) struct ManagedShell {
+    name: &'static str,
+    executable: PathBuf,
+    root: PathBuf,
+    cache: Mutex<VecDeque<Cached>>,
+    running: Mutex<()>,
+    #[cfg(test)]
+    home: Option<PathBuf>,
+}
+
+struct Cached {
+    words: Vec<String>,
+    directory: PathBuf,
+    execution_path: Option<std::ffi::OsString>,
+    created: Instant,
+    result: Arc<Vec<Candidate>>,
+}
+
+impl ManagedShell {
+    pub(super) fn detect(name: &'static str) -> Option<Self> {
+        Some(Self {
+            name,
+            executable: assets::shell(name)?,
+            root: assets::root()?,
+            cache: Mutex::default(),
+            running: Mutex::default(),
+            #[cfg(test)]
+            home: None,
+        })
+    }
+
+    pub(super) fn invalidate(&self) {
+        self.cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+
+    pub(super) fn complete(
+        &self,
+        words: &[String],
+        prefix: &str,
+        directory: &Path,
+        cancellation: &RequestCancellationToken,
+        execution_path: Option<&std::ffi::OsStr>,
+    ) -> Option<Arc<Vec<Candidate>>> {
+        if words.is_empty()
+            || words.len() > 256
+            || words.iter().map(String::len).sum::<usize>() + prefix.len() > 8192
+        {
+            return None;
+        }
+        let mut input = words.to_vec();
+        input.push(prefix.to_owned());
+        if let Some(entry) = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|entry| {
+                entry.words == input
+                    && entry.execution_path.as_deref() == execution_path
+                    && entry.directory == directory
+                    && entry.created.elapsed() < Duration::from_secs(30)
+            })
+        {
+            return Some(Arc::clone(&entry.result));
+        }
+        let _running = self.running.try_lock().ok()?;
+        let mut command = std::process::Command::new(&self.executable);
+        if self.name == "fish" {
+            command.args([
+                "--no-config",
+                "--private",
+                "-c",
+                include_str!("fish_worker.fish"),
+                "--",
+            ]);
+        } else {
+            command.args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                include_str!("bash_worker.bash"),
+                "shucked-complete",
+            ]);
+        }
+        command
+            .args(&input)
+            .current_dir(directory)
+            .env("SHUCKED_PROVIDER_ROOT", &self.root)
+            .env("LC_ALL", "C")
+            .env("TERM", "dumb")
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+            .env("HOMEBREW_NO_ANALYTICS", "1")
+            .env_remove("BASH_ENV")
+            .env_remove("ENV");
+        if let Some(path) = execution_path {
+            command.env("PATH", path);
+        }
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("BASH_FUNC_") {
+                command.env_remove(name);
+            }
+        }
+        #[cfg(test)]
+        if let Some(home) = &self.home {
+            command
+                .env("HOME", home)
+                .env("XDG_CONFIG_HOME", home.join(".config"));
+        }
+        let output = super::super::native_process::capture(
+            &mut command,
+            Duration::from_millis(1500),
+            cancellation,
+            false,
+        )?;
+        let result = Arc::new(parse_output(&output)?);
+        if cancellation.is_cancelled() {
+            return None;
+        }
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache.push_back(Cached {
+            words: input,
+            directory: directory.to_owned(),
+            execution_path: execution_path.map(ToOwned::to_owned),
+            created: Instant::now(),
+            result: Arc::clone(&result),
+        });
+        while cache.len() > 16 {
+            cache.pop_front();
+        }
+        Some(result)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/completion/native_shell.rs"]
+mod tests;

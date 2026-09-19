@@ -28,6 +28,7 @@ struct Cached {
     directory: PathBuf,
     buffer: String,
     personal: bool,
+    execution_path: Option<std::ffi::OsString>,
     created: Instant,
     result: Option<Arc<Vec<Candidate>>>,
 }
@@ -37,26 +38,7 @@ impl NativeZsh {
         if !cfg!(unix) {
             return None;
         }
-        let shell = std::env::var_os("SHELL")
-            .map(PathBuf::from)
-            .filter(|path| {
-                path.file_name().is_some_and(|name| name == "zsh")
-                    && path.is_absolute()
-                    && path.is_file()
-            })
-            .or_else(|| {
-                std::env::var_os("PATH").and_then(|path| {
-                    std::env::split_paths(&path)
-                        .filter(|path| path.is_absolute())
-                        .map(|path| path.join("zsh"))
-                        .find(|path| path.is_file())
-                })
-            })
-            .or_else(|| {
-                Path::new("/bin/zsh")
-                    .is_file()
-                    .then(|| PathBuf::from("/bin/zsh"))
-            })?;
+        let shell = super::native::assets::shell("zsh")?;
         Some(Self {
             shell,
             cache: Mutex::default(),
@@ -83,6 +65,7 @@ impl NativeZsh {
         timeout_ms: usize,
         personal: bool,
         cancellation: &RequestCancellationToken,
+        execution_path: Option<&std::ffi::OsStr>,
     ) -> Option<Arc<Vec<Candidate>>> {
         // A single option request supplies all flags, so further typing uses the cache.
         let query_prefix = if prefix.starts_with('-') { "-" } else { prefix };
@@ -104,6 +87,7 @@ impl NativeZsh {
                 entry.directory == directory
                     && entry.buffer == buffer
                     && entry.personal == personal
+                    && entry.execution_path.as_deref() == execution_path
                     && entry.created.elapsed() < TTL
             }) {
                 return entry.result.clone();
@@ -118,6 +102,7 @@ impl NativeZsh {
                 Duration::from_millis(timeout_ms.clamp(100, 5000) as u64),
                 cancellation,
                 personal,
+                execution_path,
             )
             .map(Arc::new);
         if cancellation.is_cancelled() {
@@ -133,6 +118,7 @@ impl NativeZsh {
                 directory: directory.to_owned(),
                 buffer,
                 personal,
+                execution_path: execution_path.map(ToOwned::to_owned),
                 created: Instant::now(),
                 result: result.clone(),
             });
@@ -150,6 +136,7 @@ impl NativeZsh {
         timeout: Duration,
         cancellation: &RequestCancellationToken,
         personal: bool,
+        execution_path: Option<&std::ffi::OsStr>,
     ) -> Option<Vec<Candidate>> {
         let mut command = std::process::Command::new(&self.shell);
         command
@@ -160,8 +147,14 @@ impl NativeZsh {
             .env("SHUCKED_NATIVE_PERSONAL", if personal { "1" } else { "0" })
             .env("TERM", "dumb")
             .current_dir(directory);
+        if let Some(path) = execution_path {
+            command.env("PATH", path);
+        }
         if !personal {
             command.env_remove("FPATH");
+        }
+        if let Some(root) = super::native::assets::root() {
+            command.env("SHUCKED_PROVIDER_ROOT", root);
         }
         #[cfg(test)]
         if let Some(zdotdir) = &self.zdotdir {
@@ -184,7 +177,7 @@ fn quote_word(word: &str) -> String {
     }
 }
 
-fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
+pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
     if output.len() > MAX_OUTPUT {
         return None;
     }
