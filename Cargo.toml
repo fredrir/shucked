@@ -24,6 +24,7 @@ categories   = ["command-line-utilities", "development-tools"]
 shucked-ast       = { path = "crates/shucked-ast", version = "0.0.1" }
 shucked-benchmark = { path = "crates/shucked-benchmark" }
 shucked-cache     = { path = "crates/shucked-cache", version = "0.0.1" }
+shucked-command   = { path = "crates/shucked-command", version = "0.0.1" }
 shucked-config    = { path = "crates/shucked-config", version = "0.0.1" }
 shucked-discover  = { path = "crates/shucked-discover", version = "0.0.1" }
 shucked-formatter = { path = "crates/shucked-formatter", version = "0.0.1" }
