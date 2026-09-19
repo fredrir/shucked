@@ -15,6 +15,9 @@ const MAX_DIRECTORIES: usize = 256;
 const MAX_ENTRIES_PER_DIRECTORY: usize = 40_000;
 
 pub fn capture_current(context: &ExecutionContext, generation: u64) -> EnvironmentSnapshot {
+    if context.policy == crate::ValidationPolicy::Captured {
+        return capture(context, Vec::new(), generation);
+    }
     let Some(path) = std::env::var_os("PATH") else {
         let mut snapshot = EnvironmentSnapshot::empty(context);
         snapshot.generation = generation;
@@ -38,6 +41,9 @@ pub fn capture(
     let mut snapshot = EnvironmentSnapshot::empty(context);
     snapshot.generation = generation;
     snapshot.captured_unix_ms = now_unix_ms();
+    if context.policy == crate::ValidationPolicy::Captured {
+        return snapshot;
+    }
     snapshot.path_known = true;
     snapshot.case_sensitive = !cfg!(windows);
     snapshot.executable_extensions = if cfg!(windows) {
@@ -116,7 +122,10 @@ pub fn exact_lookup(
     if !snapshot.path_known {
         return LookupEvidence::Unknown("The target execution PATH is unknown".into());
     }
-    for directory in &snapshot.search_path {
+    for (index, directory) in snapshot.search_path.iter().enumerate() {
+        if index >= MAX_DIRECTORIES {
+            return LookupEvidence::Unknown("Execution PATH exceeds the exact lookup limit".into());
+        }
         let Some(path) = absolute_path(context, &directory.path) else {
             return LookupEvidence::Unknown(
                 "A relative PATH entry requires a known launch directory".into(),

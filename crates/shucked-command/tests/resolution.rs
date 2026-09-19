@@ -39,6 +39,59 @@ fn snapshot() -> EnvironmentSnapshot {
 }
 
 #[test]
+fn windows_inventory_needs_exact_evidence_to_choose_an_executable() {
+    let mut snapshot = snapshot();
+    snapshot.platform = "windows".into();
+    snapshot.case_sensitive = false;
+    assert!(matches!(
+        snapshot.lookup("brew"),
+        LookupEvidence::Unknown(_)
+    ));
+    snapshot.exact_lookups.insert(
+        "brew".into(),
+        LookupEvidence::Present(executable("brew.cmd")),
+    );
+    let LookupEvidence::Present(found) = snapshot.lookup("brew") else {
+        panic!("exact query must win")
+    };
+    assert_eq!(found.identity.path, PathBuf::from("/tools/brew.cmd"));
+}
+
+#[test]
+fn differently_cased_filename_requires_filesystem_evidence() {
+    let mut snapshot = snapshot();
+    assert!(matches!(
+        snapshot.lookup("BREW"),
+        LookupEvidence::Unknown(_)
+    ));
+    snapshot
+        .exact_lookups
+        .insert("BREW".into(), LookupEvidence::Missing);
+    assert!(matches!(snapshot.lookup("BREW"), LookupEvidence::Missing));
+}
+
+#[test]
+fn hash_is_a_builtin_without_any_host_executable() {
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix] {
+        let context = ExecutionContext {
+            dialect,
+            ..context()
+        };
+        assert_eq!(
+            resolve(
+                &context,
+                &EnvironmentSnapshot::empty(&context),
+                &CommandSite::literal("hash")
+            )
+            .resolved()
+            .expect("hash builtin")
+            .kind,
+            CommandKind::Builtin
+        );
+    }
+}
+
+#[test]
 fn alias_injected_arguments_and_executable_identity_are_shared() {
     let mut site = CommandSite::literal("ls");
     site.arguments.push("--all".into());

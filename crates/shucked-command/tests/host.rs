@@ -126,11 +126,56 @@ fn captured_target_cannot_be_refreshed_from_local_filesystem() {
     executable(temporary.path(), "local-only");
     let mut context = context(temporary.path());
     context.policy = ValidationPolicy::Captured;
+    for snapshot in [
+        host::capture(&context, vec![temporary.path().into()], 9),
+        host::capture_current(&context, 9),
+    ] {
+        assert!(!snapshot.path_known);
+        assert!(snapshot.search_path.is_empty());
+        assert_eq!(snapshot.generation, 9);
+    }
     let mut snapshot = EnvironmentSnapshot::empty(&context);
     host::refresh_exact(&context, &mut snapshot, &["local-only".into()]);
     assert!(snapshot.exact_lookups.is_empty());
     assert!(matches!(
         host::exact_lookup(&context, &snapshot, "local-only"),
+        LookupEvidence::Unknown(_)
+    ));
+}
+
+#[test]
+fn relative_path_inventory_is_invalid_after_launch_directory_changes() {
+    let temporary = tempfile::tempdir().expect("fixture directory");
+    executable(temporary.path(), "fixture-command");
+    let mut context = context(temporary.path());
+    let snapshot = host::capture(&context, vec![PathBuf::new()], 1);
+    assert!(
+        resolve(
+            &context,
+            &snapshot,
+            &CommandSite::literal("fixture-command")
+        )
+        .resolved()
+        .is_some()
+    );
+    context.cwd = Some(temporary.path().join("elsewhere"));
+    assert!(matches!(
+        resolve(
+            &context,
+            &snapshot,
+            &CommandSite::literal("fixture-command")
+        ),
+        CommandResolution::Unknown(_)
+    ));
+}
+
+#[test]
+fn exact_lookup_reports_unknown_when_path_exceeds_its_scan_budget() {
+    let temporary = tempfile::tempdir().expect("fixture directory");
+    let context = context(temporary.path());
+    let snapshot = host::capture(&context, vec![temporary.path().to_owned(); 257], 1);
+    assert!(matches!(
+        host::exact_lookup(&context, &snapshot, "missing"),
         LookupEvidence::Unknown(_)
     ));
 }

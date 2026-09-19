@@ -60,6 +60,11 @@ pub struct EnvironmentSnapshot {
     pub fresh: bool,
     pub search_path: Vec<SearchDirectory>,
     pub path_known: bool,
+    /// Directory context used when relative PATH entries were captured.
+    #[serde(default)]
+    pub search_cwd: Option<PathBuf>,
+    #[serde(default)]
+    pub search_cwd_known: bool,
     pub case_sensitive: bool,
     pub executable_extensions: Vec<String>,
     pub builtins: BTreeSet<String>,
@@ -83,6 +88,8 @@ impl EnvironmentSnapshot {
             fresh: true,
             search_path: Vec::new(),
             path_known: false,
+            search_cwd: context.cwd.clone(),
+            search_cwd_known: context.cwd_known,
             case_sensitive: true,
             executable_extensions: Vec::new(),
             builtins: crate::builtins(context.dialect)
@@ -119,6 +126,11 @@ impl EnvironmentSnapshot {
         if let Some(evidence) = self.exact_lookups.get(name) {
             return evidence.clone();
         }
+        if self.platform == "windows" {
+            return LookupEvidence::Unknown(
+                "Windows executable precedence requires an exact PATHEXT-aware lookup".into(),
+            );
+        }
         if name.contains('/') || (self.platform == "windows" && name.contains('\\')) {
             return LookupEvidence::Unknown(
                 "This explicit executable path was not captured".into(),
@@ -135,6 +147,15 @@ impl EnvironmentSnapshot {
         for directory in &self.search_path {
             if let Some(executable) = directory.commands.get(&key) {
                 return LookupEvidence::Present(executable.clone());
+            }
+            if directory
+                .commands
+                .keys()
+                .any(|candidate| candidate.eq_ignore_ascii_case(&key))
+            {
+                return LookupEvidence::Unknown(
+                    "Filename case matching requires an exact filesystem lookup".into(),
+                );
             }
             if !directory.complete {
                 return LookupEvidence::Unknown(
@@ -336,12 +357,23 @@ pub fn compare_targets(targets: &[TargetInventory], sites: &[CommandSite]) -> Ta
             .iter()
             .map(|site| CommandComparison {
                 name: site.name.clone(),
-                validation: targets.iter().map(|target| {
-                    let resolution = resolve(&target.context, &target.snapshot, site);
-                    let Some(command) = resolution.resolved() else { return crate::ValidationResult::Unknown("Command identity is unresolved".into()); };
-                    let Some(evidence) = target.snapshot.validators.get(&command.name) else { return crate::ValidationResult::Unknown("No capability evidence was captured".into()); };
-                    crate::validate_invocation(command, evidence, &target.snapshot.platform)
-                }).collect(),
+                validation: targets
+                    .iter()
+                    .map(|target| {
+                        let resolution = resolve(&target.context, &target.snapshot, site);
+                        let Some(command) = resolution.resolved() else {
+                            return crate::ValidationResult::Unknown(
+                                "Command identity is unresolved".into(),
+                            );
+                        };
+                        let Some(evidence) = target.snapshot.validators.get(&command.name) else {
+                            return crate::ValidationResult::Unknown(
+                                "No capability evidence was captured".into(),
+                            );
+                        };
+                        crate::validate_invocation(command, evidence, &target.snapshot.platform)
+                    })
+                    .collect(),
                 results: targets
                     .iter()
                     .map(|target| resolve(&target.context, &target.snapshot, site))

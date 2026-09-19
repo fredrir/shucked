@@ -227,6 +227,22 @@ pub fn resolve(
             "Portable checks do not assume host executables are available",
         );
     }
+    let relative_lookup = !std::path::Path::new(&name).is_absolute()
+        && (name.contains('/')
+            || (snapshot.platform == "windows" && name.contains('\\'))
+            || snapshot
+                .search_path
+                .iter()
+                .any(|directory| !directory.path.is_absolute()));
+    if relative_lookup
+        && (context.cwd != snapshot.search_cwd || context.cwd_known != snapshot.search_cwd_known)
+    {
+        return unknown(
+            site,
+            UnknownReason::DynamicEnvironment,
+            "The launch directory differs from the captured execution PATH context",
+        );
+    }
     if !snapshot.fresh {
         return unknown(
             site,
@@ -444,8 +460,8 @@ pub fn builtins(dialect: ShellDialect) -> Vec<&'static str> {
     }
     let mut names = special_builtins().to_vec();
     names.extend([
-        "alias", "bg", "cd", "command", "false", "fc", "fg", "getopts", "jobs", "kill", "printf",
-        "pwd", "read", "true", "type", "ulimit", "umask", "unalias", "wait",
+        "alias", "bg", "cd", "command", "false", "fc", "fg", "getopts", "hash", "jobs", "kill",
+        "printf", "pwd", "read", "true", "type", "ulimit", "umask", "unalias", "wait",
     ]);
     match dialect {
         ShellDialect::Bash => names.extend([
