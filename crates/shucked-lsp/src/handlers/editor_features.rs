@@ -358,6 +358,32 @@ where
             }
         })
         .collect::<Vec<_>>();
+    if site.command
+        && parameter.is_none()
+        && site.quote == native_completion::context::Quote::None
+        && !source[site.range.start..offset].contains('\\')
+    {
+        for alias in analysis
+            .semantic()
+            .visible_aliases_at(shucked_ast::Position::at(
+                position.line as usize + 1,
+                position.character as usize + 1,
+                offset,
+            ))
+        {
+            if native_completion::matches(&alias.name, &site.prefix) {
+                let text = site.insert(&alias.name);
+                items.push(native_completion::item(
+                    &alias.name,
+                    types::CompletionItemKind::FUNCTION,
+                    "Source alias",
+                    text,
+                    range,
+                    0,
+                ));
+            }
+        }
+    }
     let mut is_incomplete = false;
     if !semantic_operand && let Some((environment, cancellation)) = environment {
         is_incomplete |= native_completion::extend(

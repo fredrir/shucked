@@ -1,7 +1,7 @@
 //! Source-backed command facts for environment intelligence. No host lookup is performed here.
 use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange, RecordedListOperator};
 use crate::{BindingId, SemanticModel, ShellDialect};
-use shucked_ast::{Name, Span, Word, static_word_text};
+use shucked_ast::{Name, Position, Span, Word, static_word_text};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One original or alias-injected shell word.
@@ -88,20 +88,42 @@ struct Alias {
     words: Option<Vec<String>>,
     span: Span,
     available_after_line: usize,
+    unconditional: bool,
 }
 
 impl SemanticModel {
     /// Collects command identity facts from the existing parser/semantic recording.
     /// Unsupported flow and dynamic mutations explicitly weaken host-absence evidence.
     pub fn command_site_facts(&self) -> Vec<CommandSiteFacts> {
+        self.command_facts_until(None).0
+    }
+
+    /// Literal alias names visible at this source position, respecting parse-unit
+    /// timing, shell alias options, and prior removals. No source is reparsed.
+    pub fn visible_aliases_at(&self, position: Position) -> Vec<AppliedAlias> {
+        self.command_facts_until(Some(position)).1
+    }
+
+    fn command_facts_until(
+        &self,
+        cursor: Option<Position>,
+    ) -> (Vec<CommandSiteFacts>, Vec<AppliedAlias>) {
+        let mut cursor_parse_line = cursor.map(|position| position.line()).unwrap_or(0);
         let mut aliases = BTreeMap::<String, Alias>::new();
         let mut aliases_enabled = self.shell_profile().dialect != ShellDialect::Bash;
         let mut pending_alias_option = None;
         let mut environment_uncertain = None;
         let mut result = Vec::new();
-        let guards = self.command_availability_guards();
+        let guards = if cursor.is_none() {
+            self.command_availability_guards()
+        } else {
+            Vec::new()
+        };
         for &id in self.commands_in_source_order() {
             let recorded = self.recorded_program.command(id);
+            if cursor.is_some_and(|cursor| recorded.syntax_span.start.offset() >= cursor.offset()) {
+                break;
+            }
             let Some(info) = recorded
                 .command_info
                 .map(|i| self.recorded_program.command_info(i))
@@ -117,6 +139,10 @@ impl SemanticModel {
             while let Some(parent) = ancestor {
                 parse_start_line = self.command_syntax_span(parent).start.line();
                 ancestor = self.syntax_backed_command_parent_id(parent);
+            }
+            if cursor.is_some_and(|cursor| recorded.syntax_span.end.offset() >= cursor.offset()) {
+                cursor_parse_line = parse_start_line;
+                break;
             }
             if let Some((line, enabled)) = pending_alias_option
                 && line < parse_start_line
@@ -223,6 +249,7 @@ impl SemanticModel {
             if raw_name == Some("alias") {
                 for word in site.effective_words.iter().skip(1) {
                     if word.text.is_none() {
+                        aliases.clear();
                         environment_uncertain =
                             Some("Dynamic alias definitions may change command lookup".into());
                     }
@@ -237,6 +264,7 @@ impl SemanticModel {
                                     .flatten(),
                                 span: word.span,
                                 available_after_line: word.span.end.line(),
+                                unconditional: !conditional,
                             },
                         );
                     }
@@ -245,6 +273,19 @@ impl SemanticModel {
                 if conditional {
                     environment_uncertain =
                         Some("Conditional alias removal changes command lookup".into());
+                    if site
+                        .effective_words
+                        .iter()
+                        .skip(1)
+                        .any(|word| word.text.is_none() || word.text.as_deref() == Some("-a"))
+                    {
+                        aliases.clear();
+                    }
+                    for word in site.effective_words.iter().skip(1) {
+                        if let Some(name) = &word.text {
+                            aliases.remove(name);
+                        }
+                    }
                 } else if site
                     .effective_words
                     .iter()
@@ -255,6 +296,8 @@ impl SemanticModel {
                     for word in site.effective_words.iter().skip(1) {
                         if let Some(name) = &word.text {
                             aliases.remove(name);
+                        } else {
+                            aliases.clear();
                         }
                     }
                 }
@@ -278,6 +321,31 @@ impl SemanticModel {
                     ));
                 }
             }
+            if self.shell_profile().dialect == ShellDialect::Zsh
+                && matches!(raw_name, Some("setopt" | "unsetopt"))
+            {
+                for word in site.effective_words.iter().skip(1) {
+                    let option = word
+                        .text
+                        .as_deref()
+                        .unwrap_or_default()
+                        .replace('_', "")
+                        .to_ascii_lowercase();
+                    if matches!(option.as_str(), "aliases" | "noaliases") {
+                        if conditional {
+                            aliases.clear();
+                        } else {
+                            pending_alias_option = Some((
+                                word.span.end.line(),
+                                (raw_name == Some("setopt")) != (option == "noaliases"),
+                            ));
+                        }
+                    }
+                }
+            }
+            if matches!(raw_name, Some("source" | "." | "eval")) {
+                aliases.clear();
+            }
             if matches!(
                 raw_name,
                 Some("source" | "." | "eval" | "cd" | "pushd" | "popd" | "autoload")
@@ -287,7 +355,9 @@ impl SemanticModel {
                     "Earlier source, directory, or PATH changes may alter command lookup".into(),
                 );
             }
-            result.push(site);
+            if cursor.is_none() {
+                result.push(site);
+            }
         }
         // Standalone assignments and declaration clauses are not simple commands.
         let first_path_assignment = self
@@ -302,7 +372,26 @@ impl SemanticModel {
                     .get_or_insert_with(|| "Earlier PATH assignment changes command lookup".into());
             }
         }
-        result
+        if let Some((line, enabled)) = pending_alias_option
+            && line < cursor_parse_line
+        {
+            aliases_enabled = enabled;
+        }
+        let visible = if cursor.is_some() && aliases_enabled {
+            aliases
+                .into_iter()
+                .filter(|(_, alias)| {
+                    alias.unconditional && alias.available_after_line < cursor_parse_line
+                })
+                .map(|(name, alias)| AppliedAlias {
+                    name,
+                    definition: alias.span,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        (result, visible)
     }
     fn command_availability_guards(&self) -> Vec<(String, Span, crate::ScopeId)> {
         let program = &self.recorded_program;

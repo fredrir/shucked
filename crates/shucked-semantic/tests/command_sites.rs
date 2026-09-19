@@ -246,3 +246,59 @@ fn alias_builtins_respect_wrappers_and_function_shadowing() {
     let sites = analyze("alias \"$name=echo\"\nunknown\n", ShellDialect::Zsh);
     assert!(sites.last().unwrap().environment_uncertain.is_some());
 }
+
+fn visible_aliases(source: &str, dialect: ShellDialect, cursor: usize) -> Vec<String> {
+    let parsed = Parser::with_dialect(source, dialect)
+        .without_alias_expansion()
+        .parse();
+    let indexer = Indexer::new(source, &parsed);
+    let model = SemanticModel::build_with_options(
+        &parsed.file,
+        source,
+        &indexer,
+        SemanticBuildOptions {
+            shell_profile: Some(ShellProfile::native(dialect)),
+            ..Default::default()
+        },
+    );
+    let line = source[..cursor]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+    model
+        .visible_aliases_at(shucked_ast::Position::at(line, 1, cursor))
+        .into_iter()
+        .map(|alias| alias.name)
+        .collect()
+}
+#[test]
+fn alias_name_completions_follow_source_order_options_and_removals() {
+    let source = "alias myls=eza\nmy\nunalias myls\nmy\n";
+    assert_eq!(
+        visible_aliases(source, ShellDialect::Zsh, source.find("\nmy").unwrap() + 3),
+        ["myls"]
+    );
+    assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
+    assert!(
+        visible_aliases(source, ShellDialect::Bash, source.find("\nmy").unwrap() + 3).is_empty()
+    );
+    let source = "shopt -s expand_aliases\nalias myls=eza\nmy";
+    assert_eq!(
+        visible_aliases(source, ShellDialect::Bash, source.len()),
+        ["myls"]
+    );
+    let source = "alias myls=eza\nunsetopt aliases\nmy";
+    assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
+    let source = "alias myls=eza\nsetopt no_aliases\nsetopt aliases\nmy";
+    assert_eq!(
+        visible_aliases(source, ShellDialect::Zsh, source.len()),
+        ["myls"]
+    );
+    let source = "alias myls=eza; my";
+    assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
+    let source = "if true; then alias myls=eza; fi\nmy";
+    assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
+    let source = "alias myls=eza\nsource \"$UNKNOWN\"\nmy";
+    assert!(visible_aliases(source, ShellDialect::Zsh, source.len()).is_empty());
+}

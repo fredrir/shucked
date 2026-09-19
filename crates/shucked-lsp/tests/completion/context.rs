@@ -385,3 +385,28 @@ fn attached_command_candidates_include_session_symbols_only_in_live_session_mode
     environment.fresh = false;
     assert!(!command_names(&context, &environment).contains("personal_build"));
 }
+
+#[test]
+fn source_alias_names_are_completed_only_when_shell_will_expand_them() {
+    let root = tempfile::tempdir().unwrap();
+    for (source, expected) in [
+        ("#!/bin/zsh\nalias myls=eza\nmy¦", true),
+        ("#!/bin/zsh\nalias myls=eza; my¦", false),
+        ("#!/bin/zsh\nalias myls=eza\nunalias myls\nmy¦", false),
+        ("#!/bin/zsh\nalias myls=eza\n'my¦'", false),
+        ("#!/bin/bash\nalias myls=eza\nmy¦", false),
+        (
+            "#!/bin/bash\nshopt -s expand_aliases\nalias myls=eza\nmy¦",
+            true,
+        ),
+    ] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        assert_eq!(
+            items
+                .iter()
+                .any(|item| item.label == "myls" && item.detail.as_deref() == Some("Source alias")),
+            expected,
+            "{source}"
+        );
+    }
+}
