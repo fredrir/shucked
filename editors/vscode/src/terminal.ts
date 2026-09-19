@@ -52,7 +52,7 @@ export class TerminalManager implements vscode.Disposable {
         const session = [...this.sessions.values()].find(session => session.terminal === event.terminal);
         if (session) { session.executionGeneration = session.generation; }
       }),
-      vscode.commands.registerCommand("shucked.createTerminal", () => this.create()),
+      vscode.commands.registerCommand("shucked.createTerminal", (shell?: Shell) => this.create(shell)),
       vscode.commands.registerCommand("shucked.attachTerminal", () => this.attach()),
       vscode.window.registerTerminalProfileProvider("shucked.terminal", { provideTerminalProfile: async () => {
         if (!vscode.workspace.isTrusted) { throw new Error("Shucked terminals require workspace trust"); }
@@ -110,12 +110,12 @@ export class TerminalManager implements vscode.Disposable {
   private async receive(message: SessionMetadata & { token: string }): Promise<void> {
     const session = this.sessions.get(message.id);
     if (this.disposed || !vscode.workspace.isTrusted || !session || session.shell !== message.shell || message.generation <= session.generation) { return; }
-    const expected = Buffer.from(session.token), actual = Buffer.from(message.token);
+    const { token, ...metadata } = message;
+    const expected = Buffer.from(session.token), actual = Buffer.from(token);
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) { return; }
     if (session.pid && session.pid !== message.pid) { return; }
     session.pid ??= message.pid;
     session.generation = message.generation;
-    const { token: _token, ...metadata } = message;
     session.metadata = metadata;
     this.environments.sessionState(session.id, true, metadata);
     if (session.pendingHistory && metadata.generation > session.pendingHistory.generation) {
@@ -164,9 +164,9 @@ export class TerminalManager implements vscode.Disposable {
     void terminal.processId.then(pid => { if (pid) { session.pid ??= pid; } });
   }
 
-  public async create(): Promise<void> {
+  public async create(selectedShell?: Shell): Promise<void> {
     if (!vscode.workspace.isTrusted) { await vscode.window.showInformationMessage("Trust this workspace to create a Shucked terminal."); return; }
-    const shell = await this.selectShell(); if (!shell) { return; }
+    const shell = selectedShell && ["bash", "zsh", "fish"].includes(selectedShell) ? selectedShell : await this.selectShell(); if (!shell) { return; }
     try { const { session, options } = await this.prepare(shell); const terminal = vscode.window.createTerminal(options); this.link(terminal, session.id); await this.environments.attachSession(session.id); terminal.show(); }
     catch { await vscode.window.showErrorMessage("Shucked could not initialize the terminal integration."); }
   }

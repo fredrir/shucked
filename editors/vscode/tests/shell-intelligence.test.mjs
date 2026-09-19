@@ -21,7 +21,7 @@ const {HistoryIndex,parseHistory,acceptedSessionCommand} = await moduleFrom('his
 const {validateSessionMessage} = await moduleFrom('terminal.ts');
 test('history index isolates targets and never proposes private, multiline, or oversized entries',()=>{
   const index = new HistoryIndex();
-  for (const command of ['brew install fish',' secret token','brew\nsecret','b'.repeat(9000)]) index.record('hostA',command);
+  for (const command of ['brew install fish',' secret token','brew\nsecret','b'.repeat(9000)]) {index.record('hostA',command);}
   assert.equal(index.suggest('hostA','brew'), 'brew install fish');
   assert.equal(index.suggest('hostB','brew'),undefined);
   assert.equal(index.suggest('hostA',' secret'),undefined);
@@ -43,9 +43,9 @@ test('session history requires acceptance at a fresh nonprivate prompt',()=>{
 test('shell metadata rejects malformed and oversized identities',()=>{
   const valid={id:'a'.repeat(32),token:'b'.repeat(64),generation:1,pid:123,shell:'zsh',cwd:process.cwd(),path:['','/usr/bin'],aliases:{ls:['eza','--icons']},functions:['greet'],options:{aliases:'on'},private:false,ignore:[],connected:true};
   assert.equal(validateSessionMessage(valid),true);
-  for(const patch of [{generation:-1},{generation:Infinity},{path:[null]},{aliases:{ls:'eza'}},{cwd:'relative'},{token:'no'},{functions:Array(16385).fill('f')}]) assert.equal(validateSessionMessage({...valid,...patch}),false);
+  for(const patch of [{generation:-1},{generation:Infinity},{path:[null]},{aliases:{ls:'eza'}},{cwd:'relative'},{token:'no'},{functions:Array(16385).fill('f')}]) {assert.equal(validateSessionMessage({...valid,...patch}),false);}
 });
-for (const shell of ['bash','zsh']) {
+for (const shell of ['bash','zsh','fish']) {
   test(`${shell} shipped prompt hook transmits metadata without executing aliases or exposing function bodies`,async t=>{
     if(process.platform==='win32'){t.skip('POSIX hook fixture');return;}
     const directory=await mkdtemp(join(tmpdir(),'shucked-hook-'));await chmod(directory,0o700);
@@ -57,11 +57,13 @@ for (const shell of ['bash','zsh']) {
         const timer=setTimeout(()=>reject(new Error('no snapshot')),3000);
         server.once('connection',connection=>{let message='';connection.on('data',chunk=>message+=chunk);connection.on('end',()=>{clearTimeout(timer);resolve(JSON.parse(message));});});
       });
-      const suffix=shell==='zsh'?'zsh.zsh':'bash.sh';const hook=fileURLToPath(new URL(`../shell-integration/${suffix}`,import.meta.url));
-      const child=spawn(shell,['-c',`source "$1"; alias ls='eza --icons'; alias dangerous='touch should-never-be-executed'; function demo { echo PRIVATE_FUNCTION_BODY; }; __shucked_capture`,shell,hook],{env:{...process.env,SHUCKED_SESSION_ID:'a'.repeat(32),SHUCKED_SESSION_TOKEN:'b'.repeat(64),SHUCKED_SESSION_SOCKET:socket,SHUCKED_CAPTURE:fileURLToPath(new URL('../shell-integration/capture.cjs',import.meta.url)),SHUCKED_NODE:process.execPath},stdio:['ignore','pipe','pipe']});
+      const suffix=shell==='zsh'?'zsh.zsh':shell==='fish'?'fish.fish':'bash.sh';const hook=fileURLToPath(new URL(`../shell-integration/${suffix}`,import.meta.url));
+      const script=shell==='fish'?`source "$argv[1]"; alias ls 'eza --icons'; alias dangerous 'touch should-never-be-executed'; function demo; echo PRIVATE_FUNCTION_BODY; end; __shucked_capture`:`source "$1"; alias ls='eza --icons'; alias dangerous='touch should-never-be-executed'; function demo { echo PRIVATE_FUNCTION_BODY; }; __shucked_capture`;
+      const arguments_=shell==='fish'?['--no-config','-c',script,hook]:['-c',script,shell,hook];
+      const child=spawn(shell,arguments_,{env:{...process.env,SHUCKED_SESSION_ID:'a'.repeat(32),SHUCKED_SESSION_TOKEN:'b'.repeat(64),SHUCKED_SESSION_SOCKET:socket,SHUCKED_CAPTURE:fileURLToPath(new URL('../shell-integration/capture.cjs',import.meta.url)),SHUCKED_NODE:process.execPath},stdio:['ignore','pipe','pipe']});
       const exited=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error(`shell exit ${code}`)));});
       const [message]=await Promise.all([received,exited]);
-      assert.equal(message.shell,shell);assert.deepEqual(message.aliases.ls,['eza','--icons']);assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');assert.equal(message.acceptedHistoryHash,undefined);
+      assert.equal(message.shell,shell);if(shell==='fish'){assert.ok(message.functions.includes('ls'));}else{assert.deepEqual(message.aliases.ls,['eza','--icons']);}assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');assert.equal(message.acceptedHistoryHash,undefined);
     }finally{await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
   });
 }
