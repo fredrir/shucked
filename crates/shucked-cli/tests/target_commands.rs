@@ -168,7 +168,7 @@ fn explicit_capability_capture_preserves_validation_after_local_removal() {
     assert!(marker.exists());
     std::fs::remove_file(tool).unwrap();
     let source = root.path().join("script.sh");
-    std::fs::write(&source, "eza --icnos\n").unwrap();
+    std::fs::write(&source, "eza --icnos\neza $FLAGS --icnos\n").unwrap();
     let output = command()
         .env("PATH", "")
         .args(["target", "compare", "--target"])
@@ -181,5 +181,111 @@ fn explicit_capability_capture_preserves_validation_after_local_removal() {
     assert_eq!(
         report["comparison"]["commands"][0]["validation"][0]["state"],
         "invalid"
+    );
+    assert_eq!(
+        report["comparison"]["commands"][1]["validation"][0]["state"],
+        "unknown"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn docker_and_kubectl_capture_plugins_without_running_them_or_connecting() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    let docker_config = root.path().join("docker");
+    let plugins = docker_config.join("cli-plugins");
+    std::fs::create_dir(&bin).unwrap();
+    std::fs::create_dir_all(&plugins).unwrap();
+    std::fs::write(
+        docker_config.join("config.json"),
+        r#"{"auths":{"private":"secret-must-not-export"}}"#,
+    )
+    .unwrap();
+    for (path, body) in [
+        (
+            bin.join("docker"),
+            "[ \"$*\" = --version ] || exit 99\nprintf 'Docker version 28.0.0, build fixture\\n'",
+        ),
+        (
+            bin.join("kubectl"),
+            "[ \"$*\" = 'version --client --output=json' ] || exit 99\nprintf '%s' '{\"clientVersion\":{\"gitVersion\":\"v1.34.0\"}}'",
+        ),
+        (bin.join("kubectl-foo_bar-sub"), "exit 99"),
+        (plugins.join("docker-compose"), "exit 99"),
+    ] {
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let inventory = root.path().join("target.json");
+    let output = command()
+        .env("PATH", &bin)
+        .env("HOME", root.path())
+        .env("DOCKER_CONFIG", &docker_config)
+        .env("KUBERC", "off")
+        .args(["target", "capture", "--capabilities", "--output"])
+        .arg(&inventory)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !std::fs::read_to_string(&inventory)
+            .unwrap()
+            .contains("secret-must-not-export")
+    );
+    std::fs::remove_dir_all(bin).unwrap();
+    std::fs::remove_dir_all(plugins).unwrap();
+    let script = root.path().join("script.sh");
+    std::fs::write(&script, "docker invented-subcommand\ndocker compose up --plugin-option\ndocker --invented-flag\nkubectl invented-subcommand\nkubectl foo-bar sub --plugin-option\n").unwrap();
+    let output = command()
+        .env("PATH", "")
+        .args(["target", "compare", "--target"])
+        .arg(inventory)
+        .arg(script)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let states: Vec<_> = report["comparison"]["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|command| command["validation"][0]["state"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        states,
+        ["invalid", "unknown", "invalid", "invalid", "unknown"]
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn kuberc_preferences_prevent_strict_unrecognized_command_claims() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let tool = root.path().join("kubectl");
+    std::fs::write(&tool, "#!/bin/sh\nexit 99\n").unwrap();
+    std::fs::set_permissions(tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir(root.path().join(".kube")).unwrap();
+    std::fs::write(root.path().join(".kube/kuberc"), "aliases: []\n").unwrap();
+    let output = command()
+        .env("PATH", root.path())
+        .env("HOME", root.path())
+        .env_remove("KUBERC")
+        .env_remove("KUBECTL_KUBERC")
+        .args(["target", "capture", "--capabilities"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let inventory: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        inventory["inventory"]["snapshot"]["validators"]
+            .get("kubectl")
+            .is_none()
     );
 }

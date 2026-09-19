@@ -20,6 +20,10 @@ struct Manifest {
     version: String,
     source: String,
     flags: std::collections::BTreeMap<String, FlagValue>,
+    #[serde(default = "yes")]
+    flags_complete: bool,
+    #[serde(default)]
+    subcommands: BTreeSet<String>,
     #[serde(default)]
     unsupported_flags: BTreeSet<String>,
     #[serde(default)]
@@ -35,6 +39,11 @@ fn yes() -> bool {
 /// version or parsing a completion/help list is deliberately insufficient.
 pub fn known_tool_grammar(tool: &str, version: &str) -> Option<VersionedGrammar> {
     let data = match (tool, version) {
+        ("docker", "27.5.1") => include_str!("../data/validators/docker-27.5.1.json"),
+        ("docker", "28.0.0") => include_str!("../data/validators/docker-28.0.0.json"),
+        ("kubectl", "1.32.0") => include_str!("../data/validators/kubectl-1.32.0.json"),
+        ("kubectl", "1.33.0") => include_str!("../data/validators/kubectl-1.33.0.json"),
+        ("kubectl", "1.34.0") => include_str!("../data/validators/kubectl-1.34.0.json"),
         ("openssh", "9.8p1") => include_str!("../data/validators/openssh-9.8p1.json"),
         ("openssh", "9.9p2") => include_str!("../data/validators/openssh-9.9p2.json"),
         ("openssh", "10.0p1") => include_str!("../data/validators/openssh-10.0p1.json"),
@@ -85,12 +94,18 @@ pub fn known_tool_grammar(tool: &str, version: &str) -> Option<VersionedGrammar>
                     )
                 })
                 .collect(),
-            flags_complete: true,
+            flags_complete: manifest.flags_complete,
+            subcommands_complete: !manifest.subcommands.is_empty(),
+            requires_subcommand: !manifest.subcommands.is_empty(),
+            subcommands: manifest
+                .subcommands
+                .into_iter()
+                .map(|name| (name, CommandGrammar::default()))
+                .collect(),
             short_flag_clusters: true,
             positional_arguments: manifest.positional_arguments,
             long_abbreviations: manifest.long_abbreviations,
             opaque_flags: manifest.unsupported_flags.clone(),
-            ..CommandGrammar::default()
         },
         source: manifest.source,
         unsupported_flags: manifest.unsupported_flags,

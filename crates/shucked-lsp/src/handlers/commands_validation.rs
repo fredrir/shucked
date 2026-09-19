@@ -33,7 +33,10 @@ pub(crate) fn validate(
         let CommandResolution::Resolved(resolved) = resolution else {
             continue;
         };
-        if resolved.kind != CommandKind::Executable || site.environment_uncertain.is_some() {
+        if resolved.kind != CommandKind::Executable
+            || site.environment_uncertain.is_some()
+            || site.effective_words.iter().any(|word| word.text.is_none())
+        {
             continue;
         }
         let Some(identity) = &resolved.executable else {

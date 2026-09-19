@@ -49,7 +49,17 @@ export function registerTargetCommands(context: vscode.ExtensionContext, output:
           "", "Recorded inventories; no local tool lookup is used for captured targets.", "", `Source: [${cell(path.basename(editor.document.fileName))}](${editor.document.uri.toString()})`, "",
           `| Command | Source line | ${columns.map(target => cell(target.label)).join(" | ")} |`,
           `| --- | --- | ${columns.map(() => "---").join(" | ")} |`,
-          ...report.comparison.commands.map((command, index) => `| ${cell(command.name ?? "dynamic")} | ${report.locations[index]?.line ?? ""} | ${command.results.map((result, targetIndex) => cell(`${result.state}; arguments ${command.validation[targetIndex]?.state ?? "unknown"}`)).join(" | ")} |`),
+          ...report.comparison.commands.map((command, index) => {
+            const line = report.locations[index]?.line;
+            const source = line ? `[${line}](${editor.document.uri.with({ fragment: `L${line}` }).toString()})` : "";
+            const results = command.results.map((result, targetIndex) => {
+              const version = result.command?.executable?.version;
+              const validation = command.validation[targetIndex];
+              const invalid = validation?.state === "invalid" && Array.isArray(validation.detail) ? validation.detail.map(issue => issue.value).join(", ") : "";
+              return cell(`${result.state}${version ? ` (${version})` : ""}; arguments ${validation?.state ?? "unknown"}${invalid ? `: ${invalid}` : ""}`);
+            });
+            return `| ${cell(command.name ?? "dynamic")} | ${source} | ${results.join(" | ")} |`;
+          }),
           "", "| Target | Platform | Captured | Inventory |", "| --- | --- | --- | --- |",
           ...columns.map(target => `| ${cell(target.label)} | ${cell(target.platform)} | ${cell(new Date(target.capturedUnixMs).toISOString())} | ${target.complete ? "Complete" : "Partial"} |`),
         ].join("\n");
@@ -63,6 +73,6 @@ export function registerTargetCommands(context: vscode.ExtensionContext, output:
   );
 }
 interface Comparison {
-  comparison: { targets: { label: string; platform: string; capturedUnixMs: number; complete: boolean }[]; commands: { name?: string; results: { state: string }[]; validation: { state: string }[] }[] };
+  comparison: { targets: { label: string; platform: string; capturedUnixMs: number; complete: boolean }[]; commands: { name?: string; results: { state: string; command?: { executable?: { version?: string } } }[]; validation: { state: string; detail?: string | { value: string }[] }[] }[] };
   locations: { line: number; column: number }[];
 }

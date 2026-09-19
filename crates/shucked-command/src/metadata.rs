@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+#[path = "metadata_plugins.rs"]
+mod plugins;
 
 struct Cached {
     context: ExecutionContext,
@@ -23,7 +25,7 @@ const METADATA_TIMEOUT: Duration = Duration::from_millis(1200);
 const CACHE_TTL: Duration = Duration::from_secs(20);
 const SUPPORTED_TOOLS: &[&str] = &[
     "brew", "git", "eza", "rg", "fd", "fdfind", "bat", "batcat", "ls", "gls", "pacman", "curl",
-    "ssh",
+    "ssh", "docker", "kubectl",
 ];
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -132,7 +134,11 @@ fn acquire_impl(
     if !SUPPORTED_TOOLS.contains(&name) {
         return None;
     }
-    if matches!(name, "brew" | "git") && !environment.is_complete() {
+    if matches!(name, "brew" | "git" | "kubectl") && !environment.is_complete() {
+        return None;
+    }
+    if matches!(name, "docker" | "kubectl") && context.policy == ValidationPolicy::Session {
+        // Sessions transfer PATH/cwd, not tool configuration variables.
         return None;
     }
     let cache = CACHE.get_or_init(Mutex::default);
@@ -185,6 +191,9 @@ fn acquire_uncached(
     name: &str,
     cancellation: &dyn Fn() -> bool,
 ) -> Option<ValidationEvidence> {
+    if name == "kubectl" && !plugins::kubectl_configuration_is_plain(context) {
+        return None;
+    }
     if name == "ls"
         && environment.platform == "macos"
         && let Some(version) = apple_ls_version(&identity.path)
@@ -195,7 +204,9 @@ fn acquire_uncached(
         context,
         environment,
         &identity.path,
-        if name == "ssh" {
+        if name == "kubectl" {
+            &["version", "--client", "--output=json"]
+        } else if name == "ssh" {
             &["-V"]
         } else if name == "curl" {
             &["-q", "--version"]
@@ -204,6 +215,9 @@ fn acquire_uncached(
         },
         cancellation,
     )?;
+    if matches!(name, "docker" | "kubectl") {
+        return acquire_plugin_manifest(context, environment, identity, name, &version_output);
+    }
     if !matches!(name, "brew" | "git") {
         return acquire_flag_manifest(context, environment, identity, name, &version_output);
     }
@@ -411,6 +425,47 @@ fn acquire_flag_manifest(
     evidence_from_manifest(context, environment, identity, tool, version)
 }
 
+fn acquire_plugin_manifest(
+    context: &ExecutionContext,
+    environment: &EnvironmentSnapshot,
+    identity: &ExecutableIdentity,
+    name: &str,
+    output: &str,
+) -> Option<ValidationEvidence> {
+    let version = if name == "docker" {
+        output
+            .trim()
+            .strip_prefix("Docker version ")?
+            .split(',')
+            .next()?
+            .to_owned()
+    } else {
+        let json: serde_json::Value = serde_json::from_str(output).ok()?;
+        json.get("clientVersion")?
+            .get("gitVersion")?
+            .as_str()?
+            .strip_prefix('v')?
+            .to_owned()
+    };
+    let mut evidence = evidence_from_manifest(context, environment, identity, name, &version)?;
+    let extensions = if name == "docker" {
+        plugins::docker(context)?
+    } else {
+        plugins::kubectl(environment)?
+    };
+    for extension in &extensions {
+        evidence
+            .grammar
+            .subcommands
+            .entry(extension.clone())
+            .or_default();
+    }
+    evidence.extensions = extensions;
+    evidence.extensions_complete = true;
+    evidence.plugin_extensible = true;
+    Some(evidence)
+}
+
 fn evidence_from_manifest(
     context: &ExecutionContext,
     environment: &EnvironmentSnapshot,
@@ -556,7 +611,7 @@ fn extend_file_commands(
             return None;
         }
         let entry = entry.ok()?;
-        if !entry.metadata().ok()?.is_file() {
+        if !std::fs::metadata(entry.path()).ok()?.is_file() {
             continue;
         }
         let name = entry.file_name();

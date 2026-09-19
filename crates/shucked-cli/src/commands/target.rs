@@ -146,7 +146,16 @@ pub(crate) fn run(command: TargetCommand) -> Result<ExitStatus> {
                     ..Default::default()
                 })
                 .collect();
-            let comparison = shucked_command::compare_targets(&targets, &sites);
+            let mut comparison = shucked_command::compare_targets(&targets, &sites);
+            for (facts, command) in facts.iter().zip(&mut comparison.commands) {
+                if facts.effective_words.iter().any(|word| word.text.is_none()) {
+                    command
+                        .validation
+                        .fill(shucked_command::ValidationResult::Unknown(
+                            "Dynamic arguments can change option boundaries".into(),
+                        ));
+                }
+            }
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({

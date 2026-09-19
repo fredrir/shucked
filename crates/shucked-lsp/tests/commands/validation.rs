@@ -275,6 +275,18 @@ fn identified_flag_manifests_warn_on_typos_and_ignore_uncovered_versions() {
             .all(|diagnostic| diagnostic.code == "ENV003")
     );
     assert!(diagnostics[0].suggestions.contains(&"--icons".into()));
+    let mut dynamic = site(&["eza", "dynamic-value", "--icnos"], &context, &environment);
+    dynamic.0.effective_words[1].text = None;
+    assert!(
+        validate(
+            &context,
+            &environment,
+            &[dynamic],
+            &RequestCancellationToken::default()
+        )
+        .is_empty(),
+        "an expansion may inject -- and change later flags into filenames"
+    );
     std::fs::write(
         root.path().join("eza"),
         "#!/bin/sh\nprintf 'eza - replacement\\nv999.0.0\\n'\n",
