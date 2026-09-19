@@ -40,6 +40,9 @@ struct Block {
     function: Option<usize>,
     guard: Option<String>,
     positive: bool,
+    branch_terminates: bool,
+    missing_branch_terminates: bool,
+    inherited_available: BTreeSet<String>,
 }
 #[derive(Clone)]
 enum Token {
@@ -72,6 +75,7 @@ fn analyze_region(text: &str, start: Position, document: &mut FishDocument, dept
     let mut redirect_pending = None;
     let mut functions = BTreeSet::new();
     let mut uncertain = None;
+    let mut available = BTreeSet::new();
     let mut last_operator = None;
     for token in tokens.into_iter().chain(std::iter::once(Token::Separator(
         '\n',
@@ -112,6 +116,8 @@ fn analyze_region(text: &str, start: Position, document: &mut FishDocument, dept
                         &mut blocks,
                         &mut functions,
                         &mut uncertain,
+                        &mut available,
+                        operator == '&',
                         document,
                     );
                 }
@@ -139,6 +145,8 @@ fn process_command(
     blocks: &mut Vec<Block>,
     functions: &mut BTreeSet<String>,
     uncertain: &mut Option<String>,
+    available: &mut BTreeSet<String>,
+    background: bool,
     doc: &mut FishDocument,
 ) {
     let span = Span {
@@ -149,6 +157,14 @@ fn process_command(
     match name.as_str() {
         "end" => {
             if let Some(block) = blocks.pop() {
+                *available = block.inherited_available;
+                if block.kind == "if"
+                    && (block.missing_branch_terminates
+                        || !block.positive && block.branch_terminates)
+                    && let Some(name) = block.guard
+                {
+                    available.insert(name);
+                }
                 if let Some(index) = block.function {
                     doc.functions[index].span.end = span.end;
                     if blocks.is_empty() {
@@ -165,8 +181,13 @@ fn process_command(
         }
         "else" => {
             if let Some(block) = blocks.last_mut().filter(|b| b.kind == "if") {
-                block.positive = false;
-                block.guard = None;
+                block.missing_branch_terminates |= !block.positive && block.branch_terminates;
+                block.branch_terminates = false;
+                block.positive = !block.positive;
+                *available = block.inherited_available.clone();
+                if words.get(1).and_then(|word| word.text.as_deref()) == Some("if") {
+                    block.guard = None;
+                }
             } else {
                 doc.diagnostics.push(FishDiagnostic {
                     span,
@@ -180,7 +201,7 @@ fn process_command(
             }
         }
         "case" => {
-            if !blocks.last().is_some_and(|b| b.kind == "switch") {
+            if blocks.last().is_none_or(|b| b.kind != "switch") {
                 doc.diagnostics.push(FishDiagnostic {
                     span,
                     message: "case requires an open switch block".into(),
@@ -208,15 +229,17 @@ fn process_command(
             } else {
                 None
             };
+            let negative = words.get(1).and_then(|word| word.text.as_deref()) == Some("not");
+            let base = if negative { 2 } else { 1 };
             let guard = if name == "if"
-                && words.len() == 4
-                && words[1].text.as_deref() == Some("command")
-                && words[2]
+                && words.len() == base + 3
+                && words[base].text.as_deref() == Some("command")
+                && words[base + 1]
                     .text
                     .as_deref()
                     .is_some_and(|s| matches!(s, "-q" | "--query" | "-s" | "--search"))
             {
-                words[3].text.clone()
+                words[base + 2].text.clone()
             } else {
                 None
             };
@@ -225,8 +248,14 @@ fn process_command(
                 span,
                 function,
                 guard,
-                positive: true,
+                positive: !negative,
+                branch_terminates: false,
+                missing_branch_terminates: false,
+                inherited_available: available.clone(),
             });
+            if function.is_some() {
+                available.clear();
+            }
             if matches!(name.as_str(), "if" | "while") {
                 words.remove(0);
                 if words.is_empty() {
@@ -261,28 +290,36 @@ fn process_command(
         }
     }
     let mut namespace = CommandNamespace::Shell;
-    if let Some(name) = words.first().and_then(|w| w.text.as_deref()) {
-        if matches!(name, "command" | "builtin" | "exec")
-            && !words
-                .get(1)
-                .and_then(|w| w.text.as_deref())
-                .is_some_and(|s| s.starts_with('-'))
-        {
-            namespace = if name == "builtin" {
-                CommandNamespace::Builtin
-            } else {
-                CommandNamespace::External
-            };
-            words.remove(0);
-        }
+    if let Some(name) = words.first().and_then(|w| w.text.as_deref())
+        && matches!(name, "command" | "builtin" | "exec")
+        && !words
+            .get(1)
+            .and_then(|w| w.text.as_deref())
+            .is_some_and(|s| s.starts_with('-'))
+    {
+        namespace = if name == "builtin" {
+            CommandNamespace::Builtin
+        } else {
+            CommandNamespace::External
+        };
+        words.remove(0);
     }
     let name = words.first().and_then(|w| w.text.as_deref());
     let guarded_available = name.is_some_and(|name| {
-        blocks
-            .iter()
-            .any(|b| b.positive && b.guard.as_deref() == Some(name))
+        available.contains(name)
+            || blocks
+                .iter()
+                .any(|b| b.positive && b.guard.as_deref() == Some(name))
     });
     let in_function = blocks.iter().any(|b| b.function.is_some());
+    if !background
+        && matches!(name, Some("exit"))
+        && original_words.first().and_then(|word| word.text.as_deref()) == Some("exit")
+        && !functions.contains("exit")
+        && let Some(block) = blocks.last_mut()
+    {
+        block.branch_terminates = true;
+    }
     let mut site_uncertain = uncertain.clone();
     if in_function {
         site_uncertain = Some("Fish function execution context depends on its callers".into());

@@ -22,6 +22,8 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
     ) -> CommandId {
         let nested_regions = self.recorded_program.push_regions(nested_regions);
         self.recorded_program.push_command(RecordedCommand {
+            negated: false,
+            background: false,
             span,
             syntax_span: span,
             syntax_kind: None,
@@ -176,6 +178,11 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             self.prepend_nested_regions(recorded, redirects);
         }
         self.recorded_program.command_mut(recorded).span = span;
+        self.recorded_program.command_mut(recorded).negated = stmt.negated;
+        self.recorded_program.command_mut(recorded).background = matches!(
+            stmt.terminator,
+            Some(shucked_ast::StmtTerminator::Background(_))
+        );
         self.recorded_program.command_mut(recorded).syntax_kind =
             Some(CommandKind::from_command(&stmt.command));
         self.recorded_program.command_mut(recorded).scope = Some(scope);

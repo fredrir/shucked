@@ -94,3 +94,24 @@ fn fish_stray_end_and_dangling_pipeline_are_diagnosed() {
             .any(|d| d.message.contains("following command"))
     );
 }
+#[test]
+fn fish_negative_and_terminating_guards_keep_branch_scope() {
+    let doc = analyze_fish(
+        "if not command -q optional\n optional\nelse\n optional\nend\noptional\nif not command -q other\n exit 1\nend\nother\n",
+    );
+    assert_eq!(
+        doc.commands
+            .iter()
+            .filter(|s| s.name() == Some("optional"))
+            .map(|s| s.guarded_available)
+            .collect::<Vec<_>>(),
+        [false, true, false]
+    );
+    assert!(
+        doc.commands
+            .iter()
+            .find(|s| s.name() == Some("other"))
+            .unwrap()
+            .guarded_available
+    );
+}

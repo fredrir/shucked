@@ -127,3 +127,122 @@ fn opaque_aliases_do_not_adopt_external_tool_grammar() {
     assert!(sites.last().unwrap().environment_uncertain.is_some());
     assert!(sites.last().unwrap().aliases.is_empty());
 }
+#[test]
+fn negative_checks_guard_else_and_termination_successors_only() {
+    let sites = analyze(
+        "if ! command -v optional; then optional; else optional; fi\noptional\nif ! command -v other; then exit 1; fi\nother\nunrelated\n",
+        ShellDialect::Bash,
+    );
+    let optional = sites
+        .iter()
+        .filter(|s| s.name() == Some("optional"))
+        .map(|s| s.guarded_available)
+        .collect::<Vec<_>>();
+    assert_eq!(optional, [false, true, false]);
+    assert!(
+        sites
+            .iter()
+            .find(|s| s.name() == Some("other"))
+            .unwrap()
+            .guarded_available
+    );
+    assert!(
+        !sites
+            .iter()
+            .find(|s| s.name() == Some("unrelated"))
+            .unwrap()
+            .guarded_available
+    );
+}
+#[test]
+fn terminating_boolean_guards_are_scoped_to_their_sequence() {
+    let sites = analyze(
+        "command -v optional || exit 1\noptional\nif test x; then command -v branch || exit; branch; fi\nbranch\n",
+        ShellDialect::Bash,
+    );
+    assert!(
+        sites
+            .iter()
+            .find(|s| s.name() == Some("optional"))
+            .unwrap()
+            .guarded_available
+    );
+    let branch = sites
+        .iter()
+        .filter(|s| s.name() == Some("branch"))
+        .map(|s| s.guarded_available)
+        .collect::<Vec<_>>();
+    assert_eq!(branch, [true, false]);
+}
+#[test]
+fn optional_check_negation_cannot_prove_availability_in_missing_branch() {
+    let sites = analyze(
+        "! command -v optional && optional\n! command -v optional || optional\ncommand -v optional || echo unavailable\noptional\n",
+        ShellDialect::Bash,
+    );
+    assert_eq!(
+        sites
+            .iter()
+            .filter(|s| s.name() == Some("optional"))
+            .map(|s| s.guarded_available)
+            .collect::<Vec<_>>(),
+        [false, true, false]
+    );
+}
+#[test]
+fn shadowed_checks_or_exits_and_background_checks_do_not_prove_availability() {
+    for source in [
+        "command() { :; }\nif command -v optional; then optional; fi\n",
+        "exit() { :; }\ncommand -v optional || exit\noptional\n",
+        "if ! command -v optional; then exit & fi\noptional\n",
+        "if PATH=/elsewhere command -v optional; then optional; fi\n",
+    ] {
+        let sites = analyze(source, ShellDialect::Bash);
+        assert!(
+            !sites
+                .iter()
+                .find(|s| s.name() == Some("optional"))
+                .unwrap()
+                .guarded_available,
+            "{source}"
+        );
+    }
+}
+#[test]
+fn alias_options_and_definitions_obey_parse_unit_boundaries() {
+    let sites = analyze(
+        "alias ls=eza\nshopt -s expand_aliases; ls\nls\n",
+        ShellDialect::Bash,
+    );
+    let names = sites.iter().filter_map(|s| s.name()).collect::<Vec<_>>();
+    assert_eq!(names, ["alias", "shopt", "ls", "eza"]);
+    let sites = analyze("alias ls=eza;\nfunction f {\n ls\n}\n", ShellDialect::Zsh);
+    assert_eq!(sites.last().unwrap().name(), Some("eza"));
+}
+#[test]
+fn alias_cycles_and_opaque_builtin_aliases_do_not_claim_builtin_identity() {
+    let sites = analyze(
+        "alias printf='echo data | cat'\nprintf hello\n",
+        ShellDialect::Zsh,
+    );
+    assert!(sites.last().unwrap().name().is_none());
+    let sites = analyze("alias a=b\nalias b=a\na\n", ShellDialect::Zsh);
+    assert!(sites.last().unwrap().environment_uncertain.is_some());
+    let sites = analyze("alias ls='ls --color'\nls\n", ShellDialect::Zsh);
+    assert_eq!(sites.last().unwrap().name(), Some("ls"));
+    assert_eq!(sites.last().unwrap().effective_words.len(), 2);
+}
+#[test]
+fn double_quote_backslashes_preserve_literal_command_identity() {
+    let sites = analyze("\"literal\\name\"\n", ShellDialect::Bash);
+    assert_eq!(sites[0].name(), Some("literal\\name"));
+}
+#[test]
+fn alias_builtins_respect_wrappers_and_function_shadowing() {
+    let sites = analyze("builtin alias ls=eza\nls\n", ShellDialect::Zsh);
+    assert_eq!(sites.last().unwrap().name(), Some("eza"));
+    let sites = analyze("alias() { :; }\nalias ls=eza\nls\n", ShellDialect::Bash);
+    assert_eq!(sites.last().unwrap().name(), Some("ls"));
+    let sites = analyze("alias \"$name=echo\"\nunknown\n", ShellDialect::Zsh);
+    assert!(sites.last().unwrap().environment_uncertain.is_some());
+}

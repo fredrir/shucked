@@ -1,5 +1,5 @@
 //! Source-backed command facts for environment intelligence. No host lookup is performed here.
-use crate::cfg::{CommandId, RecordedCommandKind, RecordedListOperator};
+use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange, RecordedListOperator};
 use crate::{BindingId, SemanticModel, ShellDialect};
 use shucked_ast::{Name, Span, Word, static_word_text};
 use std::collections::{BTreeMap, BTreeSet};
@@ -96,6 +96,7 @@ impl SemanticModel {
     pub fn command_site_facts(&self) -> Vec<CommandSiteFacts> {
         let mut aliases = BTreeMap::<String, Alias>::new();
         let mut aliases_enabled = self.shell_profile().dialect != ShellDialect::Bash;
+        let mut pending_alias_option = None;
         let mut environment_uncertain = None;
         let mut result = Vec::new();
         let guards = self.command_availability_guards();
@@ -111,6 +112,18 @@ impl SemanticModel {
                 continue;
             }
             let flow = recorded.flow_context.unwrap_or_default();
+            let mut parse_start_line = recorded.syntax_span.start.line();
+            let mut ancestor = self.syntax_backed_command_parent_id(id);
+            while let Some(parent) = ancestor {
+                parse_start_line = self.command_syntax_span(parent).start.line();
+                ancestor = self.syntax_backed_command_parent_id(parent);
+            }
+            if let Some((line, enabled)) = pending_alias_option
+                && line < parse_start_line
+            {
+                aliases_enabled = enabled;
+                pending_alias_option = None;
+            }
             let conditional = self.syntax_backed_command_parent_id(id).is_some()
                 || flow.in_function
                 || flow.in_subshell;
@@ -143,15 +156,21 @@ impl SemanticModel {
                     let Some(alias) = aliases.get(name) else {
                         break;
                     };
-                    if alias.available_after_line >= site.span.start.line() {
+                    if alias.available_after_line >= parse_start_line {
                         break;
                     }
                     if !seen.insert(name.clone()) {
+                        if seen.len() > 1 {
+                            site.environment_uncertain =
+                                Some("Alias definitions form a cycle".into());
+                            site.effective_words[0].text = None;
+                        }
                         break;
                     }
                     let Some(expansion) = &alias.words else {
                         site.environment_uncertain =
                             Some("Alias expansion is dynamic or compound".into());
+                        site.effective_words[0].text = None;
                         break;
                     };
                     site.aliases.push(AppliedAlias {
@@ -186,13 +205,27 @@ impl SemanticModel {
                             site.span.start.offset(),
                         );
                 }
-                site.guarded_available = guards.iter().any(|(guard_name, span)| {
-                    guard_name == &name && contains(*span, site.name_span())
+                site.guarded_available = guards.iter().any(|(guard_name, span, scope)| {
+                    guard_name == &name
+                        && contains(*span, site.name_span())
+                        && self.enclosing_function_scope(*scope)
+                            == self.enclosing_function_scope(
+                                recorded
+                                    .scope
+                                    .unwrap_or_else(|| self.scope_at(site.span.start.offset())),
+                            )
                 });
             }
-            let raw_name = site.words.first().and_then(|w| w.text.as_deref());
+            let raw_name = (site.visible_function.is_none()
+                && site.namespace != CommandNamespace::External)
+                .then(|| site.name())
+                .flatten();
             if raw_name == Some("alias") {
-                for word in site.words.iter().skip(1) {
+                for word in site.effective_words.iter().skip(1) {
+                    if word.text.is_none() {
+                        environment_uncertain =
+                            Some("Dynamic alias definitions may change command lookup".into());
+                    }
                     if let Some((name, expansion)) =
                         word.text.as_deref().and_then(|t| t.split_once('='))
                     {
@@ -212,10 +245,14 @@ impl SemanticModel {
                 if conditional {
                     environment_uncertain =
                         Some("Conditional alias removal changes command lookup".into());
-                } else if site.words.iter().any(|w| w.text.as_deref() == Some("-a")) {
+                } else if site
+                    .effective_words
+                    .iter()
+                    .any(|w| w.text.as_deref() == Some("-a"))
+                {
                     aliases.clear();
                 } else {
-                    for word in site.words.iter().skip(1) {
+                    for word in site.effective_words.iter().skip(1) {
                         if let Some(name) = &word.text {
                             aliases.remove(name);
                         }
@@ -223,7 +260,7 @@ impl SemanticModel {
                 }
             } else if raw_name == Some("shopt")
                 && site
-                    .words
+                    .effective_words
                     .iter()
                     .any(|w| w.text.as_deref() == Some("expand_aliases"))
             {
@@ -231,12 +268,19 @@ impl SemanticModel {
                     environment_uncertain =
                         Some("Conditional alias option changes command lookup".into());
                 } else {
-                    aliases_enabled = site.words.iter().any(|w| w.text.as_deref() == Some("-s"));
+                    pending_alias_option = Some((
+                        site.effective_words
+                            .last()
+                            .map_or(site.span.start.line(), |word| word.span.end.line()),
+                        site.effective_words
+                            .iter()
+                            .any(|w| w.text.as_deref() == Some("-s")),
+                    ));
                 }
             }
             if matches!(
                 raw_name,
-                Some("source" | "." | "eval" | "cd" | "pushd" | "popd")
+                Some("source" | "." | "eval" | "cd" | "pushd" | "popd" | "autoload")
             ) || info.changes_search_path
             {
                 environment_uncertain = Some(
@@ -246,74 +290,271 @@ impl SemanticModel {
             result.push(site);
         }
         // Standalone assignments and declaration clauses are not simple commands.
+        let first_path_assignment = self
+            .bindings
+            .iter()
+            .filter(|binding| matches!(binding.name.as_str(), "PATH" | "path"))
+            .map(|binding| binding.span.start.offset())
+            .min();
         for site in &mut result {
-            if self.bindings.iter().any(|binding| {
-                matches!(binding.name.as_str(), "PATH" | "path")
-                    && binding.span.start.offset() < site.span.start.offset()
-            }) {
+            if first_path_assignment.is_some_and(|offset| offset < site.span.start.offset()) {
                 site.environment_uncertain
                     .get_or_insert_with(|| "Earlier PATH assignment changes command lookup".into());
             }
         }
         result
     }
-    fn command_availability_guards(&self) -> Vec<(String, Span)> {
-        let mut result = vec![];
-        for recorded in self.recorded_program.commands() {
+    fn command_availability_guards(&self) -> Vec<(String, Span, crate::ScopeId)> {
+        let program = &self.recorded_program;
+        let mut ranges = vec![program.file_commands()];
+        ranges.extend(program.function_bodies().values().copied());
+        for recorded in program.commands() {
             match recorded.kind {
                 RecordedCommandKind::If {
                     condition,
                     then_branch,
-                    ..
+                    elif_branches,
+                    else_branch,
                 } => {
-                    let condition = self.recorded_program.commands_in(condition);
-                    if condition.len() == 1
-                        && let Some(name) = self.availability_check(condition[0])
-                    {
-                        for &body in self.recorded_program.commands_in(then_branch) {
-                            result.push((name.clone(), self.recorded_program.command(body).span));
-                        }
+                    ranges.extend([condition, then_branch, else_branch]);
+                    for branch in program.elif_branches(elif_branches) {
+                        ranges.extend([branch.condition, branch.body]);
                     }
                 }
-                RecordedCommandKind::List { first, rest } => {
-                    let items = self.recorded_program.list_items(rest);
-                    if let Some(name) = self.availability_check(first) {
-                        for item in items {
-                            if !matches!(item.operator, RecordedListOperator::And) {
-                                break;
-                            }
-                            result.push((
-                                name.clone(),
-                                self.recorded_program.command(item.command).span,
-                            ));
-                        }
+                RecordedCommandKind::While { condition, body }
+                | RecordedCommandKind::Until { condition, body } => {
+                    ranges.extend([condition, body])
+                }
+                RecordedCommandKind::For { body }
+                | RecordedCommandKind::Select { body }
+                | RecordedCommandKind::ArithmeticFor { body }
+                | RecordedCommandKind::BraceGroup { body }
+                | RecordedCommandKind::Subshell { body } => ranges.push(body),
+                RecordedCommandKind::Always { body, always_body } => {
+                    ranges.extend([body, always_body])
+                }
+                RecordedCommandKind::Case { arms } => {
+                    for arm in program.case_arms(arms) {
+                        ranges.push(arm.commands);
                     }
                 }
                 _ => {}
             }
         }
+        let mut result = vec![];
+        for range in ranges {
+            let mut available = BTreeSet::<String>::new();
+            for &id in program.commands_in(range) {
+                let recorded = program.command(id);
+                let Some(scope) = recorded.scope else {
+                    continue;
+                };
+                for name in &available {
+                    result.push((name.clone(), recorded.span, scope));
+                }
+                match recorded.kind {
+                    RecordedCommandKind::If {
+                        condition,
+                        then_branch,
+                        elif_branches,
+                        else_branch,
+                    } => {
+                        let condition = program.commands_in(condition);
+                        if condition.len() != 1 {
+                            continue;
+                        }
+                        let Some((name, positive)) = self.availability_check(condition[0]) else {
+                            continue;
+                        };
+                        let no_elif = program.elif_branches(elif_branches).is_empty();
+                        let proven = if positive {
+                            Some(then_branch)
+                        } else if no_elif {
+                            Some(else_branch)
+                        } else {
+                            None
+                        };
+                        if let Some(branch) = proven {
+                            for &body in program.commands_in(branch) {
+                                result.push((name.clone(), program.command(body).span, scope));
+                            }
+                        }
+                        let absent_branch = if positive { else_branch } else { then_branch };
+                        if no_elif
+                            && !recorded.background
+                            && self.sequence_terminates(absent_branch, 0)
+                        {
+                            available.insert(name);
+                        }
+                    }
+                    RecordedCommandKind::List { first, rest } => {
+                        let Some((name, positive)) = self.availability_check(first) else {
+                            continue;
+                        };
+                        let items = program.list_items(rest);
+                        for item in items {
+                            let requires_success =
+                                matches!(item.operator, RecordedListOperator::And);
+                            if requires_success != positive {
+                                break;
+                            }
+                            result.push((name.clone(), program.command(item.command).span, scope));
+                        }
+                        if let [item] = items {
+                            let requires_success =
+                                matches!(item.operator, RecordedListOperator::And);
+                            if requires_success != positive
+                                && !recorded.background
+                                && self.command_terminates(item.command, 0)
+                            {
+                                available.insert(name);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
         result
     }
-    fn availability_check(&self, id: CommandId) -> Option<String> {
-        let info = self
-            .recorded_program
-            .command(id)
+    fn availability_check(&self, id: CommandId) -> Option<(String, bool)> {
+        let recorded = self.recorded_program.command(id);
+        if recorded.background {
+            return None;
+        }
+        let info = recorded
             .command_info
             .map(|i| self.recorded_program.command_info(i))?;
+        if info.changes_search_path {
+            return None;
+        }
         let words = &info.original_words;
         if words.len() != 3 {
             return None;
         }
         let head = words[0].text.as_deref()?;
+        let scope = recorded.scope?;
+        if self
+            .function_binding_lookup()
+            .visible_function_binding(&Name::from(head), scope, recorded.span.start.offset())
+            .is_some()
+            || self.possible_alias_before(head, recorded.span)
+        {
+            return None;
+        }
         let flag = words[1].text.as_deref()?;
         if matches!(
             (head, flag),
             ("command", "-v" | "-V") | ("type", "-P" | "-p")
         ) {
-            words[2].text.clone()
+            words[2].text.clone().map(|name| (name, !recorded.negated))
         } else {
             None
         }
+    }
+    fn possible_alias_before(&self, name: &str, span: Span) -> bool {
+        let aliases = self.command_alias_offsets.get_or_init(|| {
+            let mut aliases = BTreeMap::<String, usize>::new();
+            for command in self.recorded_program.commands() {
+                let Some(info) = command
+                    .command_info
+                    .map(|id| self.recorded_program.command_info(id))
+                else {
+                    continue;
+                };
+                let words = &info.original_words;
+                let head = if words
+                    .first()
+                    .and_then(|word| word.text.as_deref())
+                    .is_some_and(|name| matches!(name, "builtin" | "command"))
+                {
+                    1
+                } else {
+                    0
+                };
+                if words.get(head).and_then(|word| word.text.as_deref()) != Some("alias") {
+                    continue;
+                }
+                for word in words.iter().skip(head + 1) {
+                    let name = match word.text.as_deref() {
+                        None => Some(""),
+                        Some(text) => text.split_once('=').map(|(name, _)| name),
+                    };
+                    if let Some(name) = name {
+                        aliases
+                            .entry(name.to_owned())
+                            .and_modify(|offset| {
+                                *offset = (*offset).min(command.span.start.offset())
+                            })
+                            .or_insert(command.span.start.offset());
+                    }
+                }
+            }
+            aliases
+        });
+        aliases
+            .get(name)
+            .into_iter()
+            .chain(aliases.get(""))
+            .any(|&offset| offset < span.start.offset())
+    }
+    fn sequence_terminates(&self, range: RecordedCommandRange, depth: usize) -> bool {
+        self.recorded_program
+            .commands_in(range)
+            .iter()
+            .any(|&id| self.command_terminates(id, depth + 1))
+    }
+    fn command_terminates(&self, id: CommandId, depth: usize) -> bool {
+        if depth > 128 {
+            return false;
+        }
+        let command = self.recorded_program.command(id);
+        if command.background {
+            return false;
+        }
+        let builtin = match command.kind {
+            RecordedCommandKind::Exit => Some("exit"),
+            RecordedCommandKind::Return
+                if command.flow_context.is_some_and(|flow| flow.in_function) =>
+            {
+                Some("return")
+            }
+            RecordedCommandKind::Break { .. } | RecordedCommandKind::Continue { .. }
+                if command.flow_context.is_some_and(|flow| flow.loop_depth > 0) =>
+            {
+                Some("break")
+            }
+            RecordedCommandKind::BraceGroup { body } => {
+                return self.sequence_terminates(body, depth + 1);
+            }
+            RecordedCommandKind::If {
+                then_branch,
+                elif_branches,
+                else_branch,
+                ..
+            } => {
+                return self.sequence_terminates(then_branch, depth + 1)
+                    && self.sequence_terminates(else_branch, depth + 1)
+                    && self
+                        .recorded_program
+                        .elif_branches(elif_branches)
+                        .iter()
+                        .all(|branch| self.sequence_terminates(branch.body, depth + 1));
+            }
+            _ => None,
+        };
+        builtin.is_some_and(|name| {
+            !self.possible_alias_before(name, command.span)
+                && command.scope.is_some_and(|scope| {
+                    self.function_binding_lookup()
+                        .visible_function_binding(
+                            &Name::from(name),
+                            scope,
+                            command.span.start.offset(),
+                        )
+                        .is_none()
+                })
+        })
     }
 }
 fn contains(outer: Span, inner: Span) -> bool {
@@ -332,6 +573,13 @@ fn literal_words(value: &str, alias: bool) -> Option<Vec<String>> {
     let mut started = false;
     for ch in value.chars() {
         if escaped {
+            if ch == '\n' {
+                escaped = false;
+                continue;
+            }
+            if quote == Some('"') && !matches!(ch, '$' | '`' | '"' | '\\') {
+                word.push('\\');
+            }
             word.push(ch);
             escaped = false;
             started = true;

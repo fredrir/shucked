@@ -258,6 +258,8 @@ pub(crate) type RecordedElifBranchRange = RecordedRange<RecordedElifBranch>;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedCommand {
+    pub(crate) negated: bool,
+    pub(crate) background: bool,
     pub(crate) span: Span,
     pub(crate) syntax_span: Span,
     pub(crate) syntax_kind: Option<CommandKind>,
