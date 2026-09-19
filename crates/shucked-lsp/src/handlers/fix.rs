@@ -71,11 +71,15 @@ pub(crate) fn code_actions(
 
     let mut batch_fixes = Vec::new();
     if include_quickfix {
+        let multiple_rules = fixable_rule_codes.len() > 1;
         for rule_code in fixable_rule_codes {
             let edits = batch_rule_edits(&snapshot, &rule_code);
             if !edits.is_empty() {
                 batch_fixes.push(types::CodeActionOrCommand::CodeAction(batch_fix_action(
-                    &snapshot, &rule_code, edits,
+                    &snapshot,
+                    &rule_code,
+                    edits,
+                    multiple_rules,
                 )));
             }
         }
@@ -230,13 +234,28 @@ fn should_offer_fix(snapshot: &DocumentSnapshot, data: &AssociatedDiagnosticData
             || data.applicability == crate::lint::DiagnosticApplicability::Safe)
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut result = String::with_capacity(s.len());
+            for c in first.to_uppercase() {
+                result.push(c);
+            }
+            result.push_str(chars.as_str());
+            result
+        }
+    }
+}
+
 fn diagnostic_fix_action(
     snapshot: &DocumentSnapshot,
     diagnostic: &types::Diagnostic,
     data: &AssociatedDiagnosticData,
 ) -> types::CodeAction {
     types::CodeAction {
-        title: format!("Shucked ({}): {}", data.code, data.title),
+        title: capitalize_first(&data.title),
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diagnostic.clone()]),
         edit: Some(workspace_edit_for_document(snapshot, data.edits.clone())),
@@ -262,11 +281,11 @@ fn should_offer_alternative_fix(
 fn diagnostic_alternative_fix_action(
     snapshot: &DocumentSnapshot,
     diagnostic: &types::Diagnostic,
-    code: &str,
+    _code: &str,
     alt: &crate::lint::AlternativeDiagnosticFix,
 ) -> types::CodeAction {
     types::CodeAction {
-        title: format!("Shucked ({}): {}", code, alt.title),
+        title: capitalize_first(&alt.title),
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diagnostic.clone()]),
         edit: Some(workspace_edit_for_document(snapshot, alt.edits.clone())),
@@ -284,7 +303,7 @@ fn diagnostic_directive_action(
     edit: types::TextEdit,
 ) -> types::CodeAction {
     types::CodeAction {
-        title: format!("Shucked ({}): Disable for this line", data.code),
+        title: format!("Shucked: ({}): Disable for this line", data.code),
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diagnostic.clone()]),
         edit: Some(workspace_edit_for_document(snapshot, vec![edit])),
@@ -302,7 +321,7 @@ fn diagnostic_file_directive_action(
     edit: types::TextEdit,
 ) -> types::CodeAction {
     types::CodeAction {
-        title: format!("Shucked ({code}): Disable for entire file"),
+        title: format!("Shucked: ({code}): Disable for entire file"),
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: Some(vec![diagnostic.clone()]),
         edit: Some(workspace_edit_for_document(snapshot, vec![edit])),
@@ -367,9 +386,15 @@ fn batch_fix_action(
     snapshot: &DocumentSnapshot,
     rule_code: &str,
     edits: Vec<types::TextEdit>,
+    multiple_rules: bool,
 ) -> types::CodeAction {
+    let title = if multiple_rules {
+        format!("Fix all {rule_code} in this file")
+    } else {
+        "Fix all in this file".to_owned()
+    };
     types::CodeAction {
-        title: format!("Shucked ({rule_code}): Fix all in this file"),
+        title,
         kind: Some(types::CodeActionKind::QUICKFIX),
         diagnostics: None,
         edit: Some(workspace_edit_for_document(snapshot, edits)),
@@ -841,7 +866,7 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|action| action.title.contains("rename the unused assignment target"))
+                .any(|action| action.title.contains("Rename the unused assignment target"))
         );
         assert!(
             actions
@@ -895,7 +920,7 @@ mod tests {
         assert!(
             actions
                 .iter()
-                .any(|action| action.title.contains("rename the unused assignment target"))
+                .any(|action| action.title.contains("Rename the unused assignment target"))
         );
         // Suppression action is present
         assert!(
@@ -1110,7 +1135,7 @@ mod tests {
         assert!(
             !actions
                 .iter()
-                .any(|action| action.title.contains("rename the unused assignment target"))
+                .any(|action| action.title.contains("Rename the unused assignment target"))
         );
         assert!(
             !actions
@@ -1166,7 +1191,7 @@ mod tests {
         let actions = extract_actions(response);
         let quickfix = actions
             .iter()
-            .find(|action| action.title.contains("rename the unused assignment target"))
+            .find(|action| action.title.contains("Rename the unused assignment target"))
             .expect("quickfix action should be present");
         let disable = actions
             .iter()
@@ -1258,14 +1283,14 @@ mod tests {
 
         let semantic_fix = actions
             .iter()
-            .find(|a| a.title.contains("rename the unused assignment target"))
+            .find(|a| a.title.contains("Rename the unused assignment target"))
             .expect("semantic fix should be offered");
         assert_eq!(semantic_fix.kind, Some(types::CodeActionKind::QUICKFIX));
         assert_eq!(semantic_fix.is_preferred, Some(true));
 
         let batch_fix = actions
             .iter()
-            .find(|a| a.title == "Shucked (C001): Fix all in this file")
+            .find(|a| a.title == "Fix all in this file")
             .expect("batch fix should be offered");
         assert_eq!(batch_fix.kind, Some(types::CodeActionKind::QUICKFIX));
         assert_eq!(batch_fix.is_preferred, Some(false));
@@ -1367,16 +1392,16 @@ mod tests {
         let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
 
         // Primary semantic fix is first
-        assert!(titles[0].starts_with("Shucked (C001): rename"));
+        assert!(titles[0].starts_with("Rename the unused assignment target"));
         // Alternative semantic fix (deletion) is next
-        assert_eq!(titles[1], "Shucked (C001): delete the unused assignment");
+        assert_eq!(titles[1], "Delete the unused assignment");
         // Batch fix is next
-        assert_eq!(titles[2], "Shucked (C001): Fix all in this file");
+        assert_eq!(titles[2], "Fix all in this file");
         // Fix all is next
         assert_eq!(titles[3], "Shucked: Fix all auto-fixable issues");
         // Suppressions are at the bottom
-        assert_eq!(titles[4], "Shucked (C001): Disable for this line");
-        assert_eq!(titles[5], "Shucked (C001): Disable for entire file");
+        assert_eq!(titles[4], "Shucked: (C001): Disable for this line");
+        assert_eq!(titles[5], "Shucked: (C001): Disable for entire file");
     }
 
     #[test]
@@ -1412,16 +1437,13 @@ mod tests {
         let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
 
         // Typo correction is first
-        assert_eq!(titles[0], "Shucked (C006): change to '$temp_folder'");
+        assert_eq!(titles[0], "Change to '$temp_folder'");
         // Fallback default is second
-        assert_eq!(
-            titles[1],
-            "Shucked (C006): use default value fallback '${tmp_folder:-}'"
-        );
+        assert_eq!(titles[1], "Use default value fallback '${tmp_folder:-}'");
         // Batch fix is third
-        assert_eq!(titles[2], "Shucked (C006): Fix all in this file");
+        assert_eq!(titles[2], "Fix all in this file");
         // Suppressions are at the bottom
-        assert_eq!(titles[3], "Shucked (C006): Disable for this line");
-        assert_eq!(titles[4], "Shucked (C006): Disable for entire file");
+        assert_eq!(titles[3], "Shucked: (C006): Disable for this line");
+        assert_eq!(titles[4], "Shucked: (C006): Disable for entire file");
     }
 }
