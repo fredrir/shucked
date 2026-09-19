@@ -104,6 +104,7 @@ impl NativeZsh {
                 cancellation,
                 personal,
                 execution_path,
+                words.first().map(String::as_str),
             )
             .map(Arc::new);
         if cancellation.is_cancelled() {
@@ -130,6 +131,7 @@ impl NativeZsh {
         result
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &self,
         buffer: &str,
@@ -138,6 +140,7 @@ impl NativeZsh {
         cancellation: &RequestCancellationToken,
         personal: bool,
         execution_path: Option<&std::ffi::OsStr>,
+        primary: Option<&str>,
     ) -> Option<Vec<Candidate>> {
         let mut command = std::process::Command::new(&self.shell);
         command
@@ -155,8 +158,10 @@ impl NativeZsh {
             command.env_remove("FPATH");
         }
         if let Some(root) = super::native::assets::root() {
+            super::native::assets::configure_worker_path(&mut command, &root, execution_path);
             command.env("SHUCKED_PROVIDER_ROOT", root);
         }
+        let _primary = super::native::assets::bind_primary(&mut command, primary).ok()?;
         #[cfg(test)]
         if let Some(zdotdir) = &self.zdotdir {
             command.env("ZDOTDIR", zdotdir);

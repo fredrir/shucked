@@ -109,9 +109,9 @@ impl ManagedShell {
             .env("HOMEBREW_NO_ANALYTICS", "1")
             .env_remove("BASH_ENV")
             .env_remove("ENV");
-        if let Some(path) = execution_path {
-            command.env("PATH", path);
-        }
+        assets::configure_worker_path(&mut command, &self.root, execution_path);
+        let _primary =
+            assets::bind_primary(&mut command, words.first().map(String::as_str)).ok()?;
         for (name, _) in std::env::vars_os() {
             if name.to_string_lossy().starts_with("BASH_FUNC_") {
                 command.env_remove(name);

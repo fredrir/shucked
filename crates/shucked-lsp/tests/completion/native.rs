@@ -225,3 +225,199 @@ fn pacman_file_and_group_operations_do_not_suggest_package_names() {
         );
     }
 }
+
+#[test]
+fn private_helper_executables_never_extend_target_resolution_or_wrapper_candidates() {
+    let root = tempfile::tempdir().unwrap();
+    let provider = root.path().join("providers");
+    let helpers = provider.join("runtime/helpers/bin");
+    std::fs::create_dir_all(&helpers).unwrap();
+    for name in ["helper-only-tool", "target-tool", "printf"] {
+        std::fs::write(helpers.join(name), "private executable").unwrap();
+    }
+    executable(root.path(), "target-tool", "exit 0");
+    let environment = Environment::fixture(root.path());
+    assert!(
+        environment
+            .executable_path("helper-only-tool", root.path())
+            .is_none()
+    );
+    // Wrapper providers such as env/sudo return executable names as ordinary candidates.
+    let private_path = helpers.join("helper-only-tool");
+    let candidates: Vec<_> = [
+        "helper-only-tool",
+        "target-tool",
+        "printf",
+        private_path.to_str().unwrap(),
+    ]
+    .into_iter()
+    .map(|text| Candidate {
+        text: text.into(),
+        description: "command argument".into(),
+    })
+    .collect();
+    let filtered = filter_private_candidates(
+        &provider,
+        &environment,
+        root.path(),
+        "bash",
+        true,
+        &candidates,
+    );
+    assert_eq!(
+        filtered
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        ["target-tool", "printf"]
+    );
+    let original = environment.execution_path().unwrap();
+    let mut command = std::process::Command::new("unused");
+    assets::configure_worker_path(&mut command, &provider, Some(&original));
+    let worker_path = command
+        .get_envs()
+        .find(|(name, _)| *name == "PATH")
+        .unwrap()
+        .1
+        .unwrap();
+    assert!(std::env::split_paths(worker_path).any(|path| path == helpers));
+    assert_eq!(environment.execution_path().unwrap(), original);
+}
+
+#[test]
+fn managed_grammars_work_when_primary_tool_is_bound_to_an_absolute_path() {
+    let root = tempfile::tempdir().unwrap();
+    let git = executable(
+        root.path(),
+        "git",
+        "case \"$1\" in --list-cmds=*) printf 'checkout\\n' ;; --version) printf 'git version 2.50.0\\n' ;; *) exit 1 ;; esac",
+    );
+    let mut environment = Environment::detect(true);
+    environment.cwd = root.path().to_owned();
+    environment.native = Arc::new(Native::detect());
+    for dialect in ["bash", "zsh", "fish"] {
+        let available = match dialect {
+            "bash" => environment.native.bash.is_some(),
+            "fish" => environment.native.fish.is_some(),
+            _ => environment.native.zsh.is_some(),
+        };
+        if !available {
+            continue;
+        }
+        let entries = environment
+            .native
+            .complete(
+                &environment,
+                &[git.to_string_lossy().into_owned()],
+                "chec",
+                root.path(),
+                &RequestCancellationToken::default(),
+                false,
+                dialect,
+            )
+            .unwrap_or_else(|| panic!("missing {dialect} completion for a target-bound Git path"));
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.text.trim_end() == "checkout"),
+            "{dialect}: {entries:?}"
+        );
+    }
+}
+
+#[test]
+fn ordinary_arguments_named_like_helpers_are_retained() {
+    let root = tempfile::tempdir().unwrap();
+    let helpers = root.path().join("runtime/helpers/bin");
+    std::fs::create_dir_all(&helpers).unwrap();
+    std::fs::write(helpers.join("grep"), "private executable").unwrap();
+    let environment = Environment::fixture(root.path());
+    let entries = vec![Candidate {
+        text: "grep".into(),
+        description: "Git branch".into(),
+    }];
+    let words = vec!["git".into(), "checkout".into()];
+    assert!(!wrapper_command_position(&words));
+    assert_eq!(
+        filter_private_candidates(
+            root.path(),
+            &environment,
+            root.path(),
+            "bash",
+            wrapper_command_position(&words),
+            &entries
+        )
+        .len(),
+        1
+    );
+    assert!(wrapper_command_position(&[
+        "/usr/bin/env".into(),
+        "LANG=C".into()
+    ]));
+    assert!(!wrapper_command_position(&[
+        "sudo".into(),
+        "git".into(),
+        "checkout".into()
+    ]));
+    assert!(!wrapper_command_position(&["sudo".into(), "-u".into()]));
+    assert!(wrapper_command_position(&[
+        "sudo".into(),
+        "-u".into(),
+        "root".into()
+    ]));
+    assert!(!wrapper_command_position(&["xargs".into(), "-I".into()]));
+}
+
+#[test]
+fn dynamic_provider_queries_use_selected_primary_instead_of_path_shadow() {
+    let root = tempfile::tempdir().unwrap();
+    let chosen_root = root.path().join("chosen");
+    let chosen = executable(
+        &chosen_root,
+        "git",
+        "printf selected >> selected-marker\nexit 1",
+    );
+    executable(root.path(), "git", "printf shadow >> shadow-marker\nexit 1");
+    let mut paths = vec![root.path().join("bin")];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let path = std::env::join_paths(paths).unwrap();
+    let provider = Native::detect();
+    let words = [chosen.to_string_lossy().into_owned(), "checkout".to_owned()];
+    for dialect in ["bash", "fish", "zsh"] {
+        let cancellation = RequestCancellationToken::default();
+        match dialect {
+            "bash" | "fish" => {
+                let shell = if dialect == "bash" {
+                    &provider.bash
+                } else {
+                    &provider.fish
+                };
+                let Some(shell) = shell else { continue };
+                shell.complete(&words, "fixture", root.path(), &cancellation, Some(&path));
+            }
+            _ => {
+                let Some(shell) = &provider.zsh else { continue };
+                shell.complete(
+                    &words,
+                    "fixture",
+                    root.path(),
+                    1500,
+                    false,
+                    &cancellation,
+                    Some(&path),
+                );
+            }
+        }
+        assert!(
+            root.path().join("selected-marker").exists(),
+            "{dialect} did not query the selected primary"
+        );
+        assert!(
+            !root.path().join("shadow-marker").exists(),
+            "{dialect} queried a different PATH executable"
+        );
+        std::fs::remove_file(root.path().join("selected-marker")).unwrap();
+    }
+}

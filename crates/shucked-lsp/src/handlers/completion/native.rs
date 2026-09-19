@@ -74,6 +74,12 @@ impl Native {
         let execution_path = execution_path.as_deref();
         let command = words.first()?;
         let name = command.rsplit('/').next()?;
+        let executable = environment.executable_path(command, directory);
+        let mut bound_words = words.to_vec();
+        if let Some(executable) = &executable {
+            bound_words[0] = executable.to_string_lossy().into_owned();
+        }
+        let words = &bound_words;
         if personal
             && dialect == "zsh"
             && let Some(zsh) = &self.zsh
@@ -90,7 +96,6 @@ impl Native {
         {
             return Some(entries);
         }
-        let executable = environment.executable_path(command, directory);
         if let Some(executable) = &executable
             && let Some(queries) = package_queries(name, words, prefix)
         {
@@ -131,7 +136,7 @@ impl Native {
         {
             return Some(entries);
         }
-        match dialect {
+        let entries = match dialect {
             "fish" => {
                 self.fish
                     .as_ref()?
@@ -151,8 +156,20 @@ impl Native {
                 cancellation,
                 execution_path,
             ),
-        }
-        .filter(|entries| !entries.is_empty())
+        }?;
+        let filtered = if let Some(root) = assets::root() {
+            filter_private_candidates(
+                &root,
+                environment,
+                directory,
+                dialect,
+                wrapper_command_position(words),
+                &entries,
+            )
+        } else {
+            entries.as_ref().clone()
+        };
+        (!filtered.is_empty()).then(|| Arc::new(filtered))
     }
 
     fn query(
@@ -410,6 +427,144 @@ fn help_candidates(output: &str) -> Vec<Candidate> {
         }
     }
     result
+}
+
+fn wrapper_command_position(words: &[String]) -> bool {
+    let Some(command) = words.first().and_then(|word| word.rsplit('/').next()) else {
+        return false;
+    };
+    let (switches, values): (&[&str], &[&str]) = match command {
+        "env" => (
+            &["-i", "--ignore-environment", "-0", "--null"],
+            &["-u", "--unset", "-C", "--chdir", "-a", "--argv0"],
+        ),
+        "sudo" => (
+            &[
+                "-A",
+                "-b",
+                "-E",
+                "-H",
+                "-k",
+                "-n",
+                "-S",
+                "--askpass",
+                "--background",
+                "--non-interactive",
+                "--stdin",
+            ],
+            &[
+                "-u",
+                "--user",
+                "-g",
+                "--group",
+                "-p",
+                "--prompt",
+                "-C",
+                "--close-from",
+                "-T",
+                "--command-timeout",
+                "-r",
+                "--role",
+                "-t",
+                "--type",
+            ],
+        ),
+        "command" => (&["-p", "-v", "-V"], &[]),
+        "exec" => (&["-c", "-l"], &["-a"]),
+        "nohup" => (&[], &[]),
+        "time" => (&["-p"], &[]),
+        "xargs" => (
+            &[
+                "-0",
+                "--null",
+                "-r",
+                "--no-run-if-empty",
+                "-t",
+                "--verbose",
+                "-p",
+                "--interactive",
+                "-x",
+                "--exit",
+            ],
+            &[
+                "-n",
+                "--max-args",
+                "-s",
+                "--max-chars",
+                "-P",
+                "--max-procs",
+                "-I",
+                "--replace",
+                "-E",
+                "--eof",
+                "-L",
+                "--max-lines",
+                "-d",
+                "--delimiter",
+            ],
+        ),
+        _ => return false,
+    };
+    let mut arguments = words.iter().skip(1);
+    while let Some(word) = arguments.next() {
+        if word == "--" {
+            return arguments.next().is_none();
+        }
+        if command == "env" && !word.starts_with('-') && word.contains('=') {
+            continue;
+        }
+        if switches.contains(&word.as_str()) {
+            continue;
+        }
+        if values.contains(&word.as_str()) {
+            if arguments.next().is_none() {
+                return false;
+            }
+            continue;
+        }
+        if word
+            .split_once('=')
+            .is_some_and(|(name, _)| values.contains(&name))
+        {
+            continue;
+        }
+        // A command is already present, or an unknown option changes the position.
+        return false;
+    }
+    true
+}
+
+fn filter_private_candidates(
+    root: &Path,
+    environment: &Environment,
+    directory: &Path,
+    dialect: &str,
+    command_position: bool,
+    entries: &[Candidate],
+) -> Vec<Candidate> {
+    let shell = match dialect {
+        "fish" => shucked_command::ShellDialect::Fish,
+        "zsh" => shucked_command::ShellDialect::Zsh,
+        "sh" => shucked_command::ShellDialect::Posix,
+        "ksh" => shucked_command::ShellDialect::Mksh,
+        _ => shucked_command::ShellDialect::Bash,
+    };
+    let builtins = shucked_command::builtins(shell);
+    entries
+        .iter()
+        .filter(|candidate| {
+            let name = candidate.text.trim_end();
+            if Path::new(name).is_absolute() && Path::new(name).starts_with(root.join("runtime")) {
+                return false;
+            }
+            !command_position
+                || !assets::private_command(root, name)
+                || builtins.contains(&name)
+                || directory.join(name).exists()
+                || environment.executable_path(name, directory).is_some()
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(all(test, unix))]

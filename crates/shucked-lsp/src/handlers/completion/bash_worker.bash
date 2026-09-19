@@ -15,8 +15,9 @@ COMP_POINT=${#COMP_LINE}
 COMP_TYPE=9
 COMP_KEY=9
 COMPREPLY=()
-_comp_load -- "${COMP_WORDS[0]}" >/dev/null 2>&1
-read -r -a shucked_spec <<< "$(complete -p -- "${COMP_WORDS[0]}" 2>/dev/null)"
+shucked_command=${COMP_WORDS[0]##*/}
+_comp_load -- "$shucked_command" >/dev/null 2>&1
+read -r -a shucked_spec <<< "$(complete -p -- "$shucked_command" 2>/dev/null)"
 shucked_function=
 for ((shucked_i=0; shucked_i<${#shucked_spec[@]}; shucked_i++)); do
     if [[ ${shucked_spec[shucked_i]} == -F ]]; then
