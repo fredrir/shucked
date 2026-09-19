@@ -1613,6 +1613,15 @@ You cannot specify more than one configuration file on the command line.
         })
     }
 
+    /// Construct default arguments with the given isolation mode.
+    pub fn isolated(isolated: bool) -> Self {
+        Self {
+            isolated,
+            config_file: None,
+            overrides: ShuckConfig::default(),
+        }
+    }
+
     /// Return whether project-root discovery should use config files as roots.
     pub fn use_config_roots(&self) -> bool {
         !self.isolated && self.config_file.is_none()

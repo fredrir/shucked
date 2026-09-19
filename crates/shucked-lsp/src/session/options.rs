@@ -28,33 +28,130 @@ impl GlobalOptions {
 }
 
 /// Per-client or per-workspace Shucked options supplied through LSP settings.
-#[derive(Clone, Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default)]
 pub struct ClientOptions {
-    #[serde(default)]
     /// Shared per-file shell dialect overrides.
     pub per_file_shell: Option<BTreeMap<String, String>>,
-    #[serde(default)]
     /// Lint configuration overrides.
     pub lint: Option<LintConfig>,
-    #[serde(default)]
     /// Format configuration overrides.
     pub format: Option<FormatConfig>,
-    #[serde(default)]
     /// Whether source-level fix-all actions are enabled.
     pub fix_all: Option<bool>,
-    #[serde(default)]
     /// Whether unsafe fixes may be offered.
     pub unsafe_fixes: Option<bool>,
-    #[serde(default)]
     /// Whether parser diagnostics should be shown.
     pub show_syntax_errors: Option<bool>,
-    #[serde(default)]
     /// Code action options.
     pub code_action: Option<CodeActionOptions>,
-    #[serde(default)]
     /// Server-only editor feature options.
     pub server: ServerOptions,
+}
+
+fn deserialize_bool_or_enable<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum BoolOrEnable {
+        Bool(bool),
+        Enable {
+            #[serde(alias = "enabled")]
+            enable: bool,
+        },
+        Enabled {
+            enabled: bool,
+        },
+    }
+
+    Ok(
+        Option::<BoolOrEnable>::deserialize(deserializer)?.map(|value| match value {
+            BoolOrEnable::Bool(b)
+            | BoolOrEnable::Enable { enable: b }
+            | BoolOrEnable::Enabled { enabled: b } => b,
+        }),
+    )
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawLintOptions {
+    #[serde(default, deserialize_with = "deserialize_bool_or_enable")]
+    show_syntax_errors: Option<bool>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    enable: Option<bool>,
+    #[serde(flatten)]
+    config: LintConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawFormatOptions {
+    #[serde(default)]
+    #[allow(dead_code)]
+    enable: Option<bool>,
+    #[serde(flatten)]
+    config: FormatConfig,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RawClientOptions {
+    #[serde(default)]
+    per_file_shell: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    lint: Option<RawLintOptions>,
+    #[serde(default)]
+    format: Option<RawFormatOptions>,
+    #[serde(default, deserialize_with = "deserialize_bool_or_enable")]
+    fix_all: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_bool_or_enable")]
+    unsafe_fixes: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_bool_or_enable")]
+    show_syntax_errors: Option<bool>,
+    #[serde(default)]
+    code_action: Option<CodeActionOptions>,
+    #[serde(default)]
+    server: ServerOptions,
+}
+
+impl<'de> Deserialize<'de> for ClientOptions {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = RawClientOptions::deserialize(deserializer)?;
+        let show_syntax_errors = raw
+            .show_syntax_errors
+            .or_else(|| raw.lint.as_ref().and_then(|l| l.show_syntax_errors));
+        let lint = raw.lint.and_then(|l| {
+            if l.config != LintConfig::default() {
+                Some(l.config)
+            } else {
+                None
+            }
+        });
+        let format = raw.format.and_then(|f| {
+            if f.config != FormatConfig::default() {
+                Some(f.config)
+            } else {
+                None
+            }
+        });
+
+        Ok(Self {
+            per_file_shell: raw.per_file_shell,
+            lint,
+            format,
+            fix_all: raw.fix_all,
+            unsafe_fixes: raw.unsafe_fixes,
+            show_syntax_errors,
+            code_action: raw.code_action,
+            server: raw.server,
+        })
+    }
 }
 
 /// Options for code actions.
@@ -67,12 +164,34 @@ pub struct CodeActionOptions {
 }
 
 /// Options for suppression comment actions.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisableRuleCommentOptions {
-    #[serde(default)]
     /// Whether suppression comment actions are enabled.
     pub enable: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for DisableRuleCommentOptions {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            Bool(bool),
+            Object {
+                #[serde(default, alias = "enabled")]
+                enable: Option<bool>,
+            },
+        }
+
+        let helper = Option::<Helper>::deserialize(deserializer)?;
+        let enable = helper.and_then(|h| match h {
+            Helper::Bool(b) => Some(b),
+            Helper::Object { enable } => enable,
+        });
+        Ok(Self { enable })
+    }
 }
 
 impl ClientOptions {
@@ -213,13 +332,46 @@ impl<'de> Deserialize<'de> for ServerOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct WorkspaceSymbolFeatureOptionsOverrides {
-    #[serde(default)]
     enabled: Option<bool>,
-    #[serde(default)]
     max_files: Option<usize>,
+}
+
+impl<'de> Deserialize<'de> for WorkspaceSymbolFeatureOptionsOverrides {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize, Default)]
+        #[serde(rename_all = "camelCase")]
+        struct RawOverrides {
+            #[serde(default, alias = "enable")]
+            enabled: Option<bool>,
+            #[serde(default)]
+            max_files: Option<usize>,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            Bool(bool),
+            Object(RawOverrides),
+        }
+
+        let helper = Option::<Helper>::deserialize(deserializer)?;
+        Ok(match helper {
+            Some(Helper::Bool(b)) => Self {
+                enabled: Some(b),
+                ..Self::default()
+            },
+            Some(Helper::Object(raw)) => Self {
+                enabled: raw.enabled,
+                max_files: raw.max_files,
+            },
+            None => Self::default(),
+        })
+    }
 }
 
 impl WorkspaceSymbolFeatureOptionsOverrides {
@@ -386,17 +538,54 @@ fn default_call_hierarchy_max_files() -> usize {
     10_000
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct WorkspaceDiagnosticsFeatureOptionsOverrides {
-    #[serde(default)]
     enabled: Option<bool>,
-    #[serde(default)]
     max_files: Option<usize>,
-    #[serde(default)]
     max_entries: Option<usize>,
-    #[serde(default)]
     max_source_bytes: Option<usize>,
+}
+
+impl<'de> Deserialize<'de> for WorkspaceDiagnosticsFeatureOptionsOverrides {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize, Default)]
+        #[serde(rename_all = "camelCase")]
+        struct RawOverrides {
+            #[serde(default, alias = "enable")]
+            enabled: Option<bool>,
+            #[serde(default)]
+            max_files: Option<usize>,
+            #[serde(default)]
+            max_entries: Option<usize>,
+            #[serde(default)]
+            max_source_bytes: Option<usize>,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            Bool(bool),
+            Object(RawOverrides),
+        }
+
+        let helper = Option::<Helper>::deserialize(deserializer)?;
+        Ok(match helper {
+            Some(Helper::Bool(b)) => Self {
+                enabled: Some(b),
+                ..Self::default()
+            },
+            Some(Helper::Object(raw)) => Self {
+                enabled: raw.enabled,
+                max_files: raw.max_files,
+                max_entries: raw.max_entries,
+                max_source_bytes: raw.max_source_bytes,
+            },
+            None => Self::default(),
+        })
+    }
 }
 
 impl WorkspaceDiagnosticsFeatureOptionsOverrides {
@@ -500,7 +689,11 @@ struct InitializationOptions {
 }
 
 impl AllOptions {
-    pub(crate) fn from_value(value: serde_json::Value) -> Self {
+    pub(crate) fn from_value(mut value: serde_json::Value) -> Self {
+        if let Some(settings) = value.as_object_mut().and_then(|obj| obj.remove("settings")) {
+            value = settings;
+        }
+
         if value
             .as_object()
             .is_some_and(|object| object.contains_key("shucked"))
@@ -537,6 +730,77 @@ impl AllOptions {
 #[cfg(test)]
 mod tests {
     use super::AllOptions;
+
+    #[test]
+    fn vscode_settings_format_deserializes_correctly() {
+        let options = AllOptions::from_value(serde_json::json!({
+            "settings": {
+                "shucked": {
+                    "fixAll": { "enable": true },
+                    "unsafeFixes": { "enable": true },
+                    "lint": { "enable": true, "showSyntaxErrors": true },
+                    "format": { "enable": true },
+                    "codeAction": {
+                        "disableRuleComment": { "enable": false }
+                    },
+                    "server": {
+                        "workspaceDiagnostics": { "enable": false },
+                        "workspaceSymbols": { "enable": false }
+                    }
+                }
+            }
+        }));
+
+        assert_eq!(options.global.client.unsafe_fixes, Some(true));
+        assert_eq!(options.global.client.fix_all, Some(true));
+        assert_eq!(options.global.client.show_syntax_errors, Some(true));
+        assert_eq!(
+            options
+                .global
+                .client
+                .code_action
+                .as_ref()
+                .and_then(|ca| ca.disable_rule_comment)
+                .and_then(|drc| drc.enable),
+            Some(false)
+        );
+        assert!(!options.workspace_diagnostics_enabled());
+        assert!(!options.global.client.server.workspace_symbols.enabled);
+    }
+
+    #[test]
+    fn flat_and_nested_boolean_options_deserialize_correctly() {
+        let options = AllOptions::from_value(serde_json::json!({
+            "shucked": {
+                "unsafeFixes": true,
+                "fixAll": false,
+                "showSyntaxErrors": true,
+                "codeAction": {
+                    "disableRuleComment": true
+                },
+                "server": {
+                    "workspaceDiagnostics": false,
+                    "workspaceSymbols": true
+                }
+            }
+        }));
+
+        assert_eq!(options.global.client.unsafe_fixes, Some(true));
+        assert_eq!(options.global.client.fix_all, Some(false));
+        assert_eq!(options.global.client.show_syntax_errors, Some(true));
+        assert_eq!(
+            options
+                .global
+                .client
+                .code_action
+                .as_ref()
+                .and_then(|ca| ca.disable_rule_comment)
+                .and_then(|drc| drc.enable),
+            Some(true)
+        );
+        assert!(!options.workspace_diagnostics_enabled());
+        assert!(options.global.client.server.workspace_symbols.enabled);
+    }
 
     #[test]
     fn workspace_diagnostics_are_enabled_by_default_and_can_be_disabled() {

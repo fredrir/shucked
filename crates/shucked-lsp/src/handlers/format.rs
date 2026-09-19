@@ -226,6 +226,9 @@ mod tests {
         let (client_sender, _client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
         let workspace_root = std::env::temp_dir().join("shuck-server-format-document-tests");
+        std::fs::create_dir_all(&workspace_root).expect("workspace dir should be created");
+        std::fs::write(workspace_root.join("shucked.toml"), "")
+            .expect("workspace config should be written");
         let workspace_uri =
             Url::from_file_path(&workspace_root).expect("workspace path should convert to a URL");
         let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);

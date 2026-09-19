@@ -144,6 +144,7 @@ export function getInitializationOptions(
     lint: config.get("lint"),
     format: config.get("format"),
     codeAction: config.get("codeAction"),
+    server: config.get("server"),
   };
 }
 

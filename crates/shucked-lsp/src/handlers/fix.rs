@@ -726,6 +726,9 @@ mod tests {
         let (client_sender, client_receiver) = channel::unbounded();
         let client = Client::new(main_loop_sender, client_sender);
         let workspace_root = std::env::temp_dir().join("shuck-server-fix-tests");
+        std::fs::create_dir_all(&workspace_root).expect("workspace dir should be created");
+        std::fs::write(workspace_root.join("shucked.toml"), "")
+            .expect("workspace config should be written");
         let workspace_uri =
             Url::from_file_path(&workspace_root).expect("workspace path should convert to a URL");
         let workspaces = Workspaces::new(vec![Workspace::default(workspace_uri)]);
@@ -851,6 +854,61 @@ mod tests {
             .expect("fix-all action should be present");
         assert!(fix_all.edit.is_none());
         assert!(fix_all.data.is_some());
+    }
+
+    #[test]
+    fn manual_quick_fixes_still_appear_when_fix_all_is_disabled() {
+        let capabilities = deferred_capabilities();
+        let (mut session, client, _client_receiver, uri) =
+            make_session(capabilities, "foo=1\n", "shellscript", "script.sh");
+        session.update_client_options(ClientOptions {
+            unsafe_fixes: Some(true),
+            fix_all: Some(false),
+            ..ClientOptions::default()
+        });
+        let snapshot = session
+            .take_snapshot(uri.clone())
+            .expect("test document should produce a snapshot");
+        let diagnostics = generate_diagnostics(&snapshot);
+
+        let response = code_actions(
+            snapshot,
+            &client,
+            CodeActionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                range: Range::new(Position::new(0, 0), Position::new(0, 3)),
+                context: CodeActionContext {
+                    diagnostics,
+                    only: None,
+                    trigger_kind: None,
+                },
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            },
+        )
+        .expect("code action request should succeed")
+        .expect("violating document should produce actions");
+
+        let actions = extract_actions(response);
+
+        // Manual quick-fix is present
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.title.contains("rename the unused assignment target"))
+        );
+        // Suppression action is present
+        assert!(
+            actions
+                .iter()
+                .any(|action| action.title.contains("Disable for this line"))
+        );
+        // Fix-all document action is NOT present
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.kind == Some(crate::SOURCE_FIX_ALL_SHUCKED))
+        );
     }
 
     #[test]
