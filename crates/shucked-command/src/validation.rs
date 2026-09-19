@@ -45,6 +45,13 @@ pub struct CommandGrammar {
     pub short_flag_clusters: bool,
     /// False means later positional syntax is outside this grammar's scope.
     pub positional_arguments: bool,
+    /// GNU-style unique long-option prefixes are accepted by some parsers.
+    /// Prefix invocations stay Unknown until their value semantics are modeled.
+    #[serde(default)]
+    pub long_abbreviations: bool,
+    /// These options transfer parsing to another command or an uncovered mode.
+    #[serde(default)]
+    pub opaque_flags: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +139,11 @@ pub fn validate_invocation(
             let (name, attached) = word
                 .split_once('=')
                 .map_or((word.as_str(), None), |(name, value)| (name, Some(value)));
+            if grammar.opaque_flags.contains(name) {
+                return ValidationResult::Unknown(
+                    "This option transfers parsing to an uncovered command context".into(),
+                );
+            }
             if let Some(flag) = grammar.flags.get(name) {
                 match flag_value(command, index, flag, attached) {
                     Ok(consumed) => {
@@ -140,6 +152,17 @@ pub fn validate_invocation(
                     }
                     Err(result) => return result,
                 }
+            }
+            if grammar.long_abbreviations
+                && name.starts_with("--")
+                && grammar
+                    .flags
+                    .keys()
+                    .any(|candidate| candidate.starts_with(name))
+            {
+                return ValidationResult::Unknown(
+                    "Abbreviated long-option semantics are outside this validation scope".into(),
+                );
             }
             if grammar.short_flag_clusters
                 && word.starts_with('-')
@@ -243,6 +266,11 @@ fn short_cluster(
     let word = &command.effective_words[index];
     for (offset, character) in word.char_indices().skip(1) {
         let name = format!("-{character}");
+        if grammar.opaque_flags.contains(&name) {
+            return Err(ValidationResult::Unknown(
+                "This option transfers parsing to an uncovered command context".into(),
+            ));
+        }
         let Some(spec) = grammar.flags.get(&name) else {
             return Err(if grammar.flags_complete {
                 // Replace the original cluster only through an explicitly

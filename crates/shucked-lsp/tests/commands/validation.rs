@@ -222,3 +222,73 @@ fn cancelling_validation_does_not_start_metadata_queries() {
     cancellation.cancel();
     assert!(validate(&context, &environment, &sites, &cancellation).is_empty());
 }
+
+#[test]
+fn identified_flag_manifests_warn_on_typos_and_ignore_uncovered_versions() {
+    let root = tempfile::tempdir().unwrap();
+    for (name, output) in [
+        (
+            "eza",
+            "eza eza - A modern, maintained replacement for ls\nv0.23.5 [+git]\n",
+        ),
+        ("rg", "ripgrep 15.2.0\n"),
+        ("pacman", "Pacman v7.1.0 - libalpm v16.0.0\n"),
+    ] {
+        let path = root.path().join(name);
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\n[ \"$*\" = '--version' ] || exit 9\nprintf '%s' '{}'\n",
+                output
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let context = ExecutionContext {
+        target_id: root.path().display().to_string(),
+        cwd: Some(root.path().into()),
+        cwd_known: true,
+        native_execution_allowed: true,
+        ..Default::default()
+    };
+    let environment = host::capture(&context, vec![root.path().into()], 1);
+    let sites = vec![
+        site(&["eza", "--icnos"], &context, &environment),
+        site(&["rg", "--shucked-fixture-typo"], &context, &environment),
+        site(
+            &["pacman", "-S", "--shucked-fixture-typo"],
+            &context,
+            &environment,
+        ),
+    ];
+    let diagnostics = validate(
+        &context,
+        &environment,
+        &sites,
+        &RequestCancellationToken::default(),
+    );
+    assert_eq!(diagnostics.len(), 3);
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == "ENV003")
+    );
+    assert!(diagnostics[0].suggestions.contains(&"--icons".into()));
+    std::fs::write(
+        root.path().join("eza"),
+        "#!/bin/sh\nprintf 'eza - replacement\\nv999.0.0\\n'\n",
+    )
+    .unwrap();
+    let environment = host::capture(&context, vec![root.path().into()], 2);
+    let sites = vec![site(&["eza", "--new-future-flag"], &context, &environment)];
+    assert!(
+        validate(
+            &context,
+            &environment,
+            &sites,
+            &RequestCancellationToken::default()
+        )
+        .is_empty()
+    );
+}

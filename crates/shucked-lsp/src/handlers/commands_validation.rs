@@ -132,7 +132,23 @@ fn acquire(
         .file_name()?
         .to_str()?
         .trim_end_matches(".exe");
-    if !matches!(name, "brew" | "git") || !environment.is_complete() {
+    if !matches!(
+        name,
+        "brew"
+            | "git"
+            | "eza"
+            | "rg"
+            | "fd"
+            | "fdfind"
+            | "bat"
+            | "batcat"
+            | "ls"
+            | "gls"
+            | "pacman"
+    ) {
+        return None;
+    }
+    if matches!(name, "brew" | "git") && !environment.is_complete() {
         return None;
     }
     let cache = CACHE.get_or_init(Mutex::default);
@@ -185,6 +201,9 @@ fn acquire_uncached(
         &["--version"],
         cancellation,
     )?;
+    if !matches!(name, "brew" | "git") {
+        return acquire_flag_manifest(context, environment, identity, name, &version_output);
+    }
     let version_prefix = if name == "brew" {
         "Homebrew "
     } else {
@@ -301,6 +320,102 @@ fn acquire_uncached(
     })
 }
 
+fn acquire_flag_manifest(
+    context: &ExecutionContext,
+    environment: &EnvironmentSnapshot,
+    identity: &ExecutableIdentity,
+    name: &str,
+    output: &str,
+) -> Option<ValidationEvidence> {
+    let (tool, version) = match name {
+        "eza"
+            if output
+                .lines()
+                .next()
+                .is_some_and(|line| line.starts_with("eza ")) =>
+        {
+            (
+                "eza",
+                output
+                    .lines()
+                    .find_map(|line| line.strip_prefix('v'))?
+                    .split_whitespace()
+                    .next()?,
+            )
+        }
+        "rg" => (
+            "ripgrep",
+            output
+                .lines()
+                .next()?
+                .strip_prefix("ripgrep ")?
+                .split_whitespace()
+                .next()?,
+        ),
+        "fd" | "fdfind" => (
+            "fd",
+            output
+                .lines()
+                .next()?
+                .strip_prefix("fd ")?
+                .split_whitespace()
+                .next()?,
+        ),
+        "bat" | "batcat" => (
+            "bat",
+            output
+                .lines()
+                .next()?
+                .strip_prefix("bat ")?
+                .split_whitespace()
+                .next()?,
+        ),
+        "pacman" => (
+            "pacman",
+            output
+                .lines()
+                .find_map(|line| line.split_once("Pacman v").map(|(_, version)| version))?
+                .split_whitespace()
+                .next()?,
+        ),
+        "ls" | "gls" => (
+            "gnu-ls",
+            output
+                .lines()
+                .next()?
+                .strip_prefix("ls (GNU coreutils) ")?
+                .trim(),
+        ),
+        _ => return None,
+    };
+    let manifest = shucked_command::known_tool_grammar(tool, version)?;
+    let shucked_command::LookupEvidence::Present(current) =
+        shucked_command::host::exact_lookup(context, environment, identity.path.to_str()?)
+    else {
+        return None;
+    };
+    if !same_file(identity, &current.identity) {
+        return None;
+    }
+    let mut identified = identity.clone();
+    identified.version = Some(version.into());
+    identified.vendor = Some(tool.into());
+    Some(ValidationEvidence {
+        executable: identified,
+        platform: environment.platform.clone(),
+        kind: EvidenceKind::VersionedManifest,
+        grammar: manifest.grammar,
+        extensions: BTreeSet::new(),
+        extensions_complete: true,
+        plugin_extensible: false,
+        fresh: true,
+        provenance: Provenance {
+            source: format!("{tool} {version} option-name grammar"),
+            location: Some(manifest.source),
+        },
+    })
+}
+
 fn same_file(left: &ExecutableIdentity, right: &ExecutableIdentity) -> bool {
     left.path == right.path
         && left.size == right.size
@@ -393,5 +508,5 @@ fn extend_file_commands(
 }
 
 #[cfg(all(test, unix))]
-#[path = "../../tests/commands_validation.rs"]
+#[path = "../../tests/commands/validation.rs"]
 mod tests;
