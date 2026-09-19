@@ -139,6 +139,7 @@ export function getInitializationOptions(
 ): Record<string, unknown> {
   return {
     nativeExecutionAllowed: vscode.workspace.isTrusted,
+    environment: config.get("environment"),
     unsafeFixes: config.get("unsafeFixes"),
     fixAll: config.get("fixAll"),
     lint: config.get("lint"),
@@ -153,6 +154,8 @@ export function getInitializationOptions(
  */
 export class ClientManager implements vscode.Disposable {
   private client: LanguageClient | undefined;
+  private readonly ready = new vscode.EventEmitter<void>();
+  public readonly onReady = this.ready.event;
   private readonly crashTracker = new CrashTracker();
   private restartPromise: Promise<void> = Promise.resolve();
   private isRestarting = false;
@@ -164,6 +167,25 @@ export class ClientManager implements vscode.Disposable {
     private readonly outputChannel: vscode.LogOutputChannel,
     private readonly statusManager: StatusBarManager,
   ) { }
+
+  public configurationOptions(): Record<string, unknown> {
+    return {
+      shucked: getInitializationOptions(vscode.workspace.getConfiguration("shucked")),
+      workspace: Object.fromEntries((vscode.workspace.workspaceFolders ?? []).map(folder => [folder.uri.toString(), getInitializationOptions(vscode.workspace.getConfiguration("shucked", folder.uri))])),
+    };
+  }
+
+  public async synchronizeConfiguration(): Promise<void> {
+    await this.notify("workspace/didChangeConfiguration", { settings: this.configurationOptions() });
+  }
+
+  public async notify(method: string, params: unknown): Promise<void> {
+    if (this.client?.isRunning()) { await this.client.sendNotification(method, params); }
+  }
+
+  public async request<T>(method: string, params: unknown): Promise<T | undefined> {
+    return this.client?.isRunning() ? this.client.sendRequest<T>(method, params) : undefined;
+  }
 
   public get isRunning(): boolean {
     return this.client?.isRunning() ?? false;
@@ -204,13 +226,11 @@ export class ClientManager implements vscode.Disposable {
       documentSelector: [
         { scheme: "file", language: "shellscript" },
         { scheme: "untitled", language: "shellscript" },
+        ...["bash", "zsh", "sh", "ksh", "fish"].flatMap(language => [{ scheme: "file", language }, { scheme: "untitled", language }]),
       ],
       outputChannel: this.outputChannel,
       traceOutputChannel: this.traceChannel,
-      synchronize: {
-        configurationSection: "shucked",
-      },
-      initializationOptions: getInitializationOptions(config),
+      initializationOptions: this.configurationOptions(),
       errorHandler: new ShuckedErrorHandler(
         this.crashTracker,
         this.outputChannel,
@@ -235,6 +255,7 @@ export class ClientManager implements vscode.Disposable {
         }
         case State.Running: {
           this.statusManager.setStatus("ready");
+          this.ready.fire();
           break;
         }
         case State.Stopped: {
@@ -331,6 +352,7 @@ export class ClientManager implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this.ready.dispose();
     void this.stop();
   }
 }

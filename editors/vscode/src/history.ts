@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "node:fs/promises";
+import { constants } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
@@ -85,6 +86,8 @@ export class HistoryManager implements vscode.Disposable {
     const filesEnabled = config.get<boolean>("history.files", false);
     if (!sessionEnabled && !filesEnabled) { return []; }
     const selection = this.environments.selection(document) ?? config.get<EnvironmentSelection>("environment", {});
+    const documentVersion = document.version;
+    const selectionKey = JSON.stringify(selection);
     if (selection?.targetInventory || selection?.policy === "portable") { return []; }
     const line = document.lineAt(position.line).text;
     if (position.character !== line.length) { return []; }
@@ -94,7 +97,8 @@ export class HistoryManager implements vscode.Disposable {
     const context = `workspace:${vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() ?? document.uri.toString()}:${shell}`;
     const generation = this.generation;
     if (filesEnabled) { await this.readHistory(context, shell); }
-    if (cancellation.isCancellationRequested || generation !== this.generation) { return []; }
+    const currentSelection = this.environments.selection(document) ?? vscode.workspace.getConfiguration("shucked", document).get<EnvironmentSelection>("environment", {});
+    if (cancellation.isCancellationRequested || generation !== this.generation || document.version !== documentVersion || JSON.stringify(currentSelection) !== selectionKey) { return []; }
     const suggestion = sessionEnabled && selection?.sessionId ? this.index.suggest(`session:${selection.sessionId}`, prefix) : undefined;
     const candidate = suggestion ?? (filesEnabled ? this.index.suggest(context, prefix) : undefined);
     if (!candidate) { return []; }
@@ -108,17 +112,26 @@ export class HistoryManager implements vscode.Disposable {
     this.fileReads.set(context, Date.now());
     const generation = this.generation;
     const filename = shell === "fish" ? path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "fish", "fish_history") : path.join(os.homedir(), shell === "zsh" ? ".zsh_history" : ".bash_history");
-    let file: fs.FileHandle | undefined;
     try {
-      file = await fs.open(filename, "r"); const stat = await file.stat();
-      if (!stat.isFile()) { return; }
-      const size = Math.min(stat.size, MAX_FILE); const buffer = Buffer.alloc(size);
-      await file.read(buffer, 0, size, Math.max(0, stat.size - size));
-      if (generation !== this.generation || !vscode.workspace.getConfiguration("shucked").get<boolean>("history.files", false)) { return; }
-      let text = buffer.toString("utf8"); if (stat.size > MAX_FILE) { text = text.slice(text.indexOf("\n") + 1); }
+      const text = await readHistoryFile(filename);
+      if (text === undefined || generation !== this.generation || !vscode.workspace.getConfiguration("shucked").get<boolean>("history.files", false)) { return; }
       for (const command of parseHistory(text, shell)) { this.index.record(context, command); }
     } catch { /* Missing/private history remains unavailable, without content logging. */ }
-    finally { await file?.close(); }
   }
   public dispose(): void { this.generation += 1; this.index.clear(); this.fileReads.clear(); for (const subscription of this.subscriptions) { subscription.dispose(); } }
+}
+
+/** Inspect only a regular history file; FIFOs must not occupy an I/O worker. */
+export async function readHistoryFile(filename: string): Promise<string | undefined> {
+  const file = await fs.open(filename, constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NONBLOCK));
+  try {
+    const stat = await file.stat();
+    if (!stat.isFile()) { return undefined; }
+    const size = Math.min(stat.size, MAX_FILE);
+    const buffer = Buffer.alloc(size);
+    const { bytesRead } = await file.read(buffer, 0, size, Math.max(0, stat.size - size));
+    let text = buffer.subarray(0, bytesRead).toString("utf8");
+    if (stat.size > MAX_FILE) { text = text.slice(text.indexOf("\n") + 1); }
+    return text;
+  } finally { await file.close(); }
 }

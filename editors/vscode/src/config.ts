@@ -12,6 +12,7 @@ export function registerConfigWatcher(
 ): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (event.affectsConfiguration("shucked")) { await clientManager.synchronizeConfiguration(); }
       if (
         event.affectsConfiguration("shucked.server.path") ||
         event.affectsConfiguration("shucked.server.extraArgs")

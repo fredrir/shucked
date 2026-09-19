@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import { registerTargetCommands } from "./targets";
+import { HistoryManager } from "./history";
+import { TerminalManager } from "./terminal";
+import { EnvironmentManager } from "./environment";
 import { ClientManager } from "./client";
 import { registerCommands } from "./commands";
 import { registerConfigWatcher } from "./config";
@@ -22,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(clientManager);
 
   registerCommands(context, clientManager, outputChannel, statusManager);
+  registerTargetCommands(context, outputChannel);
   registerConfigWatcher(context, clientManager, outputChannel);
   context.subscriptions.push(
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
@@ -32,6 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Multi-root workspace change handling
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders((event) => {
+      void clientManager?.synchronizeConfiguration();
       outputChannel?.info(
         `Workspace folders changed. Added: ${event.added.length}, Removed: ${event.removed.length}`,
       );
@@ -39,6 +45,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   await clientManager.start();
+  const environments = new EnvironmentManager(context, clientManager);
+  const history = new HistoryManager(environments);
+  context.subscriptions.push(environments, history, new TerminalManager(context, clientManager, environments, history));
   outputChannel.info("Shucked extension activation complete.");
 }
 

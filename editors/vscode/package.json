@@ -33,7 +33,10 @@
     "shucked"
   ],
   "activationEvents": [
-    "onLanguage:shellscript"
+    "onLanguage:shellscript",
+    "onLanguage:fish",
+    "onLanguage:bash",
+    "onLanguage:zsh"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
@@ -69,6 +72,34 @@
       {
         "command": "shucked.showVersion",
         "title": "Shucked: Show Version"
+      },
+      {
+        "command": "shucked.selectEnvironment",
+        "title": "Shucked: Select Execution Context"
+      },
+      {
+        "command": "shucked.refreshEnvironment",
+        "title": "Shucked: Refresh Environment"
+      },
+      {
+        "command": "shucked.createTerminal",
+        "title": "Shucked: Create Shell Terminal"
+      },
+      {
+        "command": "shucked.attachTerminal",
+        "title": "Shucked: Attach Shell Terminal"
+      },
+      {
+        "command": "shucked.clearHistorySuggestions",
+        "title": "Shucked: Clear History Suggestions"
+      },
+      {
+        "command": "shucked.captureTarget",
+        "title": "Shucked: Capture Execution Target"
+      },
+      {
+        "command": "shucked.compareTargets",
+        "title": "Shucked: Compare Execution Targets"
       }
     ],
     "configuration": {
@@ -152,14 +183,15 @@
         "shucked.server.completion.includePaths": {
           "type": "boolean",
           "default": true,
-          "description": "Complete paths relative to the current script directory.",
+          "description": "Complete paths relative to the selected launch directory.",
           "scope": "resource"
         },
         "shucked.server.completion.useShellConfig": {
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "description": "Load personal Zsh startup files for flag completions, including aliases and custom completers. Optional; built-in providers work without shell configuration. Requires workspace trust."
+          "description": "Legacy option. Personal startup files are not reloaded for editor completion requests.",
+          "deprecationMessage": "Use Shucked: Create Shell Terminal or Attach Shell Terminal to share aliases and functions without reloading startup files while typing."
         },
         "shucked.server.completion.includeNative": {
           "type": "boolean",
@@ -191,8 +223,118 @@
           "scope": "resource",
           "minimum": 1,
           "maximum": 2000
+        },
+        "shucked.environment.policy": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "portable"
+          ],
+          "default": "workspace",
+          "scope": "resource",
+          "description": "Workspace host checks by default; portable checks omit host absence warnings."
+        },
+        "shucked.environment.cwd": {
+          "type": "string",
+          "scope": "resource",
+          "description": "Explicit script launch directory. The workspace folder is otherwise assumed."
+        },
+        "shucked.environment.targetInventory": {
+          "type": "string",
+          "scope": "resource",
+          "description": "Captured target inventory on the workspace host."
+        },
+        "shucked.environment.declarations": {
+          "type": "object",
+          "scope": "resource",
+          "default": {},
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "required",
+              "optional",
+              "generated",
+              "deployment"
+            ]
+          },
+          "description": "Expected project commands; declarations do not assert that a command is installed."
+        },
+        "shucked.history.session": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Suggest commands from explicitly attached shell sessions. Memory only; never executes a suggestion."
+        },
+        "shucked.history.files": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Read existing shell history files on this workspace host for inline suggestions. Memory only."
         }
       }
+    },
+    "languages": [
+      {
+        "id": "fish",
+        "aliases": [
+          "Fish",
+          "fish"
+        ],
+        "extensions": [
+          ".fish"
+        ],
+        "firstLine": "^#!.*\\bfish\\b"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "shellCommand",
+        "superType": "function",
+        "description": "Resolved shell command"
+      },
+      {
+        "id": "shellAlias",
+        "superType": "function",
+        "description": "Shell alias"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "invalid",
+        "description": "Command unavailable in selected target"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "shellCommand": [
+            "entity.name.function.shell"
+          ],
+          "shellAlias": [
+            "entity.name.function.alias.shell"
+          ],
+          "shellCommand.invalid": [
+            "invalid.illegal.command.shell"
+          ]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[shellscript]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "[fish]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "terminal": {
+      "profiles": [
+        {
+          "id": "shucked.terminal",
+          "title": "Shucked shell",
+          "icon": "terminal"
+        }
+      ]
     }
   },
   "dependencies": {
@@ -226,6 +368,7 @@
     "lint:fix": "eslint --fix",
     "vsix": "node vsix.mjs package",
     "publish": "node vsix.mjs publish",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:extension-host": "node esbuild.mjs && node tests/run-extension-host.mjs"
   }
 }
