@@ -13,6 +13,14 @@ __shucked_capture() {
         if [[ -n ${HISTIGNORE-} ]]; then __shucked_private=1; fi
         if [[ ! -o history ]]; then __shucked_private=1; fi
         builtin printf 'private\0%s\0' "$__shucked_private"
+        if [[ -r ${SHUCKED_HISTORY_POLICY-} ]]; then
+            { IFS= read -r __shucked_history_policy; IFS= read -r __shucked_files_policy; } < "$SHUCKED_HISTORY_POLICY"
+            if [[ $__shucked_files_policy = 1 ]]; then
+                local __shucked_history_file=${HISTFILE-}
+                [[ -n $__shucked_history_file && $__shucked_history_file != /* ]] && __shucked_history_file=$PWD/$__shucked_history_file
+                builtin printf 'history-file\0%s\0' "$__shucked_history_file"
+            fi
+        fi
         if [[ $__shucked_private = 0 && -r ${SHUCKED_HISTORY_POLICY-} ]] && IFS= read -r __shucked_history_policy < "$SHUCKED_HISTORY_POLICY" && [[ $__shucked_history_policy = 1 ]]; then
             builtin printf 'accepted-history\0%s\0' "$(builtin fc -ln -1 2>/dev/null)"
         fi

@@ -14,8 +14,9 @@ await Promise.all([workspace, home, join(user, 'User'), extensions, join(home, '
 await writeFile(join(user, 'User/settings.json'), JSON.stringify({ ...(vsix ? {} : { 'shucked.server.path': server }), 'shucked.lint.showSyntaxErrors': true, 'shucked.trace.server': 'verbose', 'security.workspace.trust.enabled': false, 'telemetry.telemetryLevel': 'off', 'update.mode': 'none', 'extensions.autoUpdate': false, 'workbench.startupEditor': 'none', 'window.restoreWindows': 'none' }));
 await writeFile(join(workspace, 'smoke.zsh'), '#!/bin/zsh\nshucked_smoke_function() { printf ok; }\nshucked_missing_smoke\nshucked_smoke_f\n');
 await writeFile(join(workspace, 'smoke.fish'), 'function fish_fixture\n echo hello\nend\nfish_fi\n');
-await Promise.all(['.bashrc', '.zshrc'].map(name => writeFile(join(home, name), "alias shucked_smoke_alias='printf'\n")));
-await writeFile(join(home, '.config/fish/config.fish'), "alias shucked_smoke_alias='printf'\n");
+await Promise.all(['.bashrc', '.zshrc'].map(name => writeFile(join(home, name), "alias shucked_smoke_alias='printf'\nHISTFILE=$HOME/custom_history\nHISTSIZE=1000\nSAVEHIST=1000\n")));
+await writeFile(join(home, 'custom_history'), 'printf shucked_history_fixture\n');
+await writeFile(join(home, '.config/fish/config.fish'), "alias shucked_smoke_alias='printf'\nset -g fish_history shucked_test\n");
 const resultPath = join(root, 'result.json');
 const launchEnvironment = { ...process.env, HOME: home, ZDOTDIR: home, XDG_CONFIG_HOME: join(home, '.config'), SHUCKED_EXTENSION_TEST_RESULT: resultPath, SHUCKED_EXTENSION_TEST_PACKAGED: vsix ? '1' : '0' };
 let developmentExtension = extension;

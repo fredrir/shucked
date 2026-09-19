@@ -13,6 +13,7 @@ process.stdin.on('end', () => {
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const key = fields[i], value = fields[i + 1];
     if (key === 'cwd') {message.cwd = value;}
+    else if (key === 'history-file') {message.historyFile = value;}
     else if (key === 'searchpath') {message.path = value.split(':');}
     else if (key === 'path') {message.path.push(value);}
     else if (key === 'function' && /^[\w.:-]{1,256}$/.test(value) && !value.startsWith('__shucked')) {message.functions.push(value);}

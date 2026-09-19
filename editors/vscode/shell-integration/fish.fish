@@ -20,6 +20,19 @@ function __shucked_capture --on-event fish_prompt
             set __shucked_private 1
         end
         builtin printf 'private\0%s\0' "$__shucked_private"
+        if set -q SHUCKED_HISTORY_POLICY; and test -r "$SHUCKED_HISTORY_POLICY"
+            set -l __shucked_history_policy ''; set -l __shucked_files_policy ''
+            begin; read __shucked_history_policy; read __shucked_files_policy; end < "$SHUCKED_HISTORY_POLICY"
+            if test "$__shucked_files_policy" = 1
+                set -l __shucked_history_name fish
+                if set -q fish_history; set __shucked_history_name "$fish_history"; end
+                set -l __shucked_data_home "$HOME/.local/share"
+                if set -q XDG_DATA_HOME; set __shucked_data_home "$XDG_DATA_HOME"; end
+                set -l __shucked_history_file ''
+                if test -n "$__shucked_history_name"; set __shucked_history_file "$__shucked_data_home/fish/"$__shucked_history_name"_history"; end
+                builtin printf 'history-file\0%s\0' "$__shucked_history_file"
+            end
+        end
         if test $__shucked_private = 0; and set -q SHUCKED_HISTORY_POLICY; and test -r "$SHUCKED_HISTORY_POLICY"
             read -l __shucked_history_policy < "$SHUCKED_HISTORY_POLICY"
             if test "$__shucked_history_policy" = 1

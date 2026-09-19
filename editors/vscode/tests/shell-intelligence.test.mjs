@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, chmod, rm } from 'node:fs/promises';
+import { mkdtemp, chmod, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:net';
@@ -46,9 +46,12 @@ test('shell metadata rejects malformed and oversized identities',()=>{
   for(const patch of [{generation:-1},{generation:Infinity},{path:[null]},{aliases:{ls:'eza'}},{cwd:'relative'},{token:'no'},{functions:Array(16385).fill('f')}]) {assert.equal(validateSessionMessage({...valid,...patch}),false);}
 });
 for (const shell of ['bash','zsh','fish']) {
-  test(`${shell} shipped prompt hook transmits metadata without executing aliases or exposing function bodies`,async t=>{
+ for (const filesEnabled of [false, true]) {
+  test(`${shell} prompt metadata discovers custom history only when opted in (${filesEnabled})`,async t=>{
     if(process.platform==='win32'){t.skip('POSIX hook fixture');return;}
     const directory=await mkdtemp(join(tmpdir(),'shucked-hook-'));await chmod(directory,0o700);
+    const policy=join(directory,'policy'); await writeFile(policy, `0\n${filesEnabled?1:0}\n`);
+    const historyFile=join(directory, 'custom-history');
     const socket=join(directory,'state.sock');
     const server=createServer();
     try{
@@ -60,10 +63,12 @@ for (const shell of ['bash','zsh','fish']) {
       const suffix=shell==='zsh'?'zsh.zsh':shell==='fish'?'fish.fish':'bash.sh';const hook=fileURLToPath(new URL(`../shell-integration/${suffix}`,import.meta.url));
       const script=shell==='fish'?`source "$argv[1]"; alias ls 'eza --icons'; alias dangerous 'touch should-never-be-executed'; function demo; echo PRIVATE_FUNCTION_BODY; end; __shucked_capture`:`source "$1"; alias ls='eza --icons'; alias dangerous='touch should-never-be-executed'; function demo { echo PRIVATE_FUNCTION_BODY; }; __shucked_capture`;
       const arguments_=shell==='fish'?['--no-config','-c',script,hook]:['-c',script,shell,hook];
-      const child=spawn(shell,arguments_,{env:{...process.env,SHUCKED_SESSION_ID:'a'.repeat(32),SHUCKED_SESSION_TOKEN:'b'.repeat(64),SHUCKED_SESSION_SOCKET:socket,SHUCKED_CAPTURE:fileURLToPath(new URL('../shell-integration/capture.cjs',import.meta.url)),SHUCKED_NODE:process.execPath},stdio:['ignore','pipe','pipe']});
+      const child=spawn(shell,arguments_,{env:{...process.env,HISTFILE:historyFile,fish_history:'custom',XDG_DATA_HOME:directory,SHUCKED_HISTORY_POLICY:policy,SHUCKED_SESSION_ID:'a'.repeat(32),SHUCKED_SESSION_TOKEN:'b'.repeat(64),SHUCKED_SESSION_SOCKET:socket,SHUCKED_CAPTURE:fileURLToPath(new URL('../shell-integration/capture.cjs',import.meta.url)),SHUCKED_NODE:process.execPath},stdio:['ignore','pipe','pipe']});
       const exited=new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error(`shell exit ${code}`)));});
       const [message]=await Promise.all([received,exited]);
-      assert.equal(message.shell,shell);if(shell==='fish'){assert.ok(message.functions.includes('ls'));}else{assert.deepEqual(message.aliases.ls,['eza','--icons']);}assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');assert.equal(message.acceptedHistoryHash,undefined);
+      assert.equal(message.shell,shell);if(shell==='fish'){assert.ok(message.functions.includes('ls'));}else{assert.deepEqual(message.aliases.ls,['eza','--icons']);}assert.equal(message.aliases.dangerous,undefined);assert.ok(message.functions.includes('demo'));assert.ok(message.functions.includes('dangerous'));assert.ok(!JSON.stringify(message).includes('PRIVATE_FUNCTION_BODY'));assert.equal(typeof message.private,'boolean');assert.equal(message.acceptedHistoryHash,undefined);assert.equal(message.historyFile,filesEnabled?(shell==='fish'?join(directory,'fish/custom_history'):historyFile):undefined);
     }finally{await new Promise(resolve=>server.close(resolve));await rm(directory,{recursive:true,force:true});}
   });
+}
+
 }

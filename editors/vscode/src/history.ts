@@ -63,21 +63,32 @@ export class HistoryManager implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[] = [];
   private readonly fileReads = new Map<string, number>();
   private generation = 0;
+  private readonly sessions = new Map<string, SessionMetadata>();
   constructor(private readonly environments: EnvironmentManager) {
     this.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration("shucked.history")) { this.generation += 1; this.index.clear(); this.fileReads.clear(); } }),
+      vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration("shucked.history")) { this.generation += 1; this.index.clear(); this.fileReads.clear(); void vscode.commands.executeCommand("editor.action.inlineSuggest.hide"); } }),
       vscode.languages.registerInlineCompletionItemProvider(languages.map(language => ({ language, scheme: "file" })), { provideInlineCompletionItems: (document, position, _context, cancellation) => this.provide(document, position, cancellation) }),
-      vscode.commands.registerCommand("shucked.clearHistorySuggestions", () => { this.generation += 1; this.index.clear(); this.fileReads.clear(); }),
+      vscode.commands.registerCommand("shucked.clearHistorySuggestions", () => { this.generation += 1; this.index.clear(); this.fileReads.clear(); void vscode.commands.executeCommand("editor.action.inlineSuggest.hide"); }),
     );
   }
   public sessionEnabled(): boolean { return vscode.workspace.isTrusted && vscode.workspace.getConfiguration("shucked").get<boolean>("history.session", false); }
+  public filesEnabled(): boolean { return vscode.workspace.isTrusted && vscode.workspace.getConfiguration("shucked").get<boolean>("history.files", false); }
+  public updateSession(metadata: SessionMetadata): void {
+    const previous = this.sessions.get(metadata.id);
+    this.sessions.set(metadata.id, metadata);
+    if (previous?.historyFile !== metadata.historyFile || previous?.private !== metadata.private) {
+      this.generation += 1;
+      this.index.clear(`files:${metadata.id}`); this.fileReads.delete(`files:${metadata.id}`);
+      if (metadata.private) { this.index.clear(`session:${metadata.id}`); void vscode.commands.executeCommand("editor.action.inlineSuggest.hide"); }
+    }
+  }
   public recordSession(id: string, text: string, metadata: SessionMetadata): void {
     if (!this.sessionEnabled() || !acceptedSessionCommand(text, metadata)) { return; }
     // Until a prompt updates state, nested shells/remotes cannot establish host-local history.
     if (/^\s*(?:ssh|mosh|su|sudo|docker|podman|bash|zsh|fish)(?:\s|$)/.test(text)) { return; }
     this.index.record(`session:${id}`, text);
   }
-  public clearSession(id: string): void { this.index.clear(`session:${id}`); }
+  public clearSession(id: string): void { this.sessions.delete(id); this.index.clear(`session:${id}`); this.index.clear(`files:${id}`); this.fileReads.delete(`files:${id}`); this.generation += 1; void vscode.commands.executeCommand("editor.action.inlineSuggest.hide"); }
 
   private async provide(document: vscode.TextDocument, position: vscode.Position, cancellation: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
     if (!vscode.workspace.isTrusted || !languages.includes(document.languageId)) { return []; }
@@ -86,6 +97,8 @@ export class HistoryManager implements vscode.Disposable {
     const filesEnabled = config.get<boolean>("history.files", false);
     if (!sessionEnabled && !filesEnabled) { return []; }
     const selection = this.environments.selection(document) ?? config.get<EnvironmentSelection>("environment", {});
+    const session = selection?.sessionId ? this.sessions.get(selection.sessionId) : undefined;
+    if (selection?.sessionId && (!session || session.private)) { return []; }
     const documentVersion = document.version;
     const selectionKey = JSON.stringify(selection);
     if (selection?.targetInventory || selection?.policy === "portable") { return []; }
@@ -94,9 +107,9 @@ export class HistoryManager implements vscode.Disposable {
     const prefix = line.trimStart();
     if (prefix.length < 2 || prefix.startsWith("#")) { return []; }
     const shell = document.languageId === "fish" || document.fileName.endsWith(".fish") ? "fish" : document.languageId === "zsh" || document.fileName.endsWith(".zsh") || document.fileName.endsWith(".zshrc") ? "zsh" : "bash";
-    const context = `workspace:${vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() ?? document.uri.toString()}:${shell}`;
+    const context = session ? `files:${session.id}` : `workspace:${vscode.workspace.getWorkspaceFolder(document.uri)?.uri.toString() ?? document.uri.toString()}:${shell}`;
     const generation = this.generation;
-    if (filesEnabled) { await this.readHistory(context, shell); }
+    if (filesEnabled) { await this.readHistory(context, shell, session?.historyFile); }
     const currentSelection = this.environments.selection(document) ?? vscode.workspace.getConfiguration("shucked", document).get<EnvironmentSelection>("environment", {});
     if (cancellation.isCancellationRequested || generation !== this.generation || document.version !== documentVersion || JSON.stringify(currentSelection) !== selectionKey) { return []; }
     const suggestion = sessionEnabled && selection?.sessionId ? this.index.suggest(`session:${selection.sessionId}`, prefix) : undefined;
@@ -105,20 +118,21 @@ export class HistoryManager implements vscode.Disposable {
     return [new vscode.InlineCompletionItem(candidate.slice(prefix.length), new vscode.Range(position, position))];
   }
 
-  private async readHistory(context: string, shell: string): Promise<void> {
+  private async readHistory(context: string, shell: string, selectedFile?: string): Promise<void> {
     // This method is called only after the independent existing-file opt-in.
     const previous = this.fileReads.get(context) ?? 0;
     if (Date.now() - previous < 30000) { return; }
     this.fileReads.set(context, Date.now());
     const generation = this.generation;
-    const filename = shell === "fish" ? path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "fish", "fish_history") : path.join(os.homedir(), shell === "zsh" ? ".zsh_history" : ".bash_history");
+    if (selectedFile === "") { return; }
+    const filename = selectedFile ?? (shell === "fish" ? path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "fish", "fish_history") : path.join(os.homedir(), shell === "zsh" ? ".zsh_history" : ".bash_history"));
     try {
       const text = await readHistoryFile(filename);
       if (text === undefined || generation !== this.generation || !vscode.workspace.getConfiguration("shucked").get<boolean>("history.files", false)) { return; }
       for (const command of parseHistory(text, shell)) { this.index.record(context, command); }
     } catch { /* Missing/private history remains unavailable, without content logging. */ }
   }
-  public dispose(): void { this.generation += 1; this.index.clear(); this.fileReads.clear(); for (const subscription of this.subscriptions) { subscription.dispose(); } }
+  public dispose(): void { this.sessions.clear(); this.generation += 1; this.index.clear(); this.fileReads.clear(); for (const subscription of this.subscriptions) { subscription.dispose(); } }
 }
 
 /** Inspect only a regular history file; FIFOs must not occupy an I/O worker. */

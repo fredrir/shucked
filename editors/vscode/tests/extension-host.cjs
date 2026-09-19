@@ -49,6 +49,7 @@ exports.run = async function run() {
     assert.equal(fish.languageId, 'fish');
     await eventually('Fish function completion', async () => { const result = await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', fishUri, new vscode.Position(3, 7)); return result?.items?.some(item => (typeof item.label === 'string' ? item.label : item.label.label) === 'fish_fixture'); }); check('Fish registration and native document function completion');
     await vscode.window.showTextDocument(document);
+    await vscode.workspace.getConfiguration('shucked').update('history.files', true, vscode.ConfigurationTarget.Global);
     const before = new Set(vscode.window.terminals);
     await vscode.commands.executeCommand('shucked.createTerminal', 'zsh');
     terminal = await eventually('Shucked terminal created', () => vscode.window.terminals.find(item => !before.has(item)));
@@ -60,6 +61,22 @@ exports.run = async function run() {
       report.lastSessionHover = hover?.flatMap(item => item.contents.map(hoverText));
       return hover?.some(item => item.contents.some(content => /Resolution: Builtin/.test(hoverText(content)) && /InteractiveSession/.test(hoverText(content))));
     }, 30000); check('real terminal prompt hook resolves a fixture startup alias');
+    const historyPrefix = 'printf shucked_h';
+    const historyEdit = new vscode.WorkspaceEdit(); historyEdit.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), historyPrefix);
+    assert.ok(await vscode.workspace.applyEdit(historyEdit));
+    const editor = await vscode.window.showTextDocument(document); editor.selection = new vscode.Selection(0, historyPrefix.length, 0, historyPrefix.length);
+    await eventually('custom history inline acceptance', async () => {
+      await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger'); await delay(150);
+      await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+      return document.getText() === 'printf shucked_history_fixture';
+    }); check('custom history path supplies an inline suggestion that only inserts text');
+    const reset = new vscode.WorkspaceEdit(); reset.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), historyPrefix); await vscode.workspace.applyEdit(reset);
+    editor.selection = new vscode.Selection(0, historyPrefix.length, 0, historyPrefix.length);
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger'); await delay(200);
+    await vscode.workspace.getConfiguration('shucked').update('history.files', false, vscode.ConfigurationTarget.Global); await delay(200);
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(document.getText(), historyPrefix); check('history opt-out revokes an already displayed suggestion');
+    const restoreAlias = new vscode.WorkspaceEdit(); restoreAlias.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), 'shucked_smoke_alias hello\n'); await vscode.workspace.applyEdit(restoreAlias);
     terminal.dispose(); terminal = undefined;
     await eventually('detached session hover', async () => { const hover = await vscode.commands.executeCommand('vscode.executeHoverProvider', uri, new vscode.Position(0, 4)); return hover?.some(item => item.contents.some(content => /stale|refresh|unavailable|detached/i.test(hoverText(content)))); }); check('terminal exit revokes current session evidence');
     report.passed = true;
