@@ -9,10 +9,11 @@ const timeout = setTimeout(() => process.exit(0), 1200);
 process.stdin.on('data', chunk => { bytes += chunk.length; if (bytes > MAX) {process.exit(0);} chunks.push(chunk); });
 process.stdin.on('end', () => {
   const fields = Buffer.concat(chunks).toString('utf8').split('\0');
-  const message = { token: process.env.SHUCKED_SESSION_TOKEN, id: process.env.SHUCKED_SESSION_ID, generation: Number(process.argv[2]), pid: Number(process.argv[3]), shell: process.argv[4], cwd: '', path: [], aliases: Object.create(null), functions: [], options: {}, private: false, ignore: [], connected: true };
+  const message = { token: process.env.SHUCKED_SESSION_TOKEN, id: process.env.SHUCKED_SESSION_ID, generation: Number(process.argv[2]), pid: Number(process.argv[3]), shell: process.argv[4], cwd: '', path: [], aliases: Object.create(null), functions: [], options: {}, private: false, ignore: [], connected: true, liveCompletion: false };
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const key = fields[i], value = fields[i + 1];
     if (key === 'cwd') {message.cwd = value;}
+    else if (key === 'live-signal' && ['SIGUSR1', 'SIGUSR2'].includes(value)) {message.liveSignal = value; message.liveCompletion = true;}
     else if (key === 'history-file') {message.historyFile = value;}
     else if (key === 'searchpath') {message.path = value.split(':');}
     else if (key === 'path') {message.path.push(value);}

@@ -3,8 +3,13 @@ __shucked_generation=0
 __shucked_capture() {
     local __shucked_status=$? __shucked_name __shucked_history_policy __shucked_private=0
     __shucked_generation=$((__shucked_generation + 1))
+    local __shucked_live_owned
+    [[ -n ${__shucked_live_signal-} ]] && __shucked_live_owned=$(builtin trap -p "$__shucked_live_signal")
     {
         builtin printf 'cwd\0%s\0' "$PWD"
+        if [[ -n ${__shucked_live_signal-} && $__shucked_live_owned == *__shucked_live_bash_request* ]]; then
+            builtin printf 'live-signal\0%s\0' "$__shucked_live_signal"
+        fi
         builtin printf 'searchpath\0%s\0' "$PATH"
         while IFS= read -r __shucked_name; do builtin printf 'alias\0%s\0' "$__shucked_name"; done < <(builtin alias -p)
         while IFS= read -r __shucked_name; do builtin printf 'function\0%s\0' "$__shucked_name"; done < <(builtin compgen -A function)
@@ -32,3 +37,5 @@ if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a'* ]]; then
 else
     PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__shucked_capture"
 fi
+
+if [[ ${SHUCKED_LIVE_ALLOWED-} = 1 ]]; then source "${SHUCKED_CAPTURE%/*}/live-bash.sh"; fi

@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, access, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,15 @@ await writeFile(join(user, 'User/settings.json'), JSON.stringify({ ...(vsix ? {}
 await writeFile(join(workspace, 'smoke.zsh'), '#!/bin/zsh\nshucked_smoke_function() { printf ok; }\nshucked_missing_smoke\nshucked_smoke_f\n');
 await writeFile(join(workspace, 'smoke.fish'), 'function fish_fixture\n echo hello\nend\nfish_fi\n');
 await Promise.all(['.bashrc', '.zshrc'].map(name => writeFile(join(home, name), "alias shucked_smoke_alias='printf'\nHISTFILE=$HOME/custom_history\nHISTSIZE=1000\nSAVEHIST=1000\n")));
+await appendFile(join(home, '.zshrc'), `autoload -Uz compinit; compinit -D
+my_completion_value=live_fixture_value
+custom_fixture() { :; }
+_custom_fixture() { compadd -- "$my_completion_value"; }
+compdef _custom_fixture custom_fixture
+slow_fixture() { :; }
+_slow_fixture() { zmodload zsh/system; printf '%s' "$sysparams[pid]" > "$HOME/live_worker_pid"; sleep 10; compadd -- live_slow; }
+compdef _slow_fixture slow_fixture
+`);
 await writeFile(join(home, 'custom_history'), 'printf shucked_history_fixture\n');
 await writeFile(join(home, '.config/fish/config.fish'), "alias shucked_smoke_alias='printf'\nset -g fish_history shucked_test\n");
 const resultPath = join(root, 'result.json');

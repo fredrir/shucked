@@ -61,6 +61,19 @@ exports.run = async function run() {
       report.lastSessionHover = hover?.flatMap(item => item.contents.map(hoverText));
       return hover?.some(item => item.contents.some(content => /Resolution: Builtin/.test(hoverText(content)) && /InteractiveSession/.test(hoverText(content))));
     }, 30000); check('real terminal prompt hook resolves a fixture startup alias');
+    const liveEdit = new vscode.WorkspaceEdit(); liveEdit.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), 'custom_fixture live_'); await vscode.workspace.applyEdit(liveEdit);
+    const liveCandidates = async () => (await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', uri, new vscode.Position(0, 'custom_fixture live_'.length)))?.items ?? [];
+    await eventually('live custom completer', async () => (await liveCandidates()).some(item => item.label === 'live_fixture_value')); check('live custom completer reads current non-exported shell state');
+    // Authored test input simulates a user's state change; runtime integration never sends commands.
+    terminal.sendText('my_completion_value=live_fixture_changed');
+    await eventually('live state refresh', async () => (await liveCandidates()).some(item => item.label === 'live_fixture_changed')); check('live completer observes shell state changes without startup replay');
+    const slowEdit = new vscode.WorkspaceEdit(); slowEdit.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), 'slow_fixture live_'); await vscode.workspace.applyEdit(slowEdit);
+    const started = Date.now(); await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', uri, new vscode.Position(0, 'slow_fixture live_'.length));
+    assert.ok(Date.now() - started < 2500, 'slow custom callback has a bounded deadline');
+    await eventually('slow worker terminated', async () => {
+      const pid = Number(await fs.readFile(path.join(process.env.HOME, 'live_worker_pid'), 'utf8'));
+      try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
+    }, 3000); check('live callback timeout terminates its private worker');
     const historyPrefix = 'printf shucked_h';
     const historyEdit = new vscode.WorkspaceEdit(); historyEdit.replace(uri, new vscode.Range(0, 0, document.lineCount, 0), historyPrefix);
     assert.ok(await vscode.workspace.applyEdit(historyEdit));

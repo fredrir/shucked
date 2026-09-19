@@ -5,6 +5,9 @@ __shucked_capture() {
     (( __shucked_generation += 1 ))
     {
         builtin printf 'cwd\0%s\0' "$PWD"
+        if [[ ${__shucked_live_signal-} == SIGUSR1 && ${functions[TRAPUSR1]-} == *__shucked_live_zsh_request* || ${__shucked_live_signal-} == SIGUSR2 && ${functions[TRAPUSR2]-} == *__shucked_live_zsh_request* ]]; then
+            builtin printf 'live-signal\0%s\0' "$__shucked_live_signal"
+        fi
         for __shucked_part in "${path[@]}"; do builtin printf 'path\0%s\0' "$__shucked_part"; done
         for __shucked_name in "${(@k)aliases}"; do builtin printf 'alias\0%s=%s\0' "$__shucked_name" "${aliases[$__shucked_name]}"; done
         for __shucked_name in "${(@k)functions}"; do builtin printf 'function\0%s\0' "$__shucked_name"; done
@@ -30,3 +33,5 @@ __shucked_capture() {
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd __shucked_capture
+
+if [[ ${SHUCKED_LIVE_ALLOWED-} = 1 ]]; then source "${SHUCKED_CAPTURE%/*}/live-zsh.zsh"; fi

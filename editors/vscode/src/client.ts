@@ -161,6 +161,7 @@ export class ClientManager implements vscode.Disposable {
   private isRestarting = false;
   private manualShutdown = false;
   private traceChannel: vscode.LogOutputChannel | undefined;
+  private readonly requestHandlers = new Map<string, { handler: (params: unknown, cancellation: vscode.CancellationToken) => Promise<unknown>; registration?: vscode.Disposable }>();
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -177,6 +178,12 @@ export class ClientManager implements vscode.Disposable {
 
   public async synchronizeConfiguration(): Promise<void> {
     await this.notify("workspace/didChangeConfiguration", { settings: this.configurationOptions() });
+  }
+
+  public onRequest(method: string, handler: (params: unknown, cancellation: vscode.CancellationToken) => Promise<unknown>): vscode.Disposable {
+    const entry = { handler, registration: this.client?.onRequest(method, handler) };
+    this.requestHandlers.set(method, entry);
+    return { dispose: () => { entry.registration?.dispose(); if (this.requestHandlers.get(method) === entry) { this.requestHandlers.delete(method); } } };
   }
 
   public async notify(method: string, params: unknown): Promise<void> {
@@ -247,6 +254,7 @@ export class ClientManager implements vscode.Disposable {
       clientOptions,
     );
 
+    for (const [method, entry] of this.requestHandlers) { entry.registration?.dispose(); entry.registration = this.client.onRequest(method, entry.handler); }
     this.client.onDidChangeState((event) => {
       switch (event.newState) {
         case State.Starting: {

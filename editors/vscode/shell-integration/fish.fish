@@ -6,6 +6,12 @@ function __shucked_capture --on-event fish_prompt
     set -l __shucked_private 0
     begin
         builtin printf 'cwd\0%s\0' "$PWD"
+        if set -q __shucked_live_signal; and test "$__shucked_live_signal" = SIGUSR1
+            set -l handlers (functions --handlers-type signal)
+            if test (count $handlers) = 2; and string match -q '*__shucked_live_fish_signal' -- "$handlers[2]"
+                builtin printf 'live-signal\0SIGUSR1\0'
+            end
+        end
         for entry in $PATH
             builtin printf 'path\0%s\0' "$entry"
         end
@@ -41,4 +47,8 @@ function __shucked_capture --on-event fish_prompt
         end
     end | env ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_CAPTURE" "$__shucked_generation" "$fish_pid" fish >/dev/null 2>&1
     return $__shucked_previous_status
+end
+
+if test "$SHUCKED_LIVE_ALLOWED" = 1
+    source (string replace -r '/[^/]*$' '/live-fish.fish' -- "$SHUCKED_CAPTURE")
 end

@@ -6,15 +6,16 @@ import * as path from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { ClientManager } from "./client";
 import { EnvironmentManager } from "./environment";
+import { LiveCompletionManager } from "./live-completion";
 import type { HistoryManager } from "./history";
 
 type Shell = "bash" | "zsh" | "fish";
 export interface SessionMetadata {
   id: string; generation: number; pid: number; shell: Shell; cwd: string; path: string[];
   aliases: Record<string, string[]>; functions: string[]; options: Record<string, string>;
-  private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string; historyFile?: string;
+  private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string; historyFile?: string; liveCompletion?: boolean; liveSignal?: "SIGUSR1" | "SIGUSR2";
 }
-interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; }
+interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; directory?: string; executing?: boolean; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; }
 const MAX_FRAME = 256 * 1024;
 const stringList = (value: unknown, max = 16384): value is string[] => Array.isArray(value) && value.length <= max && value.every(item => typeof item === "string" && item.length < 16384 && !item.includes("\0"));
 
@@ -28,6 +29,8 @@ export function validateSessionMessage(value: unknown): value is SessionMetadata
   if (!stringList(item.path, 1024) || !stringList(item.functions) || !stringList(item.ignore, 32)) { return false; }
   if (item.acceptedHistoryHash !== undefined && (typeof item.acceptedHistoryHash !== "string" || !/^[a-f0-9]{64}$/.test(item.acceptedHistoryHash))) { return false; }
   if (item.historyFile !== undefined && (typeof item.historyFile !== "string" || item.historyFile.length > 16384 || item.historyFile.includes("\0") || (item.historyFile !== "" && !path.isAbsolute(item.historyFile)))) { return false; }
+  if (item.liveCompletion !== undefined && typeof item.liveCompletion !== "boolean") { return false; }
+  if (item.liveSignal !== undefined && !["SIGUSR1", "SIGUSR2"].includes(String(item.liveSignal))) { return false; }
   if (typeof item.private !== "boolean" || item.connected !== true || !item.aliases || typeof item.aliases !== "object" || Array.isArray(item.aliases)) { return false; }
   if (Object.keys(item.aliases).length > 16384 || !Object.entries(item.aliases).every(([name, words]) => /^[\w.:-]{1,256}$/.test(name) && stringList(words, 32))) { return false; }
   return !!item.options && typeof item.options === "object" && !Array.isArray(item.options) && Object.entries(item.options).length < 128 && Object.entries(item.options).every(([key, value]) => /^[\w_-]+$/.test(key) && typeof value === "string" && value.length < 128);
@@ -41,17 +44,19 @@ export class TerminalManager implements vscode.Disposable {
   private socketPath?: string;
   private starting?: Promise<void>;
   private disposed = false;
+  private readonly live: LiveCompletionManager;
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly client: ClientManager, private readonly environments: EnvironmentManager, private readonly history: HistoryManager) {
+    this.live = new LiveCompletionManager(client, environments, id => this.sessions.get(id));
     this.subscriptions.push(
+      this.live,
       client.onReady(() => { for (const session of this.sessions.values()) { if (session.metadata) { void this.client.notify("shucked/shellSession", session.metadata).catch(() => undefined); } } }),
       vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration("shucked.history")) { for (const session of this.sessions.values()) { session.pendingHistory = undefined; if (session.historyPolicy) { void fs.writeFile(session.historyPolicy, `${this.history.sessionEnabled() ? 1 : 0}\n${this.history.filesEnabled() ? 1 : 0}\n`, { mode: 0o600 }).catch(() => undefined); } } }
       }),
       vscode.window.onDidStartTerminalShellExecution(event => {
-        if (!this.history.sessionEnabled()) { return; }
         const session = [...this.sessions.values()].find(session => session.terminal === event.terminal);
-        if (session) { session.executionGeneration = session.generation; }
+        if (session) { session.executing = true; this.live.cancelSession(session.id); if (this.history.sessionEnabled()) { session.executionGeneration = session.generation; } }
       }),
       vscode.commands.registerCommand("shucked.createTerminal", (shell?: Shell) => this.create(shell)),
       vscode.commands.registerCommand("shucked.attachTerminal", () => this.attach()),
@@ -96,7 +101,8 @@ export class TerminalManager implements vscode.Disposable {
           handled = true;
           try {
             const value: unknown = JSON.parse(frame.subarray(0, frame.indexOf(10)).toString("utf8"));
-            if (validateSessionMessage(value)) { void this.receive(value).catch(() => undefined); }
+            if (value && typeof value === "object" && "kind" in value && value.kind === "liveCompletion") { void this.live.receive(value); }
+            else if (validateSessionMessage(value)) { void this.receive(value).catch(() => undefined); }
           } catch { /* Malformed data is discarded without logging shell contents. */ }
           socket.end();
         });
@@ -116,7 +122,10 @@ export class TerminalManager implements vscode.Disposable {
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) { return; }
     if (session.pid && session.pid !== message.pid) { return; }
     session.pid ??= message.pid;
+    this.live.cancelSession(session.id);
+    session.executing = false;
     session.generation = message.generation;
+    if (process.platform === "win32") { metadata.liveCompletion = false; }
     session.metadata = metadata;
     this.history.updateSession(metadata);
     this.environments.sessionState(session.id, true, metadata);
@@ -142,6 +151,8 @@ export class TerminalManager implements vscode.Disposable {
     const hook = path.join(integration, shell === "zsh" ? "zsh.zsh" : shell === "fish" ? "fish.fish" : "bash.sh");
     const env: Record<string, string> = { SHUCKED_SESSION_ID: session.id, SHUCKED_SESSION_TOKEN: session.token, SHUCKED_SESSION_SOCKET: this.socketPath!, SHUCKED_NODE: process.execPath, SHUCKED_CAPTURE: path.join(integration, "capture.cjs") };
     const sessionDirectory = path.join(this.directory!, session.id); await fs.mkdir(sessionDirectory, { mode: 0o700 });
+    session.directory = sessionDirectory;
+    Object.assign(env, { SHUCKED_LIVE_ALLOWED: process.platform === "win32" ? "0" : "1", SHUCKED_LIVE_DIRECTORY: sessionDirectory, SHUCKED_LIVE_READ: path.join(integration, "live-read.cjs"), SHUCKED_LIVE_RESULT: path.join(integration, "live-result.cjs"), SHUCKED_LIVE_FISH: path.join(integration, "live-fish.cjs") });
     session.historyPolicy = path.join(sessionDirectory, "history-policy");
     await fs.writeFile(session.historyPolicy, `${this.history.sessionEnabled() ? 1 : 0}\n${this.history.filesEnabled() ? 1 : 0}\n`, { mode: 0o600 });
     env.SHUCKED_HISTORY_POLICY = session.historyPolicy;
@@ -190,6 +201,7 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   private disconnect(session: AttachedSession): void {
+    this.live.cancelSession(session.id);
     this.sessions.delete(session.id); this.history.clearSession(session.id);
     this.environments.sessionState(session.id, false, session.metadata);
     void this.client.notify("shucked/shellSession", { ...(session.metadata ?? { id: session.id, cwd: os.homedir(), path: [], aliases: {}, functions: [], options: {} }), generation: session.generation + 1, connected: false }).catch(() => undefined);
