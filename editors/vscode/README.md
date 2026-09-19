@@ -129,6 +129,7 @@ Other editors initialize trusted native execution with `{"nativeExecutionAllowed
 | Tool validation | Brew/Git inventories and selected exact-version flag grammars; unsupported versions remain Unknown |
 | Fish | Dedicated syntax/command frontend; not full Bash/Zsh lint-rule or formatting parity |
 | Themes | Standard warning diagnostics plus semantic classifications; token color depends on theme |
+| Clients without refresh support | Completed results are served on the next diagnostic/token request; immediate no-edit updates require negotiated refresh support |
 | Remote validation | Workspace-host architecture; real SSH/WSL/container acceptance runs remain required |
 
 See [provider builds and licenses](../../tooling/providers/README.md) and the [implementation ledger](../../plans/shell-intelligence.md). No full platform-parity claim is implied by the available build recipes.
@@ -143,3 +144,5 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Build | `npm run build` |
 | Unit and hook tests | `npm test` |
 | Package host VSIX | `npm run vsix` |
+| Real editor smoke | `npm run test:extension-host` |
+| Installed package smoke | `SHUCKED_TEST_VSIX=/absolute/path/package.vsix npm run test:extension-host` |

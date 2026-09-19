@@ -590,7 +590,9 @@ fn build(
             let name = facts.name().map(str::to_owned);
             let has_visible_source = source_analysis.as_ref().is_some_and(|analysis| {
                 analysis.semantic().source_refs().iter().any(|source| {
-                    analysis.semantic().source_ref_visible_at_offset(source, facts.name_span().start.offset())
+                    analysis
+                        .semantic()
+                        .source_ref_visible_at_offset(source, facts.name_span().start.offset())
                 })
             });
             let sourced_function =
@@ -822,8 +824,26 @@ pub(crate) fn hover(snapshot: &DocumentSnapshot, offset: usize) -> Option<types:
                 .join(" → ")
         )
     };
+    let captured_age = if snapshot
+        .client_settings()
+        .environment()
+        .target_inventory
+        .is_some()
+        && analysis.environment.captured_unix_ms > 0
+    {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        format!(
+            "\nInventory: frozen capture, {} seconds old",
+            now.saturating_sub(u128::from(analysis.environment.captured_unix_ms)) / 1000
+        )
+    } else {
+        String::new()
+    };
     let value = format!(
-        "Command: {}\nTarget: {}\nShell: {:?} · {:?}\nLaunch directory: {} ({})\nResolution: {}{}{}",
+        "Command: {}\nTarget: {}\nShell: {:?} · {:?}\nLaunch directory: {} ({})\nResolution: {}{}{}{}",
         site.name().unwrap_or("dynamic"),
         analysis.context.target_id,
         analysis.context.dialect,
@@ -841,6 +861,7 @@ pub(crate) fn hover(snapshot: &DocumentSnapshot, offset: usize) -> Option<types:
         },
         resolution_text,
         alias_text,
+        captured_age,
         analysis
             .failure
             .as_ref()

@@ -356,11 +356,22 @@ fn inventory_reuse_separates_launch_directory_confidence_and_path_order() {
 #[test]
 fn local_function_before_later_source_survives_unavailable_workspace_index() {
     let root = tempfile::tempdir().unwrap();
-    let mut snapshot = fixture(root.path(), "script.sh", "local_fn() { :; }\nlocal_fn\n. \"$LATER\"\nlocal_fn\n", None);
+    let mut snapshot = fixture(
+        root.path(),
+        "script.sh",
+        "local_fn() { :; }\nlocal_fn\n. \"$LATER\"\nlocal_fn\n",
+        None,
+    );
     snapshot.workspace_functions = None;
     let analysis = snapshot.command_service.analysis(&snapshot);
-    let calls = analysis.sites.iter().filter(|(facts, _)| facts.name() == Some("local_fn")).collect::<Vec<_>>();
+    let calls = analysis
+        .sites
+        .iter()
+        .filter(|(facts, _)| facts.name() == Some("local_fn"))
+        .collect::<Vec<_>>();
     assert_eq!(calls.len(), 2);
-    assert!(matches!(&calls[0].1, CommandResolution::Resolved(command) if command.kind == shucked_command::CommandKind::Function));
+    assert!(
+        matches!(&calls[0].1, CommandResolution::Resolved(command) if command.kind == shucked_command::CommandKind::Function)
+    );
     assert!(matches!(&calls[1].1, CommandResolution::Unknown(_)));
 }
