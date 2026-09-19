@@ -145,7 +145,10 @@ just corpus test --timing
 
 ## Fuzzing
 
-Shucked keeps fuzzing under the repo-root `fuzz/` workspace, managed via `just fuzz` and `tooling/`.
+Shucked keeps fuzzing in the `tooling/fuzz/` workspace, managed via `just fuzz` and `tooling/`.
+
+`cargo fuzz` resolves the fuzz directory relative to the nearest non-fuzz package, so it must run
+from `tooling/fuzz` (or with `--fuzz-dir tooling/fuzz`).
 
 Initialize the fuzz toolchain, generated corpora, and artifact directories with:
 
@@ -159,17 +162,15 @@ For CI or non-interactive setup:
 just fuzz init --ci
 ```
 
-The setup command seeds repository-owned fixtures into two generated corpora:
+The setup command seeds repository-owned fixtures into one generated corpus:
 
-- `fuzz/corpus/common` for parser, recovered-parser, arithmetic, glob, and linter targets
-- `fuzz/corpus/formatter` for formatter targets, seeded from formatter-owned stable fixtures
+- `tooling/fuzz/corpus/common` for parser, recovered-parser, arithmetic, glob, and linter targets
 
 Seed sources:
 
 - `crates/shucked-linter/resources/test/fixtures`
 - `crates/shucked-formatter/tests/oracle-fixtures`
 - `crates/shucked-benchmark/resources/files`
-- `tooling/fixtures`
 
 If `rustup` is not installed yet, the setup script bootstraps it so fuzzing can use nightly
 without changing the repo's default stable toolchain.
@@ -235,11 +236,11 @@ the broader `full` profile.
 To minimize a `cargo-fuzz` crash:
 
 ```bash
-cd fuzz
+cd tooling/fuzz
 cargo +nightly fuzz tmin parser_fuzz artifacts/parser_fuzz/crash-...
 ```
 
-CLI fuzzer failures are minimized automatically and written under `fuzz/artifacts/cli/`.
+CLI fuzzer failures are minimized automatically and written under `tooling/fuzz/artifacts/cli/`.
 
 ## Project Structure
 
@@ -256,6 +257,7 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 | `shucked-formatter` | Shell script formatter                                                                         |
 | `shucked-benchmark` | Shared benchmark fixtures and benchmark harness helpers                                        |
 | `shucked-tooling`   | High-performance developer tooling CLI (`tooling/`)                                            |
+| `shucked-fuzz`      | Separate `cargo-fuzz` workspace under `tooling/fuzz/`                                          |
 
 ## Adding a Lint Rule
 

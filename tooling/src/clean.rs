@@ -3,7 +3,7 @@ use colored::Colorize;
 use std::fs;
 
 use crate::runner::{
-    RunOptions, find_repo_root, print_section, print_step, print_success, run_command,
+    FUZZ_DIR, RunOptions, find_repo_root, print_section, print_step, print_success, run_command,
 };
 
 pub fn run_clean(all: bool, dry_run: bool) -> Result<()> {
@@ -44,8 +44,8 @@ pub fn run_clean(all: bool, dry_run: bool) -> Result<()> {
 
     if all {
         let all_targets = [
-            repo_root.join("fuzz/artifacts"),
-            repo_root.join("fuzz/corpus"),
+            repo_root.join(FUZZ_DIR).join("artifacts"),
+            repo_root.join(FUZZ_DIR).join("corpus"),
         ];
         for path in &all_targets {
             if path.exists() {

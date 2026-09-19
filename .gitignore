@@ -43,9 +43,9 @@ website/out/
 .claude/settings.local.json
 .codex
 .cache
-fuzz/corpus/
-fuzz/artifacts/
-fuzz/target/
+tooling/fuzz/corpus/
+tooling/fuzz/artifacts/
+tooling/fuzz/target/
 /shuck.cdx.xml
 
 editors/vscode/node_modules/

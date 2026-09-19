@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 use crate::runner::{
-    RunOptions, find_repo_root, is_tool_available, print_error, print_section, print_step,
-    print_success, run_command,
+    FUZZ_DIR, RunOptions, find_repo_root, is_tool_available, print_error, print_section,
+    print_step, print_success, run_command,
 };
 
 const COMMON_TARGETS: &[&str] = &[
@@ -55,7 +55,7 @@ pub fn run_fuzz_init(ci: bool, cmin: bool, large_corpus: bool) -> Result<()> {
     }
 
     // 2. Directory setup
-    let fuzz_dir = repo_root.join("fuzz");
+    let fuzz_dir = repo_root.join(FUZZ_DIR);
     let corpus_dir = fuzz_dir.join("corpus");
     let common_dir = corpus_dir.join("common");
     let artifacts_dir = fuzz_dir.join("artifacts");
@@ -165,7 +165,7 @@ pub fn run_fuzz_list() -> Result<()> {
     let repo_root = find_repo_root()?;
     print_section("Fuzz Targets");
 
-    let fuzz_dir = repo_root.join("fuzz");
+    let fuzz_dir = repo_root.join(FUZZ_DIR);
     if !fuzz_dir.is_dir() {
         bail!("fuzz directory not found at {}", fuzz_dir.display());
     }
@@ -183,7 +183,7 @@ pub fn run_fuzz_smoke(sanitizer: Option<&str>) -> Result<()> {
     let repo_root = find_repo_root()?;
     print_section("Fuzz Smoke Test");
 
-    let fuzz_dir = repo_root.join("fuzz");
+    let fuzz_dir = repo_root.join(FUZZ_DIR);
     let opts = RunOptions {
         cwd: Some(&fuzz_dir),
         ..Default::default()
@@ -228,7 +228,7 @@ pub fn run_fuzz_target(
     let repo_root = find_repo_root()?;
     print_section(&format!("Fuzz Runner: {target}"));
 
-    let fuzz_dir = repo_root.join("fuzz");
+    let fuzz_dir = repo_root.join(FUZZ_DIR);
     let opts = RunOptions {
         cwd: Some(&fuzz_dir),
         ..Default::default()
@@ -396,7 +396,7 @@ pub fn run_fuzz_cli(
         bail!("Compiled shuck binary not found at {}", bin.display());
     }
 
-    let artifacts_dir = repo_root.join("fuzz/artifacts/cli");
+    let artifacts_dir = repo_root.join(FUZZ_DIR).join("artifacts/cli");
     fs::create_dir_all(&artifacts_dir)?;
 
     print_step(&format!(

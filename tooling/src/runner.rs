@@ -47,6 +47,9 @@ pub fn print_warning(msg: &str) {
     println!("{} {msg}", "⚠".yellow().bold());
 }
 
+/// Fuzz workspace path, relative to the repository root.
+pub const FUZZ_DIR: &str = "tooling/fuzz";
+
 /// Locate the workspace repository root directory.
 pub fn find_repo_root() -> Result<PathBuf> {
     let mut current = std::env::current_dir().context("Failed to get current working directory")?;

@@ -321,16 +321,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
-name = "errno"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
-dependencies = [
- "libc",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "etcetera"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -340,12 +330,6 @@ dependencies = [
  "home",
  "windows-sys 0.48.0",
 ]
-
-[[package]]
-name = "fastrand"
-version = "2.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
 
 [[package]]
 name = "find-msvc-tools"
@@ -626,12 +610,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "linux-raw-sys"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
-
-[[package]]
 name = "litemap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -786,19 +764,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
 
 [[package]]
-name = "rustix"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
-dependencies = [
- "bitflags 2.11.0",
- "errno",
- "libc",
- "linux-raw-sys",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -945,14 +910,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "shuck-ast"
+name = "shucked-ast"
 version = "0.0.1"
 dependencies = [
  "compact_str",
 ]
 
 [[package]]
-name = "shuck-config"
+name = "shucked-config"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -960,48 +925,47 @@ dependencies = [
  "etcetera",
  "globset",
  "serde",
- "shuck-formatter",
- "shuck-run",
+ "shucked-formatter",
  "toml",
 ]
 
 [[package]]
-name = "shuck-discover"
+name = "shucked-discover"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "globset",
  "ignore",
- "shuck-config",
- "shuck-extract",
- "shuck-linter",
- "shuck-parser",
+ "shucked-config",
+ "shucked-extract",
+ "shucked-linter",
+ "shucked-parser",
 ]
 
 [[package]]
-name = "shuck-extract"
+name = "shucked-extract"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "github-actions-expressions",
  "saphyr",
  "saphyr-parser",
- "shuck-ast",
+ "shucked-ast",
 ]
 
 [[package]]
-name = "shuck-formatter"
+name = "shucked-formatter"
 version = "0.0.1"
 dependencies = [
  "memchr",
  "rustc-hash",
- "shuck-ast",
- "shuck-indexer",
- "shuck-parser",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-parser",
 ]
 
 [[package]]
-name = "shuck-fuzz"
+name = "shucked-fuzz"
 version = "0.0.0"
 dependencies = [
  "crossbeam",
@@ -1009,24 +973,24 @@ dependencies = [
  "lsp-server",
  "lsp-types",
  "serde_json",
- "shuck-ast",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-server",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-lsp",
+ "shucked-parser",
  "similar",
 ]
 
 [[package]]
-name = "shuck-indexer"
+name = "shucked-indexer"
 version = "0.0.1"
 dependencies = [
- "shuck-ast",
- "shuck-parser",
+ "shucked-ast",
+ "shucked-parser",
 ]
 
 [[package]]
-name = "shuck-linter"
+name = "shucked-linter"
 version = "0.0.1"
 dependencies = [
  "anyhow",
@@ -1035,73 +999,59 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_yaml",
- "shuck-ast",
- "shuck-indexer",
- "shuck-parser",
- "shuck-semantic",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-parser",
+ "shucked-semantic",
  "smallvec",
  "thiserror",
 ]
 
 [[package]]
-name = "shuck-parser"
-version = "0.0.1"
-dependencies = [
- "memchr",
- "shuck-ast",
- "smallvec",
-]
-
-[[package]]
-name = "shuck-run"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "etcetera",
- "serde",
- "serde_json",
- "sha2",
- "shuck-parser",
- "tempfile",
- "toml",
- "url",
-]
-
-[[package]]
-name = "shuck-semantic"
-version = "0.0.1"
-dependencies = [
- "bitflags 2.11.0",
- "compact_str",
- "rustc-hash",
- "shuck-ast",
- "shuck-indexer",
- "shuck-parser",
- "smallvec",
-]
-
-[[package]]
-name = "shuck-server"
+name = "shucked-lsp"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "libc",
  "lsp-server",
  "lsp-types",
  "rustc-hash",
  "serde",
  "serde_json",
  "sha2",
- "shuck-ast",
- "shuck-config",
- "shuck-discover",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-semantic",
+ "shucked-ast",
+ "shucked-config",
+ "shucked-discover",
+ "shucked-formatter",
+ "shucked-indexer",
+ "shucked-linter",
+ "shucked-parser",
+ "shucked-semantic",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "shucked-parser"
+version = "0.0.1"
+dependencies = [
+ "memchr",
+ "shucked-ast",
+ "smallvec",
+]
+
+[[package]]
+name = "shucked-semantic"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.0",
+ "compact_str",
+ "rustc-hash",
+ "shucked-ast",
+ "shucked-indexer",
+ "shucked-parser",
+ "smallvec",
 ]
 
 [[package]]
@@ -1165,19 +1115,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom",
- "once_cell",
- "rustix",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1341,7 +1278,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "utf8parse"
-version = "0.0.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
