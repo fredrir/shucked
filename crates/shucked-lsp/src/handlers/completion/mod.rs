@@ -25,10 +25,14 @@ pub(super) fn extend(
     snapshot: &DocumentSnapshot,
     analysis: &DocumentAnalysis,
     offset: usize,
-    native: (&Environment, &RequestCancellationToken),
+    native: (
+        &Environment,
+        &RequestCancellationToken,
+        &crate::session::Client,
+    ),
     parameter_start: Option<usize>,
 ) -> bool {
-    let (environment, cancellation) = native;
+    let (environment, cancellation, client) = native;
     let command_analysis = snapshot.command_service.analysis(snapshot);
     let local = command_analysis.local_environment;
     let scoped_environment =
@@ -127,6 +131,50 @@ pub(super) fn extend(
     let words = effective_words.as_ref().unwrap_or(&site.words);
     let arguments = specs::arguments(words);
     let mut native_arguments = false;
+    if !site.command
+        && !site.redirect
+        && options.include_native
+        && options.include_command_arguments
+        && local
+        && environment.native_allowed
+        && command_site.is_some_and(|(facts, _)| {
+            facts.environment_uncertain.is_none()
+                && facts.effective_words.iter().all(|word| word.text.is_some())
+        })
+    {
+        incomplete |=
+            command_analysis.context.mode == shucked_command::ExecutionMode::InteractiveSession;
+        if let Some(response) = crate::server::live_completion::request(
+            client,
+            snapshot,
+            words,
+            &site.prefix,
+            cancellation,
+        ) {
+            incomplete |= response.partial;
+            for candidate in response.candidates {
+                if candidate.text.starts_with(&site.prefix) && seen.insert(candidate.text.clone()) {
+                    native_arguments = true;
+                    items.push(item(
+                        &candidate.text,
+                        if candidate.text.starts_with('-') {
+                            types::CompletionItemKind::FIELD
+                        } else {
+                            types::CompletionItemKind::VALUE
+                        },
+                        if candidate.description.is_empty() {
+                            "Live shell completion"
+                        } else {
+                            &candidate.description
+                        },
+                        site.insert(&candidate.text),
+                        range,
+                        0,
+                    ));
+                }
+            }
+        }
+    }
     let native_enabled = !site.command
         && !site.redirect
         && !arguments.expecting_value
@@ -139,6 +187,7 @@ pub(super) fn extend(
     // Do not let the editor permanently filter a temporary fallback response.
     incomplete |= native_enabled;
     if native_enabled
+        && !native_arguments
         && let Some(candidates) = environment.native.complete(
             environment,
             words,

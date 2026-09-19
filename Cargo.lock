@@ -2072,6 +2072,7 @@ dependencies = [
  "libc",
  "lsp-server",
  "lsp-types",
+ "notify",
  "rustc-hash 2.1.2",
  "serde",
  "serde_json",

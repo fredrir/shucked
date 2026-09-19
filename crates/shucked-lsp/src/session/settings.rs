@@ -177,6 +177,14 @@ impl ShuckSettings {
         ResolvedProjectSettings::resolve(&context, option_layers).for_file(file_path)
     }
 
+    pub(crate) fn resolve_untitled(workspace: &Path, option_layers: &[&ClientOptions]) -> Self {
+        let context = SettingsResolveContext {
+            config_root: workspace.to_path_buf(),
+            project_root: Some(workspace.to_path_buf()),
+        };
+        ResolvedProjectSettings::resolve(&context, option_layers).for_file(None)
+    }
+
     pub(crate) fn command_declarations(&self) -> &BTreeMap<String, shucked_config::ProjectCommand> {
         &self.command_declarations
     }

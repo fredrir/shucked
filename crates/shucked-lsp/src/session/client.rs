@@ -19,12 +19,34 @@ pub struct Client {
 }
 
 impl Client {
+    pub(crate) fn environment_changed(&self) -> crate::Result<()> {
+        self.main_loop_sender
+            .send(Event::EnvironmentTick)
+            .map_err(Into::into)
+    }
     /// Create a client handle from main-loop and LSP connection channels.
     pub fn new(main_loop_sender: MainLoopSender, client_sender: ConnectionSender) -> Self {
         Self {
             main_loop_sender,
             client_sender,
         }
+    }
+
+    pub(crate) fn queue_live_completion(
+        &self,
+        pending: crate::server::live_completion::Pending,
+    ) -> crate::Result<()> {
+        self.main_loop_sender
+            .send(Event::LiveCompletion(pending))
+            .map_err(Into::into)
+    }
+    pub(crate) fn cancel_live_completion(&self, id: RequestId) -> crate::Result<()> {
+        self.main_loop_sender
+            .send(Event::CancelLiveCompletion(id))
+            .map_err(Into::into)
+    }
+    pub(crate) fn send_raw_request(&self, message: Message) -> crate::Result<()> {
+        self.client_sender.send(message).map_err(Into::into)
     }
 
     pub(crate) fn queue_diagnostics(

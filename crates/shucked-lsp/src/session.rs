@@ -36,6 +36,7 @@ mod settings;
 
 /// Mutable LSP session state for open documents, workspaces, and settings.
 pub struct Session {
+    environment_watcher: crate::server::environment_watcher::EnvironmentWatcher,
     environment_overrides: std::collections::HashMap<Url, environment_options::EnvironmentOptions>,
     diagnostic_worker: crate::server::diagnostic_worker::DiagnosticWorker,
     command_service: Arc<crate::handlers::commands::CommandService>,
@@ -87,6 +88,9 @@ impl Session {
         client: &Client,
     ) -> crate::Result<Self> {
         Ok(Self {
+            environment_watcher: crate::server::environment_watcher::EnvironmentWatcher::new(
+                client.clone(),
+            ),
             environment_overrides: Default::default(),
             diagnostic_worker: crate::server::diagnostic_worker::DiagnosticWorker::new(
                 client.clone(),
@@ -149,12 +153,15 @@ impl Session {
         } else {
             self.environment_overrides.remove(&uri);
         }
+        self.analysis_cache.clear();
         self.command_service.invalidate();
-        self.schedule_diagnostics(uri);
+        self.workspace_function_index.invalidate();
+        self.schedule_all_diagnostics();
     }
 
     pub(crate) fn update_shell_session(&self, state: crate::handlers::commands::ShellSessionState) {
         self.command_service.update_session(state);
+        self.update_environment_watches();
         self.schedule_all_diagnostics();
     }
 
@@ -165,10 +172,16 @@ impl Session {
     }
 
     pub(crate) fn refresh_environment(&self) {
+        self.update_environment_watches();
         self.workspace_diagnostics.invalidate_all();
         self.command_service.invalidate();
         self.completion_environment.invalidate();
         self.schedule_all_diagnostics();
+    }
+
+    pub(crate) fn update_environment_watches(&self) {
+        self.environment_watcher
+            .update(self.command_service.watch_directories());
     }
 
     pub(crate) fn schedule_all_diagnostics(&self) {
@@ -179,18 +192,40 @@ impl Session {
 
     /// Capture a document snapshot for diagnostics, hovers, or code actions.
     pub fn take_snapshot(&self, url: Url) -> Option<DocumentSnapshot> {
-        let (settings, mut client_settings) = self
-            .index
-            .resolve_snapshot_settings(&url, self.global_settings.options());
+        let associated_workspace = if url.scheme() == "untitled" {
+            match self
+                .environment_overrides
+                .get(&url)
+                .and_then(|options| options.workspace_uri.as_ref())
+            {
+                Some(uri) => uri
+                    .to_file_path()
+                    .ok()
+                    .filter(|path| self.workspace_roots().contains(path)),
+                None if self.workspace_roots().len() == 1 => {
+                    self.workspace_roots().first().cloned()
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        let (settings, mut client_settings) = self.index.resolve_snapshot_settings(
+            &url,
+            self.global_settings.options(),
+            associated_workspace.as_deref(),
+        );
         if let Some(options) = self.environment_overrides.get(&url) {
             Arc::make_mut(&mut client_settings).override_environment(options);
         }
-        let workspace_cwd = url.to_file_path().ok().and_then(|path| {
-            self.workspace_roots()
-                .iter()
-                .filter(|root| path.starts_with(root))
-                .max_by_key(|root| root.components().count())
-                .cloned()
+        let workspace_cwd = associated_workspace.or_else(|| {
+            url.to_file_path().ok().and_then(|path| {
+                self.workspace_roots()
+                    .iter()
+                    .filter(|root| path.starts_with(root))
+                    .max_by_key(|root| root.components().count())
+                    .cloned()
+            })
         });
         let key = self.key_from_url(url);
         Some(DocumentSnapshot {
@@ -960,3 +995,7 @@ mod tests {
         assert_eq!(after.shuck_settings().linter().rules.len(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/session/environment_context.rs"]
+mod environment_context_tests;

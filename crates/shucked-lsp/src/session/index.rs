@@ -113,9 +113,16 @@ impl Index {
         &self,
         url: &Url,
         global_options: &ClientOptions,
+        associated_workspace: Option<&Path>,
     ) -> (Arc<ShuckSettings>, Arc<ClientSettings>) {
         let file_path = url.to_file_path().ok();
-        let workspace_settings = self.workspace_settings_for_url(url);
+        let workspace_settings = associated_workspace
+            .and_then(|root| {
+                self.workspace_settings
+                    .iter()
+                    .find(|workspace| workspace.root == root)
+            })
+            .or_else(|| self.workspace_settings_for_url(url));
 
         if let Some(workspace_options) =
             workspace_settings.and_then(|workspace| workspace.options.as_ref())
@@ -305,6 +312,11 @@ impl Index {
         workspace_root: Option<&Path>,
         option_layers: &[&ClientOptions],
     ) -> Arc<ShuckSettings> {
+        if file_path.is_none()
+            && let Some(root) = workspace_root
+        {
+            return Arc::new(ShuckSettings::resolve_untitled(root, option_layers));
+        }
         if !self.cache_project_settings {
             return Arc::new(ShuckSettings::resolve(
                 file_path,

@@ -95,6 +95,7 @@ where
             &snapshot,
             &params,
             environment,
+            Some(_client),
         ));
     }
     let Some(analysis) = snapshot.analysis() else {
@@ -392,7 +393,7 @@ where
             &snapshot,
             &analysis,
             offset,
-            (environment, cancellation),
+            (environment, cancellation, _client),
             parameter,
         );
     }

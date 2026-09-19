@@ -9,6 +9,7 @@ pub(crate) fn complete(
     snapshot: &DocumentSnapshot,
     params: &types::CompletionParams,
     environment: Option<(&Environment, &RequestCancellationToken)>,
+    live_client: Option<&crate::session::Client>,
 ) -> Option<types::CompletionResponse> {
     let document = snapshot.query().document();
     let source = document.contents();
@@ -164,7 +165,45 @@ pub(crate) fn complete(
                     );
                 }
             }
+            let mut live_candidates = false;
             if !command_position
+                && options.include_native
+                && options.include_command_arguments
+                && environment.native_allowed
+                && local
+                && resolved_site.is_some_and(|(facts, _)| {
+                    facts.environment_uncertain.is_none()
+                        && facts.effective_words.iter().all(|word| word.text.is_some())
+                })
+                && let Some(client) = live_client
+            {
+                incomplete |= command_analysis.context.mode
+                    == shucked_command::ExecutionMode::InteractiveSession;
+                if let Some(response) = crate::server::live_completion::request(
+                    client,
+                    snapshot,
+                    &words,
+                    &prefix,
+                    cancellation,
+                ) {
+                    incomplete |= response.partial;
+                    live_candidates = !response.candidates.is_empty();
+                    for candidate in response.candidates {
+                        add(
+                            &candidate.text,
+                            if candidate.description.is_empty() {
+                                "Live shell completion"
+                            } else {
+                                &candidate.description
+                            },
+                            types::CompletionItemKind::VALUE,
+                            0,
+                        );
+                    }
+                }
+            }
+            if !command_position
+                && !live_candidates
                 && options.include_native
                 && options.include_command_arguments
                 && environment.native_allowed

@@ -15,9 +15,13 @@ pub(crate) type MainLoopReceiver = crossbeam::channel::Receiver<Event>;
 
 impl Server {
     pub(super) fn main_loop(&mut self) -> crate::Result<()> {
+        self.session.update_environment_watches();
         let mut scheduler = schedule::Scheduler::new(self.worker_threads);
         let mut completed_diagnostics = std::collections::HashMap::new();
-        let environment_tick = crossbeam::channel::tick(std::time::Duration::from_secs(30));
+        let environment_tick = crossbeam::channel::tick(std::time::Duration::from_millis(100));
+        let mut last_environment_refresh = std::time::Instant::now();
+        let mut diagnostic_refresh_pending = false;
+        let mut token_refresh_pending = false;
         while let Ok(next_event) = self.next_event(&environment_tick) {
             let Some(next_event) = next_event else {
                 return Ok(());
@@ -96,7 +100,57 @@ impl Server {
 
                     scheduler.dispatch(task, &mut self.session, client);
                 }
-                Event::EnvironmentTick => self.session.refresh_environment(),
+                Event::LiveCompletion(pending) => {
+                    let client = Client::new(
+                        self.main_loop_sender.clone(),
+                        self.connection.sender.clone(),
+                    );
+                    crate::server::live_completion::start(pending, &self.session, &client)?;
+                }
+                Event::CancelLiveCompletion(id) => {
+                    if self
+                        .session
+                        .request_queue_mut()
+                        .outgoing_mut()
+                        .complete(&id)
+                        .is_some()
+                    {
+                        self.connection.sender.send(Message::Notification(
+                            lsp_server::Notification::new(
+                                "$/cancelRequest".into(),
+                                serde_json::json!({"id": id}),
+                            ),
+                        ))?;
+                    }
+                }
+                Event::EnvironmentTick => {
+                    self.session.refresh_environment();
+                    last_environment_refresh = std::time::Instant::now();
+                }
+                Event::RefreshTick => {
+                    if last_environment_refresh.elapsed() >= std::time::Duration::from_secs(30) {
+                        self.session.refresh_environment();
+                        last_environment_refresh = std::time::Instant::now();
+                    }
+                    let client = Client::new(
+                        self.main_loop_sender.clone(),
+                        self.connection.sender.clone(),
+                    );
+                    if std::mem::take(&mut diagnostic_refresh_pending) {
+                        client.send_request::<types::request::WorkspaceDiagnosticRefresh>(
+                            &self.session,
+                            (),
+                            |_, _, ()| {},
+                        )?;
+                    }
+                    if std::mem::take(&mut token_refresh_pending) {
+                        client.send_request::<types::request::SemanticTokensRefresh>(
+                            &self.session,
+                            (),
+                            |_, _, ()| {},
+                        )?;
+                    }
+                }
                 Event::DiagnosticsReady(result) => {
                     let Some(current) = self.session.take_snapshot(result.uri.clone()) else {
                         continue;
@@ -130,11 +184,7 @@ impl Server {
                     let capabilities = self.session.resolved_client_capabilities();
                     if capabilities.pull_diagnostics {
                         if capabilities.diagnostic_refresh {
-                            client.send_request::<types::request::WorkspaceDiagnosticRefresh>(
-                                &self.session,
-                                (),
-                                |_, _, ()| {},
-                            )?;
+                            diagnostic_refresh_pending = true;
                         }
                     } else {
                         client.send_notification::<types::notification::PublishDiagnostics>(
@@ -146,11 +196,7 @@ impl Server {
                         )?;
                     }
                     if result.environment_complete && capabilities.semantic_token_refresh {
-                        client.send_request::<types::request::SemanticTokensRefresh>(
-                            &self.session,
-                            (),
-                            |_, _, ()| {},
-                        )?;
+                        token_refresh_pending = true;
                     }
                 }
                 Event::SendResponse(response) => {
@@ -179,7 +225,7 @@ impl Server {
         select!(
             recv(self.connection.receiver) -> msg => Ok(msg.ok().map(Event::Message)),
             recv(self.main_loop_receiver) -> event => event.map(Some),
-            recv(environment_tick) -> _ => Ok(Some(Event::EnvironmentTick)),
+            recv(environment_tick) -> _ => Ok(Some(Event::RefreshTick)),
         )
     }
 
@@ -273,6 +319,9 @@ pub enum Event {
     SendResponse(lsp_server::Response),
     DiagnosticsReady(crate::server::diagnostic_worker::DiagnosticsReady),
     EnvironmentTick,
+    RefreshTick,
+    LiveCompletion(crate::server::live_completion::Pending),
+    CancelLiveCompletion(lsp_server::RequestId),
 }
 
 #[cfg(test)]

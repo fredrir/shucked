@@ -8,6 +8,8 @@ use std::path::PathBuf;
 pub struct EnvironmentOptions {
     /// Workspace checks are the default; portable suppresses host absence checks.
     pub policy: Option<String>,
+    /// Registered workspace folder associated with an untitled document.
+    pub workspace_uri: Option<lsp_types::Url>,
     /// Explicitly attached terminal session.
     pub session_id: Option<String>,
     /// Explicit launch directory. Otherwise the workspace folder is assumed.
@@ -41,6 +43,9 @@ impl EnvironmentOptions {
     }
 
     pub(crate) fn overlay(&mut self, next: &Self) {
+        if next.workspace_uri.is_some() {
+            self.workspace_uri.clone_from(&next.workspace_uri);
+        }
         if next.session_id.is_some() {
             self.session_id.clone_from(&next.session_id);
         }

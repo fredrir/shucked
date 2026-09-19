@@ -112,6 +112,7 @@ fn attached_startup_file_does_not_use_post_startup_path_or_directory() {
         aliases: BTreeMap::new(),
         functions: BTreeSet::new(),
         connected: true,
+        live_completion: false,
         shell: Some("zsh".into()),
         options: BTreeMap::new(),
     });
@@ -233,6 +234,7 @@ fn live_session(id: &str, directory: &std::path::Path) -> ShellSessionState {
         aliases: BTreeMap::new(),
         functions: BTreeSet::new(),
         connected: true,
+        live_completion: false,
         shell: Some("zsh".into()),
         options: BTreeMap::new(),
     }

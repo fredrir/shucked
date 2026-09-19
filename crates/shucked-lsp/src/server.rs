@@ -19,6 +19,8 @@ pub(crate) use api::Error;
 pub(crate) mod api;
 pub(crate) mod connection;
 pub(crate) mod diagnostic_worker;
+pub(crate) mod environment_watcher;
+pub(crate) mod live_completion;
 pub(crate) mod main_loop;
 pub(crate) mod schedule;
 

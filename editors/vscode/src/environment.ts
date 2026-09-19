@@ -3,6 +3,7 @@ import { ClientManager } from "./client";
 
 export interface EnvironmentSelection {
   policy?: "workspace" | "portable";
+  workspaceUri?: string;
   cwd?: string;
   targetInventory?: string;
   sessionId?: string;
@@ -35,7 +36,7 @@ export class EnvironmentManager implements vscode.Disposable {
 
   public async attachSession(id: string): Promise<void> {
     const document = vscode.window.activeTextEditor?.document;
-    if (document) { await this.apply(document, { sessionId: id }); }
+    if (document) { await this.apply(document, { workspaceUri: this.selection(document)?.workspaceUri, sessionId: id }); }
   }
 
   public selection(document: vscode.TextDocument): EnvironmentSelection | undefined {
@@ -43,6 +44,7 @@ export class EnvironmentManager implements vscode.Disposable {
   }
 
   private async restore(document: vscode.TextDocument): Promise<void> {
+    if (document.isUntitled) { this.updateStatus(); return; }
     const selection = this.context.workspaceState.get<EnvironmentSelection>(`environment:${document.uri.toString()}`);
     if (selection) { this.selections.set(document.uri.toString(), selection); await this.client.notify("shucked/selectEnvironment", { uri: document.uri.toString(), options: selection }); }
     this.updateStatus();
@@ -50,9 +52,10 @@ export class EnvironmentManager implements vscode.Disposable {
 
   private async apply(document: vscode.TextDocument, selection: EnvironmentSelection | undefined): Promise<void> {
     const uri = document.uri.toString();
+    void vscode.commands.executeCommand("editor.action.inlineSuggest.hide");
     if (selection) { this.selections.set(uri, selection); } else { this.selections.delete(uri); }
     // A live process cannot be restored across extension sessions.
-    await this.context.workspaceState.update(`environment:${uri}`, selection?.sessionId ? undefined : selection);
+    await this.context.workspaceState.update(`environment:${uri}`, selection?.sessionId || document.isUntitled ? undefined : selection);
     await this.client.notify("shucked/selectEnvironment", { uri, options: selection ?? null });
     this.updateStatus();
   }
@@ -61,6 +64,7 @@ export class EnvironmentManager implements vscode.Disposable {
     const document = vscode.window.activeTextEditor?.document;
     if (!document) { return; }
     const choice = await vscode.window.showQuickPick([
+      ...(document.isUntitled ? [{ label: "Associate workspace…", description: "Select this buffer's settings and assumed launch directory", id: "association" }] : []),
       { label: "Workspace host", description: `${vscode.env.remoteName ?? "local"} · script semantics`, id: "workspace" },
       { label: "Portable", description: "Syntax and source checks; no host absence warnings", id: "portable" },
       { label: "Captured target…", description: "Use an offline target inventory", id: "captured" },
@@ -68,31 +72,38 @@ export class EnvironmentManager implements vscode.Disposable {
       { label: "Use workspace settings", description: "Remove this document's override", id: "reset" },
     ], { title: "Shucked execution context" });
     if (!choice) { return; }
-    if (choice.id === "captured") {
+    const association = { workspaceUri: this.selection(document)?.workspaceUri };
+    if (choice.id === "association") {
+      const folders = vscode.workspace.workspaceFolders ?? [];
+      const folder = await vscode.window.showQuickPick(folders.map(folder => ({ label: folder.name, description: folder.uri.fsPath, folder })), { title: "Workspace for untitled shell buffer" });
+      if (folder) { await this.apply(document, { ...this.selection(document), workspaceUri: folder.folder.uri.toString() }); }
+    } else if (choice.id === "captured") {
       const picked = await vscode.window.showOpenDialog({ canSelectMany: false, filters: { "Target inventory": ["json"] }, title: "Select captured target" });
-      if (picked?.[0]) { await this.apply(document, { targetInventory: picked[0].fsPath }); }
+      if (picked?.[0]) { await this.apply(document, { ...association, targetInventory: picked[0].fsPath }); }
     } else if (choice.id === "cwd") {
       const picked = await vscode.window.showOpenDialog({ canSelectMany: false, canSelectFiles: false, canSelectFolders: true, title: "Script launch directory" });
       if (picked?.[0]) { await this.apply(document, { ...this.selection(document), cwd: picked[0].fsPath }); }
-    } else { await this.apply(document, choice.id === "reset" ? undefined : { policy: choice.id as "workspace" | "portable" }); }
+    } else { await this.apply(document, choice.id === "reset" ? undefined : { ...association, policy: choice.id as "workspace" | "portable" }); }
   }
 
   private updateStatus(): void {
     const document = vscode.window.activeTextEditor?.document;
     if (!document || !["shellscript", "bash", "zsh", "fish", "sh", "ksh"].includes(document.languageId)) { this.status.hide(); return; }
     const selection = this.selection(document) ?? vscode.workspace.getConfiguration("shucked", document).get<EnvironmentSelection>("environment", {});
+    const associatedFolder = selection.workspaceUri ? vscode.workspace.workspaceFolders?.find(folder => folder.uri.toString() === selection.workspaceUri) : undefined;
+    const assumedFolder = associatedFolder ?? (!selection.workspaceUri && document.isUntitled && vscode.workspace.workspaceFolders?.length === 1 ? vscode.workspace.workspaceFolders[0] : vscode.workspace.getWorkspaceFolder(document.uri));
     const session = selection.sessionId ? this.sessions.get(selection.sessionId) : undefined;
     const target = selection.sessionId ? session?.connected === true ? `Terminal (${session.shell ?? "shell"})` : session?.connected === false ? "Terminal disconnected" : "Terminal pending" : selection.targetInventory ? "Captured" : selection.policy === "portable" ? "Portable" : `Workspace (${vscode.env.remoteName ?? "local"})`;
     const startup = /(?:^|[/\\])(?:\.zshrc|\.zshenv|\.zprofile|\.bashrc|\.bash_profile|\.profile|config\.fish)$/.test(document.uri.path);
-    this.status.text = `$(terminal) ${target}`;
-    this.status.tooltip = `Shucked · ${document.languageId} · ${startup ? "startup file" : selection.sessionId ? "interactive session" : "script"}\nLaunch directory: ${launchDirectoryLabel(startup, selection, session?.cwd)}\nSelect execution context`;
+    this.status.text = `$(terminal) ${target}${document.isUntitled ? ` · ${assumedFolder?.name ?? "select workspace"}` : ""}`;
+    this.status.tooltip = `Shucked · ${document.languageId} · ${startup ? "startup file" : selection.sessionId ? "interactive session" : "script"}\nLaunch directory: ${launchDirectoryLabel(startup, selection, session?.cwd, assumedFolder?.uri.fsPath)}\nSelect execution context`;
     this.status.show();
   }
 
   public dispose(): void { for (const subscription of this.subscriptions) { subscription.dispose(); } }
 }
 
-export function launchDirectoryLabel(startup: boolean, selection: EnvironmentSelection, sessionCwd?: string): string {
+export function launchDirectoryLabel(startup: boolean, selection: EnvironmentSelection, sessionCwd?: string, assumedCwd?: string): string {
   if (startup && selection.sessionId) { return "unknown at startup (terminal state was captured later)"; }
-  return sessionCwd || selection.cwd || "assumed workspace folder";
+  return sessionCwd || selection.cwd || (assumedCwd ? `${assumedCwd} (assumed)` : "unknown workspace");
 }

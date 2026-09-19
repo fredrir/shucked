@@ -42,6 +42,25 @@ pub(crate) struct CommandAnalysis {
 }
 
 impl CommandService {
+    pub(crate) fn watch_directories(&self) -> Vec<PathBuf> {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let mut paths = self
+            .path
+            .iter()
+            .flatten()
+            .map(|path| cwd.join(path))
+            .collect::<Vec<_>>();
+        for state in self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|state| state.connected)
+        {
+            paths.extend(state.path.iter().map(|path| state.cwd.join(path)));
+        }
+        paths
+    }
     pub fn new(native_allowed: bool) -> Self {
         Self {
             generation: AtomicU64::new(0),
@@ -93,7 +112,7 @@ impl CommandService {
         drop(sessions);
         self.invalidate();
     }
-    fn session(&self, id: &str) -> Option<ShellSessionState> {
+    pub(crate) fn session(&self, id: &str) -> Option<ShellSessionState> {
         self.sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -914,6 +933,8 @@ pub(crate) struct ShellSessionState {
     #[serde(default)]
     pub functions: BTreeSet<String>,
     pub connected: bool,
+    #[serde(default)]
+    pub live_completion: bool,
     #[serde(default)]
     pub shell: Option<String>,
     #[serde(default)]

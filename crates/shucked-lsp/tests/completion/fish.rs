@@ -51,6 +51,7 @@ fn items(root: &std::path::Path, marked: &str) -> Vec<types::CompletionItem> {
         &snapshot,
         &params,
         Some((&env, &RequestCancellationToken::default())),
+        None,
     )
     .unwrap()
     {
@@ -101,7 +102,7 @@ fn fish_comments_do_not_offer_command_or_path_completions() {
     let root = tempfile::tempdir().unwrap();
     for source in ["# str¦", "echo hi # str¦"] {
         let (snapshot, params) = fixture(root.path(), source);
-        assert!(complete(&snapshot, &params, None).is_none());
+        assert!(complete(&snapshot, &params, None, None).is_none());
     }
     assert!(
         items(root.path(), "echo (str¦")

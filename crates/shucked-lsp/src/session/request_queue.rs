@@ -117,6 +117,10 @@ pub(crate) struct Outgoing {
 }
 
 impl Outgoing {
+    pub(crate) fn register_named(&self, id: RequestId, handler: ClientResponseHandler) {
+        self.response_handlers.borrow_mut().insert(id, handler);
+    }
+
     pub(crate) fn register(&self, handler: ClientResponseHandler) -> RequestId {
         let id = self.next_request_id.get();
         self.next_request_id.set(id + 1);
