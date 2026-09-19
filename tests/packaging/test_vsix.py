@@ -14,6 +14,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 import pytest
@@ -160,3 +161,13 @@ def test_vsix_binary_bundling_and_permissions(vsix_path: Path):
         )
         assert "shucked" in version_run.stdout.lower()
         assert server_bin.is_file()
+
+
+def test_vsix_targets_the_bundled_platform(vsix_path: Path):
+    with zipfile.ZipFile(vsix_path) as archive:
+        bundled = json.loads(archive.read("extension/bin/platform.json"))
+        manifest = ET.fromstring(archive.read("extension.vsixmanifest"))
+        identity = manifest.find("{*}Metadata/{*}Identity")
+        assert identity is not None
+        assert identity.attrib.get("TargetPlatform") == bundled["target"]
+        assert bundled["target"] != "web"

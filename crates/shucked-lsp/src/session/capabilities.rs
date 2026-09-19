@@ -2,6 +2,7 @@ use lsp_types::ClientCapabilities;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ResolvedClientCapabilities {
+    pub(crate) completion_insert_replace: bool,
     pub(crate) code_action_deferred_edit_resolution: bool,
     pub(crate) apply_edit: bool,
     pub(crate) document_changes: bool,
@@ -60,6 +61,13 @@ impl ResolvedClientCapabilities {
             .unwrap_or_default();
 
         Self {
+            completion_insert_replace: client_capabilities
+                .text_document
+                .as_ref()
+                .and_then(|document| document.completion.as_ref())
+                .and_then(|completion| completion.completion_item.as_ref())
+                .and_then(|item| item.insert_replace_support)
+                .unwrap_or_default(),
             code_action_deferred_edit_resolution: code_action_data_support
                 && code_action_edit_resolution,
             apply_edit,

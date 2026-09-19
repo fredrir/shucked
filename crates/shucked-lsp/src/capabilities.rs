@@ -38,7 +38,12 @@ pub fn server_capabilities(
         }),
         completion_provider: Some(types::CompletionOptions {
             resolve_provider: Some(true),
-            trigger_characters: Some(vec!["$".to_owned(), "{".to_owned()]),
+            trigger_characters: Some(vec![
+                "$".to_owned(),
+                "{".to_owned(),
+                "/".to_owned(),
+                "-".to_owned(),
+            ]),
             ..types::CompletionOptions::default()
         }),
         definition_provider: Some(OneOf::Left(true)),

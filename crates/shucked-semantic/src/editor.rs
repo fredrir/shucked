@@ -627,6 +627,32 @@ impl<'model> EditorQuery<'model> {
             .map(|context| completions_for_context(self.model, source, offset, context, options))
     }
 
+    /// Returns visible variable names for parameter-name completion.
+    pub fn variable_completions_at_offset(
+        &self,
+        offset: usize,
+        include_runtime_names: bool,
+    ) -> Vec<EditorCompletion> {
+        let mut items = variable_completions(self.model, offset, include_runtime_names);
+        filter_and_sort_completions(&mut items, "");
+        items
+    }
+
+    /// Returns visible functions, builtins, and keywords for a command position.
+    pub fn command_completions_at_offset(
+        &self,
+        offset: usize,
+        options: EditorCompletionOptions,
+    ) -> Vec<EditorCompletion> {
+        let mut items = function_completions(self.model, offset);
+        items.extend(builtin_completions(self.model));
+        if options.include_keywords {
+            items.extend(keyword_completions());
+        }
+        filter_and_sort_completions(&mut items, "");
+        items
+    }
+
     /// Returns a conservative rename set for the target under `offset`.
     pub fn rename_set_at_offset(&self, offset: usize) -> Result<RenameSet, RenameUnavailable> {
         let target = self

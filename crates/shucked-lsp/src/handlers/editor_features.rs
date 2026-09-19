@@ -10,10 +10,12 @@ use shucked_semantic::{
     RenameSet, VisibleSourcedFunction,
 };
 
-use super::zsh;
+use super::completion::environment::Environment;
+use super::{completion as native_completion, zsh};
 use crate::analysis::DocumentAnalysis;
 use crate::edit::PositionExt;
 use crate::server::Error;
+use crate::session::RequestCancellationToken;
 use crate::session::{Client, DocumentSnapshot};
 
 pub(crate) type CompletionResponse = Option<types::CompletionResponse>;
@@ -65,10 +67,24 @@ pub(crate) fn completion(
     completion_with_sourced_functions(snapshot, client, params, |_, _| Vec::new())
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
 pub(crate) fn completion_with_sourced_functions<F>(
     snapshot: DocumentSnapshot,
     _client: &Client,
     params: types::CompletionParams,
+    load_sourced_functions: F,
+) -> crate::server::Result<CompletionResponse>
+where
+    F: FnOnce(&DocumentAnalysis, usize) -> Vec<VisibleSourcedFunction>,
+{
+    completion_with_environment(snapshot, _client, params, None, load_sourced_functions)
+}
+
+pub(crate) fn completion_with_environment<F>(
+    snapshot: DocumentSnapshot,
+    _client: &Client,
+    params: types::CompletionParams,
+    environment: Option<(&Environment, &RequestCancellationToken)>,
     load_sourced_functions: F,
 ) -> crate::server::Result<CompletionResponse>
 where
@@ -81,23 +97,84 @@ where
     let position = params.text_document_position.position;
     let offset = offset_for_position(&snapshot, source, analysis.line_index(), position);
     let options = snapshot.client_settings().completion();
-    let completions = analysis.semantic().editor_query().completions_at_offset(
+    let Some(site) = native_completion::context::at(source, analysis.indexer(), offset) else {
+        return Ok(None);
+    };
+    let semantic_options = EditorCompletionOptions {
+        include_runtime_names: options.include_runtime_names,
+        include_keywords: options.include_keywords,
+    };
+    let semantic = analysis.semantic().editor_query().completions_at_offset(
         source,
         analysis.indexer(),
         offset,
-        EditorCompletionOptions {
-            include_runtime_names: options.include_runtime_names,
-            include_keywords: options.include_keywords,
-        },
+        semantic_options,
     );
-    let Some(mut completions) = completions else {
-        return Ok(None);
+    let parameter = semantic
+        .as_ref()
+        .filter(|completion| completion.context == EditorCompletionContext::Parameter)
+        .filter(|completion| {
+            if site.quote == native_completion::context::Quote::Single {
+                return false;
+            }
+            let start = completion.replacement_span.start.offset();
+            let Some(dollar) = source[..start].rfind('$') else {
+                return false;
+            };
+            source[..dollar]
+                .chars()
+                .rev()
+                .take_while(|ch| *ch == '\\')
+                .count()
+                % 2
+                == 0
+        })
+        .map(|completion| completion.replacement_span.start.offset());
+    let semantic_operand = semantic.as_ref().is_some_and(|completion| {
+        matches!(
+            completion.context,
+            EditorCompletionContext::Declaration | EditorCompletionContext::Option
+        )
+    });
+    let mut completions = if parameter.is_some() || semantic_operand {
+        semantic.expect("semantic context was checked")
+    } else {
+        let mut items = if site.command {
+            analysis
+                .semantic()
+                .editor_query()
+                .command_completions_at_offset(offset, semantic_options)
+        } else {
+            Vec::new()
+        };
+        items.retain(|item| native_completion::matches(item.name.as_str(), &site.prefix));
+        shucked_semantic::EditorCompletions {
+            context: EditorCompletionContext::Command,
+            replacement_span: shucked_ast::Span::from_positions(
+                shucked_ast::Position::at(1, site.range.start + 1, site.range.start),
+                shucked_ast::Position::at(1, offset + 1, offset),
+            ),
+            items,
+        }
     };
-    let prefix = completions.replacement_span.slice(source);
+    if let Some(start) = parameter {
+        completions.items = analysis
+            .semantic()
+            .editor_query()
+            .variable_completions_at_offset(offset, options.include_runtime_names);
+        completions
+            .items
+            .retain(|item| native_completion::matches(item.name.as_str(), &source[start..offset]));
+    }
+    let prefix = if site.command {
+        site.prefix.as_str()
+    } else {
+        completions.replacement_span.slice(source)
+    };
     let mut sourced_by_name = HashMap::new();
-    if completions.context == EditorCompletionContext::Command {
+    if site.command && parameter.is_none() && !prefix.contains('/') {
         for sourced in load_sourced_functions(&analysis, offset) {
-            if !prefix.is_empty() && !sourced.name.as_str().starts_with(prefix) {
+            if !prefix.is_empty() && !native_completion::matches(sourced.name.as_str(), prefix) {
                 continue;
             }
             let local_wins = completions.items.iter().any(|item| {
@@ -122,13 +199,20 @@ where
     completions
         .items
         .sort_by_key(|item| (completion_kind_rank(item.kind), item.name.to_string()));
-    let range = crate::edit::to_lsp_range(
-        completions.replacement_span.to_range(),
-        source,
-        analysis.line_index(),
-        snapshot.encoding(),
-    );
-    let items = completions
+    let range = if parameter.is_some() || semantic_operand {
+        let start = completions.replacement_span.start.offset();
+        let mut end = offset;
+        for ch in source[offset..].chars() {
+            if !(ch == '_' || ch.is_ascii_alphanumeric()) {
+                break;
+            }
+            end += ch.len_utf8();
+        }
+        native_completion::range(&snapshot, &analysis, start..end)
+    } else {
+        native_completion::range(&snapshot, &analysis, site.range.clone())
+    };
+    let mut items = completions
         .items
         .into_iter()
         .map(|completion| {
@@ -240,21 +324,49 @@ where
 
             types::CompletionItem {
                 label: completion.name.to_string(),
+                sort_text: Some(format!(
+                    "{}:{}",
+                    completion_kind_rank(completion.kind),
+                    completion.name
+                )),
+                filter_text: Some(if site.command && parameter.is_none() {
+                    site.insert(completion.name.as_str())
+                } else {
+                    completion.name.to_string()
+                }),
+                insert_text_format: Some(types::InsertTextFormat::PLAIN_TEXT),
                 kind: Some(to_lsp_completion_kind(completion.kind)),
                 detail,
                 documentation,
                 text_edit: Some(types::CompletionTextEdit::Edit(types::TextEdit::new(
                     range,
-                    completion.name.to_string(),
+                    if site.command && parameter.is_none() {
+                        site.insert(completion.name.as_str())
+                    } else {
+                        completion.name.to_string()
+                    },
                 ))),
                 data: data.and_then(|data| serde_json::to_value(data).ok()),
                 ..types::CompletionItem::default()
             }
         })
         .collect::<Vec<_>>();
+    let mut is_incomplete = false;
+    if !semantic_operand && let Some((environment, cancellation)) = environment {
+        is_incomplete |= native_completion::extend(
+            &mut items,
+            &site,
+            &snapshot,
+            &analysis,
+            offset,
+            (environment, cancellation),
+            parameter,
+        );
+    }
+    is_incomplete |= native_completion::finish(&mut items, &snapshot, position);
     Ok(Some(types::CompletionResponse::List(
         types::CompletionList {
-            is_incomplete: false,
+            is_incomplete,
             items,
         },
     )))

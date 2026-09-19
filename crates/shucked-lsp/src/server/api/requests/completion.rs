@@ -11,6 +11,8 @@ pub(crate) struct Completion;
 pub(crate) struct CompletionSnapshot {
     document: Option<DocumentSnapshot>,
     workspace: WorkspaceFunctionContext,
+    environment: std::sync::Arc<crate::handlers::completion::environment::Environment>,
+    cancellation: RequestCancellationToken,
 }
 
 impl super::RequestHandler for Completion {
@@ -28,6 +30,8 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
         let uri = params.text_document_position.text_document.uri.clone();
         Ok(CompletionSnapshot {
             document: session.take_snapshot(uri),
+            environment: session.completion_environment.clone(),
+            cancellation: cancellation.clone(),
             workspace: session.workspace_function_context(cancellation),
         })
     }
@@ -46,10 +50,11 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
             .to_file_path()
             .ok()
             .map(|path| canonical_path(&path));
-        editor_features::completion_with_sourced_functions(
+        editor_features::completion_with_environment(
             document,
             client,
             params,
+            Some((&snapshot.environment, &snapshot.cancellation)),
             move |analysis, offset| {
                 let Some(path) = path.as_deref() else {
                     return Vec::new();
@@ -65,6 +70,9 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
                     })
                     .map(|source_ref| source_ref.span)
                     .collect::<Vec<_>>();
+                if source_spans.is_empty() {
+                    return Vec::new();
+                }
                 let Some(index) = workspace_function_index(&snapshot.workspace) else {
                     return Vec::new();
                 };

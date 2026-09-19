@@ -35,6 +35,7 @@ mod settings;
 
 /// Mutable LSP session state for open documents, workspaces, and settings.
 pub struct Session {
+    pub(crate) completion_environment: Arc<crate::handlers::completion::environment::Environment>,
     index: index::Index,
     position_encoding: PositionEncoding,
     global_settings: GlobalClientSettings,
@@ -76,6 +77,9 @@ impl Session {
         client: &Client,
     ) -> crate::Result<Self> {
         Ok(Self {
+            completion_environment: Arc::new(
+                crate::handlers::completion::environment::Environment::detect(),
+            ),
             index: index::Index::new(workspaces, &global, client)?,
             position_encoding,
             global_settings: global,
@@ -170,6 +174,7 @@ impl Session {
     }
 
     pub(crate) fn reload_settings(&mut self, changes: &[FileEvent], client: &Client) {
+        self.completion_environment.invalidate();
         self.index.reload_settings(changes, client);
         self.analysis_cache.clear();
         self.workspace_diagnostics.invalidate_all();

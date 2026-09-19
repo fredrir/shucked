@@ -2,6 +2,7 @@
 
 pub(crate) mod analysis;
 pub(crate) mod call_hierarchy;
+pub(crate) mod completion;
 pub(crate) mod editor_features;
 pub(crate) mod fix;
 pub(crate) mod folding;

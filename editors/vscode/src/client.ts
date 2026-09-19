@@ -171,6 +171,7 @@ export class ClientManager implements vscode.Disposable {
 
   public async start(): Promise<void> {
     this.manualShutdown = false;
+    this.outputChannel.info(`Workspace host: ${vscode.env.remoteName ?? "local"}; ${process.platform}/${process.arch}`);
     this.statusManager.setStatus("starting", "Resolving Shucked binary...");
 
     const config = vscode.workspace.getConfiguration("shucked");

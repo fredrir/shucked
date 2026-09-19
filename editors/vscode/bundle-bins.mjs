@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as cp from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { binaryPlatform, hostTarget } from "./platform.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
@@ -40,7 +41,7 @@ if (missing) {
     },
   );
   if (res.status !== 0) {
-    console.warn(`cargo build exited with status ${res.status}`);
+    throw new Error(`cargo build exited with status ${res.status}`);
   }
 }
 
@@ -52,6 +53,10 @@ for (const name of binaries) {
         `Please run 'cargo build --release -p shucked-cli -p shucked-server' first.`,
     );
   }
+  const binary = binaryPlatform(src);
+  if (binary?.platform !== process.platform || binary?.arch !== process.arch) {
+    throw new Error(`Binary ${src} does not match ${hostTarget()}. Rebuild on the target host.`);
+  }
   const dst = path.join(binDir, name);
   fs.copyFileSync(src, dst);
   if (!isWin) {
@@ -62,3 +67,5 @@ for (const name of binaries) {
     `Bundled ${name} (${(stat.size / (1024 * 1024)).toFixed(2)} MB) -> ${dst}`,
   );
 }
+
+fs.writeFileSync(path.join(binDir, "platform.json"), JSON.stringify({ target: hostTarget() }) + "\n");

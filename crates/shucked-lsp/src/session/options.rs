@@ -406,11 +406,20 @@ struct CompletionFeatureOptionsOverrides {
     include_runtime_names: Option<bool>,
     #[serde(default)]
     include_keywords: Option<bool>,
+    include_environment: Option<bool>,
+    include_paths: Option<bool>,
+    include_command_arguments: Option<bool>,
+    max_items: Option<usize>,
 }
 
 impl CompletionFeatureOptionsOverrides {
     fn has_overrides(self) -> bool {
-        self.include_runtime_names.is_some() || self.include_keywords.is_some()
+        self.include_runtime_names.is_some()
+            || self.include_keywords.is_some()
+            || self.include_environment.is_some()
+            || self.include_paths.is_some()
+            || self.include_command_arguments.is_some()
+            || self.max_items.is_some()
     }
 
     fn apply_to(self, base: CompletionFeatureOptions) -> CompletionFeatureOptions {
@@ -419,6 +428,12 @@ impl CompletionFeatureOptionsOverrides {
                 .include_runtime_names
                 .unwrap_or(base.include_runtime_names),
             include_keywords: self.include_keywords.unwrap_or(base.include_keywords),
+            include_environment: self.include_environment.unwrap_or(base.include_environment),
+            include_paths: self.include_paths.unwrap_or(base.include_paths),
+            include_command_arguments: self
+                .include_command_arguments
+                .unwrap_or(base.include_command_arguments),
+            max_items: self.max_items.unwrap_or(base.max_items),
         }
     }
 }
@@ -433,6 +448,18 @@ pub struct CompletionFeatureOptions {
     /// Include shell keywords in command-position completion.
     #[serde(default = "default_completion_include_keywords")]
     pub include_keywords: bool,
+    /// Include executable and variable names from the server host.
+    #[serde(default = "default_completion_include_keywords")]
+    pub include_environment: bool,
+    /// Complete paths relative to the document directory.
+    #[serde(default = "default_completion_include_keywords")]
+    pub include_paths: bool,
+    /// Include known command flags and subcommands.
+    #[serde(default = "default_completion_include_keywords")]
+    pub include_command_arguments: bool,
+    /// Maximum candidates in a response; clamped to 1..=2000.
+    #[serde(default = "default_completion_max_items")]
+    pub max_items: usize,
 }
 
 impl Default for CompletionFeatureOptions {
@@ -440,6 +467,10 @@ impl Default for CompletionFeatureOptions {
         Self {
             include_runtime_names: true,
             include_keywords: true,
+            include_environment: true,
+            include_paths: true,
+            include_command_arguments: true,
+            max_items: default_completion_max_items(),
         }
     }
 }
@@ -656,6 +687,10 @@ fn default_workspace_diagnostics_max_source_bytes() -> usize {
 
 fn default_workspace_symbols_max_files() -> usize {
     5000
+}
+
+fn default_completion_max_items() -> usize {
+    200
 }
 
 fn default_completion_include_runtime_names() -> bool {

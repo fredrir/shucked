@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { binaryPlatform, hostTarget } from "../platform.mjs";
 
 
 export function expandVariables(value: string): string {
@@ -12,7 +13,7 @@ export function expandVariables(value: string): string {
   );
 }
 
-export function ensureExecutable(filePath: string): boolean {
+export function ensureExecutable(filePath: string, repairPermissions = false): boolean {
   try {
     if (!fs.existsSync(filePath)) {
       return false;
@@ -25,6 +26,9 @@ export function ensureExecutable(filePath: string): boolean {
       try {
         fs.accessSync(filePath, fs.constants.X_OK);
       } catch {
+        if (!repairPermissions) {
+          return false;
+        }
         try {
           fs.chmodSync(filePath, 0o755);
           fs.accessSync(filePath, fs.constants.X_OK);
@@ -34,6 +38,26 @@ export function ensureExecutable(filePath: string): boolean {
       }
     }
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function bundledExecutable(filePath: string, output: vscode.LogOutputChannel): boolean {
+  try {
+    const binary = binaryPlatform(filePath);
+    const metadataPath = path.join(path.dirname(filePath), "platform.json");
+    const metadata: unknown = fs.existsSync(metadataPath)
+      ? JSON.parse(fs.readFileSync(metadataPath, "utf8"))
+      : undefined;
+    const target = metadata && typeof metadata === "object" && "target" in metadata
+      ? metadata.target
+      : undefined;
+    if (binary?.platform !== process.platform || binary?.arch !== process.arch || (target !== undefined && target !== hostTarget())) {
+      output.warn(`Skipping incompatible bundled binary: ${filePath}. Host: ${hostTarget()}`);
+      return false;
+    }
+    return ensureExecutable(filePath, true);
   } catch {
     return false;
   }
@@ -99,7 +123,7 @@ export async function resolveBinary(
   const exeName = isWin ? `${binaryName}.exe` : binaryName;
 
   const bundledPath = path.join(context.extensionPath, "bin", exeName);
-  if (ensureExecutable(bundledPath)) {
+  if (bundledExecutable(bundledPath, outputChannel)) {
     outputChannel.info(`Found bundled binary: "${bundledPath}"`);
     return bundledPath;
   }
@@ -168,13 +192,13 @@ export async function resolveServerCommand(
   const cliExeName = isWin ? "shucked.exe" : "shucked";
 
   const bundledServer = path.join(context.extensionPath, "bin", serverExeName);
-  if (ensureExecutable(bundledServer)) {
+  if (bundledExecutable(bundledServer, outputChannel)) {
     outputChannel.info(`Found bundled language server binary: "${bundledServer}"`);
     return { command: bundledServer, args: [...extraArgs] };
   }
 
   const bundledCli = path.join(context.extensionPath, "bin", cliExeName);
-  if (ensureExecutable(bundledCli)) {
+  if (bundledExecutable(bundledCli, outputChannel)) {
     outputChannel.info(`Found bundled CLI binary: "${bundledCli}"`);
     return { command: bundledCli, args: ["server", ...extraArgs] };
   }

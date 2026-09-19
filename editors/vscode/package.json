@@ -42,6 +42,10 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Shucked requires a filesystem and a native server on the workspace host."
     }
   },
   "workspaceTrust": {
@@ -112,7 +116,8 @@
           "examples": [
             "/usr/local/bin/shucked",
             "$HOME/.cargo/bin/shucked"
-          ]
+          ],
+          "scope": "machine-overridable"
         },
         "shucked.server.extraArgs": {
           "type": "array",
@@ -120,7 +125,8 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra CLI args for shucked server."
+          "description": "Extra CLI args for shucked server.",
+          "scope": "machine-overridable"
         },
         "shucked.trace.server": {
           "type": "string",
@@ -131,6 +137,44 @@
           ],
           "default": "off",
           "description": "Traces the communication between VS Code and the Shucked language server."
+        },
+        "shucked.server.completion.includeEnvironment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete commands and variable names from the language server host.",
+          "scope": "resource"
+        },
+        "shucked.server.completion.includePaths": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete paths relative to the current script directory.",
+          "scope": "resource"
+        },
+        "shucked.server.completion.includeCommandArguments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete flags and subcommands from the built-in command catalog.",
+          "scope": "resource"
+        },
+        "shucked.server.completion.includeRuntimeNames": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete runtime-provided shell variables.",
+          "scope": "resource"
+        },
+        "shucked.server.completion.includeKeywords": {
+          "type": "boolean",
+          "default": true,
+          "description": "Complete shell keywords.",
+          "scope": "resource"
+        },
+        "shucked.server.completion.maxItems": {
+          "type": "number",
+          "default": 200,
+          "description": "Maximum completion candidates per response.",
+          "scope": "resource",
+          "minimum": 1,
+          "maximum": 2000
         }
       }
     }
@@ -164,7 +208,8 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "vsix": "vsce package --no-dependencies",
-    "publish": "vsce publish --no-dependencies"
+    "vsix": "node vsix.mjs package",
+    "publish": "node vsix.mjs publish",
+    "test": "node --test tests/*.test.mjs"
   }
 }

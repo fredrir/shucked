@@ -121,12 +121,8 @@ pub fn run_vscode_package() -> Result<()> {
     };
     run_command(runner, &["run", "package"], &opts)?;
 
-    if is_tool_available("vsce") {
-        print_step("Creating .vsix artifact with vsce...");
-        run_command("vsce", &["package", "--no-dependencies"], &opts)?;
-    } else {
-        print_warning("vsce is not installed on PATH, vsix creation skipped.");
-    }
+    print_step("Creating platform VSIX artifact...");
+    run_command(runner, &["run", "vsix"], &opts)?;
 
     print_success("VS Code extension packaging finished.");
     Ok(())

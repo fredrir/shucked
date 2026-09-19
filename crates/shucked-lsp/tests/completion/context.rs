@@ -1,0 +1,350 @@
+use super::*;
+use crate::{
+    Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
+};
+use lsp_types::{ClientCapabilities, Url};
+
+fn complete(
+    root: &Path,
+    marked: &str,
+    options: serde_json::Value,
+    insert_replace: bool,
+) -> Vec<types::CompletionItem> {
+    completion_list(root, marked, options, insert_replace).items
+}
+
+fn completion_list(
+    root: &Path,
+    marked: &str,
+    options: serde_json::Value,
+    insert_replace: bool,
+) -> types::CompletionList {
+    let cursor = marked.find('¦').expect("cursor marker");
+    let source = marked.replacen('¦', "", 1);
+    let (sender, _) = crossbeam::channel::unbounded();
+    let (client_sender, _) = crossbeam::channel::unbounded();
+    let client = Client::new(sender, client_sender);
+    let uri = Url::from_file_path(root.join("script.sh")).unwrap();
+    let workspaces = Workspaces::new(vec![Workspace::default(Url::from_file_path(root).unwrap())]);
+    let capabilities = serde_json::from_value::<ClientCapabilities>(serde_json::json!({
+        "textDocument": { "completion": { "completionItem": { "insertReplaceSupport": insert_replace } } }
+    })).unwrap();
+    let global: GlobalOptions = serde_json::from_value(options).unwrap();
+    let mut session = Session::new(
+        &capabilities,
+        PositionEncoding::UTF16,
+        global.into_settings(client.clone()),
+        &workspaces,
+        &client,
+    )
+    .unwrap();
+    session.open_text_document(
+        uri.clone(),
+        TextDocument::new(source.clone(), 1).with_language_id("shellscript"),
+    );
+    let snapshot = session.take_snapshot(uri.clone()).unwrap();
+    let position = types::Position::new(
+        source[..cursor]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count() as u32,
+        source[..cursor]
+            .rsplit('\n')
+            .next()
+            .unwrap()
+            .encode_utf16()
+            .count() as u32,
+    );
+    let params = types::CompletionParams {
+        text_document_position: types::TextDocumentPositionParams {
+            text_document: types::TextDocumentIdentifier { uri },
+            position,
+        },
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+        context: None,
+    };
+    let environment = Environment::fixture(root);
+    let result = crate::editor_features::completion_with_environment(
+        snapshot,
+        &client,
+        params,
+        Some((&environment, &RequestCancellationToken::default())),
+        |_, _| Vec::new(),
+    )
+    .unwrap();
+    match result {
+        Some(types::CompletionResponse::List(list)) => list,
+        None => types::CompletionList {
+            is_incomplete: false,
+            items: Vec::new(),
+        },
+        _ => panic!("expected completion list"),
+    }
+}
+
+fn edit(item: &types::CompletionItem) -> &types::TextEdit {
+    match item.text_edit.as_ref().unwrap() {
+        types::CompletionTextEdit::Edit(edit) => edit,
+        _ => panic!("expected replacement edit"),
+    }
+}
+
+#[test]
+fn paths_preserve_quoting_expansions_and_replace_suffixes() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("some folder")).unwrap();
+    std::fs::write(root.path().join("some folder/file name.txt"), "").unwrap();
+    for (source, expected) in [
+        ("cat some\\ folder/fi¦le", "file\\ name.txt"),
+        ("cat 'some folder/fi¦le'", "file name.txt"),
+        ("cat \"some folder/fi¦le\"", "file name.txt"),
+        ("cat ~/some\\ folder/fi¦le", "file\\ name.txt"),
+        ("cat \"$HOME/some folder/fi¦le\"", "file name.txt"),
+        ("cat \"${HOME}/some folder/fi¦le\"", "file name.txt"),
+    ] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        let candidate = items
+            .iter()
+            .find(|item| item.label == "file name.txt")
+            .unwrap_or_else(|| panic!("missing file in {source}: {items:?}"));
+        assert_eq!(edit(candidate).new_text, expected, "{source}");
+        assert_eq!(
+            edit(candidate).range.end.character - edit(candidate).range.start.character,
+            4,
+            "replace entire basename: {source}"
+        );
+    }
+}
+
+#[test]
+fn directories_redirects_hidden_files_and_literal_dollars() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("folder")).unwrap();
+    std::fs::write(root.path().join("file"), "").unwrap();
+    std::fs::write(root.path().join(".hidden"), "").unwrap();
+    std::fs::write(root.path().join("$literal"), "").unwrap();
+    assert_eq!(
+        complete(root.path(), "cd f¦", serde_json::json!({}), false)
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>(),
+        ["folder/"]
+    );
+    let items = complete(root.path(), "echo hi > f¦", serde_json::json!({}), false);
+    assert!(items.iter().any(|item| item.label == "file"));
+    assert!(!items.iter().any(|item| item.label == ".hidden"));
+    assert!(
+        complete(root.path(), "cat .¦", serde_json::json!({}), false)
+            .iter()
+            .any(|item| item.label == ".hidden")
+    );
+    assert!(
+        complete(root.path(), "cat '$li¦'", serde_json::json!({}), false)
+            .iter()
+            .any(|item| item.label == "$literal")
+    );
+}
+
+#[test]
+fn flags_subcommands_option_values_and_end_of_options() {
+    let root = tempfile::tempdir().unwrap();
+    for (source, expected) in [
+        ("git --no-¦", "--no-pager"),
+        ("git -C /tmp sta¦", "status"),
+        ("git remote a¦", "add"),
+        ("git status --por¦", "--porcelain"),
+        ("curl --lo¦", "--location"),
+        ("docker compose u¦", "up"),
+    ] {
+        assert!(
+            complete(root.path(), source, serde_json::json!({}), false)
+                .iter()
+                .any(|item| item.label == expected),
+            "{source}"
+        );
+    }
+    for source in [
+        "git status -- --por¦",
+        "git commit -m --am¦",
+        "echo 'git status --por¦'",
+        "# git --no-¦",
+        "cat <<EOF\ngit --no-¦\nEOF\n",
+    ] {
+        assert!(
+            !complete(root.path(), source, serde_json::json!({}), false)
+                .iter()
+                .any(|item| item.kind == Some(types::CompletionItemKind::FIELD)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn symbols_after_assignments_and_pipelines_replace_remaining_name() {
+    let root = tempfile::tempdir().unwrap();
+    for source in [
+        "build_project() { :; }\nFOO=1 bu¦ild",
+        "build_project() { :; }\nprintf x | bu¦ild",
+        "build_project() { :; }\necho $(bu¦ild)",
+    ] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        let candidate = items
+            .iter()
+            .find(|item| item.label == "build_project")
+            .unwrap();
+        assert_eq!(edit(candidate).new_text, "build_project");
+        assert_eq!(
+            edit(candidate).range.end.character - edit(candidate).range.start.character,
+            5
+        );
+    }
+    let items = complete(
+        root.path(),
+        "value=1\necho $va¦lue",
+        serde_json::json!({}),
+        true,
+    );
+    let candidate = items.iter().find(|item| item.label == "value").unwrap();
+    let Some(types::CompletionTextEdit::InsertAndReplace(edit)) = &candidate.text_edit else {
+        panic!("expected insert/replace edit")
+    };
+    assert_eq!(
+        edit.insert,
+        types::Range::new(types::Position::new(1, 6), types::Position::new(1, 8))
+    );
+    assert_eq!(edit.replace.end.character, 11);
+}
+
+#[test]
+fn environment_variables_can_be_disabled_and_results_are_bounded() {
+    let root = tempfile::tempdir().unwrap();
+    let items = complete(
+        root.path(),
+        "echo $SHUCKED_TEST_¦",
+        serde_json::json!({}),
+        false,
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item.label == "SHUCKED_TEST_VARIABLE")
+    );
+    let items = complete(
+        root.path(),
+        "echo $SHUCKED_TEST_¦",
+        serde_json::json!({"server": {"completion": {"includeEnvironment": false}}}),
+        false,
+    );
+    assert!(items.is_empty());
+    let list = completion_list(
+        root.path(),
+        "git ¦",
+        serde_json::json!({"server": {"completion": {"maxItems": 2}}}),
+        false,
+    );
+    assert_eq!(list.items.len(), 2);
+    assert!(list.is_incomplete);
+}
+
+#[test]
+fn assignments_and_equals_options_complete_paths() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("file name"), "").unwrap();
+    for source in ["OUTPUT=fi¦", "OUTPUT=\"fi¦\"", "curl --output=fi¦"] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        assert!(
+            items.iter().any(|item| item.label == "file name"),
+            "{source}: {items:?}"
+        );
+    }
+    let items = complete(
+        root.path(),
+        "OUTPUT=\"$SHUCKED_TEST_¦\"",
+        serde_json::json!({}),
+        false,
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item.label == "SHUCKED_TEST_VARIABLE")
+    );
+}
+
+#[test]
+fn escaped_dollars_do_not_complete_variables_and_quoted_tildes_are_literal() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("~")).unwrap();
+    std::fs::write(root.path().join("~/literal"), "").unwrap();
+    for source in [r"echo \$SHUCKED_TEST_¦", "echo '$SHUCKED_TEST_¦'"] {
+        assert!(
+            !complete(root.path(), source, serde_json::json!({}), false)
+                .iter()
+                .any(|item| item.label == "SHUCKED_TEST_VARIABLE"),
+            "{source}"
+        );
+    }
+    assert!(
+        complete(root.path(), "cat \"~/li¦\"", serde_json::json!({}), false)
+            .iter()
+            .any(|item| item.label == "literal")
+    );
+}
+
+#[test]
+fn unicode_paths_use_utf16_edit_ranges() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("😀file"), "").unwrap();
+    let items = complete(root.path(), "cat 😀f¦oo", serde_json::json!({}), false);
+    let candidate = items.iter().find(|item| item.label == "😀file").unwrap();
+    assert_eq!(
+        edit(candidate).range,
+        types::Range::new(types::Position::new(0, 4), types::Position::new(0, 9))
+    );
+}
+
+#[test]
+fn wrappers_preserve_command_context_and_option_values() {
+    let root = tempfile::tempdir().unwrap();
+    for source in [
+        "build_project() { :; }\nsudo -u root bu¦",
+        "build_project() { :; }\nenv -u SECRET FOO=bar bu¦",
+        "build_project() { :; }\ncommand -v bu¦",
+    ] {
+        assert!(
+            complete(root.path(), source, serde_json::json!({}), false)
+                .iter()
+                .any(|item| item.label == "build_project"),
+            "{source}"
+        );
+    }
+    let items = complete(root.path(), "sudo -u ro¦", serde_json::json!({}), false);
+    assert!(
+        !items
+            .iter()
+            .any(|item| item.kind == Some(types::CompletionItemKind::FUNCTION))
+    );
+}
+
+#[test]
+fn fuzzy_symbols_rank_prefix_matches_before_subsequences() {
+    let root = tempfile::tempdir().unwrap();
+    let items = complete(
+        root.path(),
+        "build_project() { :; }\nbpr_exact() { :; }\nbpr¦",
+        serde_json::json!({}),
+        false,
+    );
+    let names = items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["bpr_exact", "build_project"]);
+    let items = complete(
+        root.path(),
+        "long_variable_name=1\necho $lvn¦",
+        serde_json::json!({}),
+        false,
+    );
+    assert!(items.iter().any(|item| item.label == "long_variable_name"));
+}

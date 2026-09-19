@@ -10,11 +10,12 @@ from typing import Any, Dict, List, Optional, Union
 class LspClient:
     """JSON-RPC client for interacting with `shucked server` over stdio."""
 
-    def __init__(self, binary_path: Optional[str] = None):
+    def __init__(self, binary_path: Optional[str] = None, environment: Optional[Dict[str, str]] = None):
         if binary_path is None:
             repo_root = Path(__file__).resolve().parent.parent.parent
             binary_path = str(repo_root / "target" / "debug" / "shucked")
         self.binary_path = binary_path
+        self.environment = environment
         self.proc: Optional[asyncio.subprocess.Process] = None
         self._next_id = 1
         self._pending_requests: Dict[int, asyncio.Future] = {}
@@ -31,6 +32,7 @@ class LspClient:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self.environment,
         )
         self._read_task = asyncio.create_task(self._read_loop())
 
