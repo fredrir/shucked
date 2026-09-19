@@ -1,12 +1,14 @@
+#[cfg(test)]
+use std::path::Path;
 pub(super) mod context;
 pub(crate) mod environment;
+pub(crate) mod fish;
 mod native;
-mod native_process;
+pub(crate) mod native_process;
 mod native_zsh;
 mod specs;
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use lsp_types as types;
 use shucked_ast::{TextRange, TextSize};
@@ -27,12 +29,17 @@ pub(super) fn extend(
     parameter_start: Option<usize>,
 ) -> bool {
     let (environment, cancellation) = native;
+    let command_analysis = snapshot.command_service.analysis(snapshot);
+    let local = command_analysis.local_environment;
+    let scoped_environment =
+        environment.scoped(&command_analysis.context, &command_analysis.environment);
+    let environment = &scoped_environment;
     let options = snapshot.client_settings().completion();
     let mut incomplete = false;
     let mut seen: BTreeSet<_> = items.iter().map(|item| item.label.clone()).collect();
     let range = range(snapshot, analysis, site.range.clone());
     if let Some(start) = parameter_start {
-        if options.include_environment {
+        if options.include_environment && local {
             let prefix = &analysis.source()[start..offset];
             let mut end = offset;
             for ch in analysis.source()[offset..].chars() {
@@ -58,14 +65,13 @@ pub(super) fn extend(
         return incomplete;
     }
     if site.command && !site.prefix.contains('/') && options.include_environment {
-        let (commands, partial) = environment.commands(&site.prefix, cancellation);
-        incomplete |= partial;
-        for (name, path) in commands {
-            if seen.insert(name.clone()) {
+        incomplete |= !command_analysis.environment.is_complete();
+        for name in command_names(&command_analysis.context, &command_analysis.environment) {
+            if matches(&name, &site.prefix) && seen.insert(name.clone()) {
                 items.push(item(
                     &name,
                     types::CompletionItemKind::FUNCTION,
-                    &format!("Executable · {}", path.display()),
+                    &format!("Command · {}", command_analysis.context.target_id),
                     site.insert(&name),
                     range,
                     3,
@@ -73,28 +79,74 @@ pub(super) fn extend(
             }
         }
     }
-    let arguments = specs::arguments(&site.words);
+    let command_site = command_analysis
+        .sites
+        .iter()
+        .filter(|(facts, _)| {
+            facts.span.start.offset() <= offset
+                && (offset <= facts.span.end.offset()
+                    || analysis
+                        .source()
+                        .get(facts.span.end.offset()..offset)
+                        .is_some_and(|tail| tail.chars().all(|ch| matches!(ch, ' ' | '\t'))))
+        })
+        .min_by_key(|(facts, _)| {
+            facts
+                .span
+                .end
+                .offset()
+                .saturating_sub(facts.span.start.offset())
+        });
+    let grammar_allowed =
+        command_site.is_none_or(|(facts, resolution)| grammar_allowed(facts, resolution));
+    let effective_words = command_site.and_then(|(facts, resolution)| {
+        let shucked_command::CommandResolution::Resolved(resolved) = resolution else {
+            return None;
+        };
+        if facts.aliases.is_empty() && resolved.alias_chain.is_empty() {
+            return None;
+        }
+        let completed = facts
+            .effective_words
+            .iter()
+            .filter(|word| word.injected || word.span.end.offset() <= site.range.start)
+            .count();
+        let injected = resolved
+            .effective_words
+            .len()
+            .saturating_sub(facts.effective_words.len());
+        Some(
+            resolved
+                .effective_words
+                .iter()
+                .take(completed + injected)
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+    });
+    let words = effective_words.as_ref().unwrap_or(&site.words);
+    let arguments = specs::arguments(words);
     let mut native_arguments = false;
     let native_enabled = !site.command
         && !site.redirect
         && !arguments.expecting_value
         && options.include_command_arguments
         && options.include_native
-        && environment.native_allowed;
+        && environment.native_allowed
+        && local
+        && grammar_allowed;
     // Live providers can be busy or change their results between keystrokes.
     // Do not let the editor permanently filter a temporary fallback response.
     incomplete |= native_enabled;
     if native_enabled
         && let Some(candidates) = environment.native.complete(
             environment,
-            &site.words,
+            words,
             &site.prefix,
-            analysis
-                .path()
-                .and_then(Path::parent)
-                .unwrap_or(&environment.cwd),
+            &crate::handlers::commands::cwd(snapshot),
             cancellation,
-            options.use_shell_config,
+            false,
+            crate::handlers::commands::dialect(snapshot),
         )
     {
         native_arguments = !candidates.is_empty();
@@ -132,6 +184,7 @@ pub(super) fn extend(
         && !site.redirect
         && options.include_command_arguments
         && !native_arguments
+        && grammar_allowed
         && !arguments.after_separator
         && !arguments.expecting_value
     {
@@ -164,6 +217,7 @@ pub(super) fn extend(
         }
     }
     if options.include_paths
+        && local
         && !native_arguments
         && (!site.command || site.prefix.contains('/') || site.prefix.starts_with('~'))
         && (!site.prefix.starts_with('-')
@@ -184,6 +238,37 @@ pub(super) fn extend(
     incomplete
 }
 
+fn grammar_allowed(
+    facts: &shucked_semantic::CommandSiteFacts,
+    resolution: &shucked_command::CommandResolution,
+) -> bool {
+    facts.environment_uncertain.is_none()
+        && match resolution {
+            shucked_command::CommandResolution::Unknown(_) => false,
+            shucked_command::CommandResolution::Resolved(command) => {
+                command.kind != shucked_command::CommandKind::Function
+            }
+            shucked_command::CommandResolution::Missing(_) => facts.aliases.is_empty(),
+        }
+}
+
+fn command_names(
+    context: &shucked_command::ExecutionContext,
+    environment: &shucked_command::EnvironmentSnapshot,
+) -> BTreeSet<String> {
+    let mut names = environment.command_names();
+    names.extend(
+        shucked_command::builtins(context.dialect)
+            .into_iter()
+            .map(str::to_owned),
+    );
+    if context.mode == shucked_command::ExecutionMode::InteractiveSession && environment.fresh {
+        names.extend(environment.functions.iter().cloned());
+        names.extend(environment.aliases.keys().cloned());
+    }
+    names
+}
+
 fn paths(
     items: &mut Vec<types::CompletionItem>,
     site: &Site,
@@ -199,10 +284,7 @@ fn paths(
         .map_or(("", site.prefix.as_str()), |(parent, prefix)| {
             (parent, prefix)
         });
-    let base = analysis
-        .path()
-        .and_then(Path::parent)
-        .unwrap_or(&environment.cwd);
+    let base = crate::handlers::commands::cwd(snapshot);
     let raw = &analysis.source()[site.range.start..offset];
     let expands_variables = site.quote != Quote::Single && !raw.starts_with("\\$");
     let directory = if parent.is_empty() && site.prefix.starts_with('/') {

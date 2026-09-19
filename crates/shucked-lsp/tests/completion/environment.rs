@@ -62,3 +62,28 @@ fn first_path_entry_wins_and_missing_directories_are_ignored() {
     assert_eq!(commands.len(), 1);
     assert_eq!(commands["tool.exe"], first.join("tool.exe"));
 }
+
+#[test]
+fn scoped_requests_share_directory_cache_and_invalidation() {
+    let root = tempfile::tempdir().unwrap();
+    let environment = Environment::fixture(root.path());
+    let context = shucked_command::ExecutionContext::default();
+    let snapshot = shucked_command::EnvironmentSnapshot::empty(&context);
+    let cancellation = RequestCancellationToken::default();
+    let first = environment
+        .scoped(&context, &snapshot)
+        .directory(root.path(), &cancellation);
+    let second = environment
+        .scoped(&context, &snapshot)
+        .directory(root.path(), &cancellation);
+    assert!(
+        Arc::ptr_eq(&first, &second),
+        "requests should reuse the bounded directory listing"
+    );
+    std::fs::write(root.path().join("new-file"), "").unwrap();
+    environment.invalidate();
+    let refreshed = environment
+        .scoped(&context, &snapshot)
+        .directory(root.path(), &cancellation);
+    assert_eq!(refreshed.entries[0].name, "new-file");
+}

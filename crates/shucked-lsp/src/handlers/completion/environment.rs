@@ -12,14 +12,14 @@ const CACHE_TTL: Duration = Duration::from_secs(2);
 
 pub(crate) struct Environment {
     pub(super) cwd: PathBuf,
-    pub(super) native: super::native::Native,
+    pub(super) native: Arc<super::native::Native>,
     pub(super) native_allowed: bool,
     pub(super) home: Option<PathBuf>,
     pub(super) variables: BTreeSet<String>,
     pub(super) path_variables: BTreeMap<String, PathBuf>,
     path: Vec<PathBuf>,
     executable_extensions: Vec<String>,
-    cache: Mutex<VecDeque<CachedDirectory>>,
+    cache: Arc<Mutex<VecDeque<CachedDirectory>>>,
 }
 
 struct CachedDirectory {
@@ -45,14 +45,14 @@ impl Environment {
     pub(super) fn fixture(root: &Path) -> Self {
         Self {
             cwd: root.to_owned(),
-            native: super::native::Native::default(),
+            native: Arc::new(super::native::Native::default()),
             native_allowed: false,
             home: Some(root.to_owned()),
             variables: BTreeSet::from(["SHUCKED_TEST_VARIABLE".to_owned()]),
             path_variables: BTreeMap::from([("HOME".to_owned(), root.to_owned())]),
             path: vec![root.join("bin")],
             executable_extensions: vec![".exe".to_owned(), ".cmd".to_owned()],
-            cache: Mutex::default(),
+            cache: Arc::default(),
         }
     }
 
@@ -69,36 +69,9 @@ impl Environment {
                 path.is_absolute().then_some((name, path))
             })
             .collect();
-        let mut seen = BTreeSet::new();
-        #[allow(unused_mut)] // Standard Unix directories are appended below.
-        let mut path: Vec<PathBuf> = std::env::var_os("PATH")
-            .map(|path| {
-                std::env::split_paths(&path)
-                    .map(|path| {
-                        if path.is_absolute() {
-                            path
-                        } else {
-                            cwd.join(path)
-                        }
-                    })
-                    .filter(|path| seen.insert(path.clone()))
-                    .collect()
-            })
+        let path: Vec<PathBuf> = std::env::var_os("PATH")
+            .map(|path| std::env::split_paths(&path).collect())
             .unwrap_or_default();
-        // Desktop launches often omit package-manager bins from PATH.
-        #[cfg(unix)]
-        for directory in [
-            "/opt/homebrew/bin",
-            "/home/linuxbrew/.linuxbrew/bin",
-            "/usr/local/bin",
-            "/usr/bin",
-            "/bin",
-        ] {
-            let directory = PathBuf::from(directory);
-            if directory.is_dir() && seen.insert(directory.clone()) {
-                path.push(directory);
-            }
-        }
         let executable_extensions = std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_owned())
             .split(';')
@@ -107,7 +80,7 @@ impl Environment {
             .collect();
         Self {
             cwd,
-            native: super::native::Native::detect(),
+            native: Arc::new(super::native::Native::detect()),
             native_allowed,
             home: std::env::var_os("HOME")
                 .or_else(|| std::env::var_os("USERPROFILE"))
@@ -116,8 +89,34 @@ impl Environment {
             path_variables,
             path,
             executable_extensions,
-            cache: Mutex::default(),
+            cache: Arc::default(),
         }
+    }
+
+    pub(super) fn scoped(
+        &self,
+        context: &shucked_command::ExecutionContext,
+        snapshot: &shucked_command::EnvironmentSnapshot,
+    ) -> Self {
+        Self {
+            cwd: context.cwd.clone().unwrap_or_else(|| self.cwd.clone()),
+            native: self.native.clone(),
+            native_allowed: self.native_allowed && context.native_execution_allowed,
+            home: self.home.clone(),
+            variables: self.variables.clone(),
+            path_variables: self.path_variables.clone(),
+            path: snapshot
+                .search_path
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect(),
+            executable_extensions: snapshot.executable_extensions.clone(),
+            cache: self.cache.clone(),
+        }
+    }
+
+    pub(super) fn execution_path(&self) -> Option<std::ffi::OsString> {
+        std::env::join_paths(&self.path).ok()
     }
 
     pub(crate) fn invalidate(&self) {
@@ -134,7 +133,13 @@ impl Environment {
         } else {
             self.path
                 .iter()
-                .map(|directory| directory.join(command))
+                .map(|entry| {
+                    if entry.is_absolute() {
+                        entry.join(command)
+                    } else {
+                        directory.join(entry).join(command)
+                    }
+                })
                 .collect()
         };
         candidates.into_iter().find(|path| {
@@ -143,6 +148,7 @@ impl Environment {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn commands(
         &self,
         prefix: &str,
@@ -155,7 +161,12 @@ impl Environment {
             if cancellation.is_cancelled() {
                 return (commands, true);
             }
-            let directory = self.directory(path, cancellation);
+            let path = if path.is_absolute() {
+                path.clone()
+            } else {
+                self.cwd.join(path)
+            };
+            let directory = self.directory(&path, cancellation);
             incomplete |= directory.incomplete;
             scanned += directory.entries.len();
             for entry in &directory.entries {
@@ -219,6 +230,7 @@ impl Environment {
     fn read_directory(&self, path: &Path, cancellation: &RequestCancellationToken) -> Directory {
         let mut result = Directory::default();
         let Ok(entries) = std::fs::read_dir(path) else {
+            result.incomplete = true;
             return result;
         };
         for (index, entry) in entries.enumerate() {

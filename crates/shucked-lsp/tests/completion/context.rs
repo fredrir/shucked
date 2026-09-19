@@ -42,7 +42,11 @@ fn completion_list(
         uri.clone(),
         TextDocument::new(source.clone(), 1).with_language_id("shellscript"),
     );
-    let snapshot = session.take_snapshot(uri.clone()).unwrap();
+    let mut snapshot = session.take_snapshot(uri.clone()).unwrap();
+    snapshot.command_service =
+        std::sync::Arc::new(crate::handlers::commands::CommandService::fixture(vec![
+            root.join("bin"),
+        ]));
     let position = types::Position::new(
         source[..cursor]
             .bytes()
@@ -347,4 +351,37 @@ fn fuzzy_symbols_rank_prefix_matches_before_subsequences() {
         false,
     );
     assert!(items.iter().any(|item| item.label == "long_variable_name"));
+}
+
+#[test]
+fn multiple_spaces_keep_function_and_dynamic_environment_context() {
+    let root = tempfile::tempdir().unwrap();
+    for source in [
+        "git() { :; }\ngit   ¦",
+        "PATH=\"$UNKNOWN_PATH\"\ngit   ¦",
+        "git() { :; }\necho $(git   ¦)",
+    ] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        assert!(
+            !items.iter().any(|item| item.label == "status"),
+            "unrelated Git grammar in {source}"
+        );
+    }
+}
+
+#[test]
+fn attached_command_candidates_include_session_symbols_only_in_live_session_mode() {
+    let mut context = shucked_command::ExecutionContext::default();
+    let mut environment = shucked_command::EnvironmentSnapshot::empty(&context);
+    environment
+        .aliases
+        .insert("personal_ls".into(), shucked_command::Alias::default());
+    environment.functions.insert("personal_build".into());
+    assert!(!command_names(&context, &environment).contains("personal_ls"));
+    context.mode = shucked_command::ExecutionMode::InteractiveSession;
+    let names = command_names(&context, &environment);
+    assert!(names.contains("personal_ls"));
+    assert!(names.contains("personal_build"));
+    environment.fresh = false;
+    assert!(!command_names(&context, &environment).contains("personal_build"));
 }
