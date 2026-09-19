@@ -26,7 +26,7 @@ const CONFIG_FILENAMES: [&str; 2] = [".shucked.toml", "shucked.toml"];
 /// (user-level) shucked config file. When set, only this directory is consulted
 /// for global configuration.
 const GLOBAL_CONFIG_DIR_ENV: &str = "SHUCKED_CONFIG_HOME";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell"];
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint", "per-file-shell", "environment"];
 const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "exclude",
@@ -104,6 +104,8 @@ const CONFIG_OVERRIDE_C161_RULE_OPTION_KEYS: &[&str] = &["ignore-after-source"];
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ShuckConfig {
+    /// Project command requirements used by explicit environment checks.
+    pub environment: EnvironmentConfig,
     /// File discovery and embedded-script checking options.
     pub check: CheckConfig,
     /// Shell formatting options.
@@ -113,6 +115,41 @@ pub struct ShuckConfig {
     /// Shared per-file shell dialect overrides keyed by glob pattern.
     #[serde(rename = "per-file-shell")]
     pub per_file_shell: Option<BTreeMap<String, String>>,
+}
+
+/// Project command declarations, independent of host installation state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct EnvironmentConfig {
+    /// Expected commands, keyed by executable name.
+    pub commands: BTreeMap<String, ProjectCommand>,
+}
+
+/// Scope and expected availability of a project command.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ProjectCommand {
+    /// Required, optional, generated, or deployment dependency.
+    pub kind: CommandRequirement,
+    /// Project-relative file globs; empty applies throughout the project.
+    pub files: Vec<String>,
+    /// Execution target IDs; empty applies to every selected target.
+    pub targets: Vec<String>,
+}
+
+/// Dependency classification for environment checks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandRequirement {
+    /// Required dependency; report unavailable separately from spelling mistakes.
+    #[default]
+    Required,
+    /// Optional command; its absence is permitted.
+    Optional,
+    /// Generated before execution; current installation is not required.
+    Generated,
+    /// Supplied by the deployment environment.
+    Deployment,
 }
 
 /// Configuration for file-level checking behavior.
@@ -1705,6 +1742,7 @@ impl FormatConfig {
 
 impl ShuckConfig {
     fn apply_overrides(&mut self, overrides: ShuckConfig) {
+        self.environment.commands.extend(overrides.environment.commands);
         self.check.apply_overrides(overrides.check);
         self.format.apply_overrides(overrides.format);
         self.lint.apply_overrides(overrides.lint);
