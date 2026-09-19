@@ -34,7 +34,7 @@ def download(url, dest, expected):
 
 def main():
     if platform.system() != 'Darwin':
-        raise SystemExit('This recipe supports macOS only; Linux and Windows runtime builds are not yet supplied.')
+        raise SystemExit('This recipe requires macOS; use build-unix.sh or bundle-msys.py for other targets.')
     (DEST / 'bin').mkdir(parents=True, exist_ok=True)
     (DEST / 'lib').mkdir(exist_ok=True)
     pending = [(Path(run('brew', '--prefix', name)) / 'bin' / name, DEST / 'bin' / name) for name in ('bash', 'fish')]
@@ -106,13 +106,8 @@ def main():
     (DEST / 'sources/zsh').mkdir(parents=True, exist_ok=True)
     shutil.copy2(zsh_archive, DEST / 'sources/zsh/zsh-5.9.tar.xz')
     sources.append(dict(name='zsh', version='5.9', license='Zsh', source='https://www.zsh.org/pub/old/zsh-5.9.tar.xz', sha256=hashlib.sha256(zsh_archive.read_bytes()).hexdigest()))
-    manifest = dict(schemaVersion=1, platform='darwin', architecture=platform.machine(),
-                    target='darwin-' + {'arm64': 'arm64', 'x86_64': 'x64'}[platform.machine()], sources=sources,
-                    systemDependencies=['macOS system libraries', '/usr/bin and /bin POSIX utilities'], files=[])
-    for file in sorted(DEST.rglob('*')):
-        if file.is_file() and file.name != 'manifest.json':
-            manifest['files'].append(dict(path=str(file.relative_to(DEST)), sha256=hashlib.sha256(file.read_bytes()).hexdigest()))
-    (DEST / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    subprocess.run([str(ROOT / 'tooling/providers/build-helpers.sh')], check=True)
+    subprocess.run(['python3', str(ROOT / 'tooling/providers/verify-unix.py'), '--mode', 'homebrew'], check=True)
 
 if __name__ == '__main__':
     main()

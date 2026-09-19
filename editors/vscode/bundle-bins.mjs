@@ -3,6 +3,7 @@ import * as path from "node:path";
 import * as cp from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { binaryPlatform, hostTarget } from "./platform.mjs";
+import { verifyProviderRuntime } from "./provider-artifacts.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
@@ -72,16 +73,7 @@ for (const source of packManifest.sources) {
 if (!fs.existsSync(path.join(providerRuntime, "manifest.json"))) {
   throw new Error("Provider runtimes missing. Run tooling/providers/build-zsh.sh and bundle-runtime.py before packaging.");
 }
-const runtimeManifest = JSON.parse(fs.readFileSync(path.join(providerRuntime, "manifest.json"), "utf8"));
-if (runtimeManifest.target !== hostTarget()) {
-  throw new Error(`Provider runtime target ${runtimeManifest.target ?? "unspecified"} does not match ${hostTarget()}. Rebuild the runtime on this target host.`);
-}
-for (const file of runtimeManifest.files) {
-  const bytes = fs.readFileSync(path.join(providerRuntime, file.path));
-  if (crypto.createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
-    throw new Error(`Provider runtime checksum mismatch: ${file.path}`);
-  }
-}
+const runtimeManifest = verifyProviderRuntime(providerRuntime, hostTarget());
 fs.rmSync(providerDestination, { recursive: true, force: true });
 fs.mkdirSync(providerDestination, { recursive: true });
 fs.cpSync(providerSource, path.join(providerDestination, "packs"), { recursive: true });

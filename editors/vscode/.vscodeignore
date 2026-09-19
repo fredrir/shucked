@@ -18,3 +18,5 @@ platform.mjs
 platform.d.mts
 vsix.mjs
 tests/**
+
+provider-artifacts.mjs

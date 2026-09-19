@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import subprocess
 import signal
+import shutil
 import tempfile
 import unittest
 
@@ -23,7 +24,7 @@ class ManagedWorkers(unittest.TestCase):
             (providers / 'packs').symlink_to(PACKS, target_is_directory=True)
         env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'),
                    ZDOTDIR=str(home), SHUCKED_PROVIDER_ROOT=str(providers),
-                   PATH='/usr/bin:/bin', TERM='dumb', SHELL='/missing/user/shell')
+                   PATH=self.worker_path(home), TERM='dumb', SHELL='/missing/user/shell')
         env.pop('BASH_ENV', None)
         env.pop('ENV', None)
         if shell == 'zsh':
@@ -56,6 +57,16 @@ class ManagedWorkers(unittest.TestCase):
         self.assertEqual(fields[0], b'P', result.stdout)
         self.assertEqual(fields[-2], b'E', result.stdout)
         return [fields[i + 1].decode() for i in range(2, len(fields) - 2, 3)]
+
+    def worker_path(self, home):
+        if not (RUNTIME / 'helpers/bin/grep').is_file():
+            return '/usr/bin:/bin'
+        target = home / 'target-bin'
+        target.mkdir(exist_ok=True)
+        git = shutil.which('git')
+        if git and not (target / 'git').exists():
+            (target / 'git').symlink_to(git)
+        return os.pathsep.join(map(str, [target, RUNTIME / 'helpers/bin', RUNTIME / 'bin']))
 
     def test_bundled_shells_complete_arguments_with_hostile_personal_config(self):
         with tempfile.TemporaryDirectory() as folder:

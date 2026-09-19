@@ -9,28 +9,43 @@
 | Fish definitions | 4.0.2 | Fish definitions and helpers |
 | Bash runtime | macOS 5.3.20; Linux recipe 5.3 | Managed Bash engine |
 | Fish runtime | 4.9.3 | Managed Fish engine |
+| GNU helpers | `runtime-sources.json` | Private coreutils, findutils, grep, sed, awk |
 
 | Contract | Behavior |
 |---|---|
 | Delivery | `bin/providers/packs` and `bin/providers/runtime` in the VSIX |
-| Integrity | SHA-256 for source archives and every packaged file |
+| Integrity | Schema 2; exact target, SHA-256 file inventory, corresponding sources, SPDX SBOM, passed worker receipt |
 | Startup | Managed engines bypass personal startup and completion files |
 | History | Fish private mode; no history completion in these workers |
 | Editor input | Positional arguments or quoted buffer data; never evaluated as a command |
 | Native callbacks | Trusted completion code can run helpers; workspace trust and deadlines required |
-| Discovery | Private shell engines do not extend the target command search PATH |
+| Discovery | Private engines/helpers extend only worker PATH; target PATH stays separate; helper-only command candidates are removed |
 | Runtime override | `SHUCKED_PROVIDER_ROOT`, absolute path with a pack manifest |
 | Licenses | Original license files remain with packs; runtime sources, patches, build metadata, and Rust dependencies accompany binaries |
 | Pack refresh | Explicit maintenance operation; packaging verifies local assets without downloading |
 | Unsupported runtime | Packaging fails instead of omitting a required engine |
 
-| Platform | Current evidence |
+| Platform | Current evidence | Release gate |
+|---|---|---|
+| macOS arm64 | Relocated private Zsh/Bash/Fish and 115 helper names pass hostile-startup tests with restricted PATH | Passed locally |
+| Linux GNU arm64 | Source-built engines/helpers in Podman; ELF closure and relocated worker tests pass | Passed locally |
+| Linux musl arm64 | Actual Alpine source build underway; modern compiler compatibility under validation | Full closure and relocation |
+| Linux GNU/musl x64 | Native target-host source recipe | Target execution required |
+| macOS x64 | Native target-host source recipe; no matching local execution host | Target execution required |
+| Windows x64 | Pinned MSYS engine, helper, library, binary/source package closure staged | Windows worker/containment validation required |
+| Windows ARM64 | Same x64 MSYS package closure; Windows 11 x64 emulation required | ARM64-host worker/containment validation required |
+
+| Build input | Value |
 |---|---|
-| macOS arm64 | Private Zsh/Bash/Fish engines pass worker tests with hostile startup files and restricted helper PATH |
-| Linux GNU/musl | Target-host source build recipe; requires execution on the actual target before release |
-| macOS x64 | Requires a matching runtime lock and target-host build |
-| Windows | Bounded Job Object process capture implemented; compatible shell runtime distribution still required |
-| Minimal Unix hosts | Standard POSIX helper utilities remain required; a fully private helper closure is not yet supplied |
+| Unix source pins | `runtime-sources.json` |
+| Windows binary/source pins | `runtime-lock.msys-x64.json` |
+| Output | `SHUCKED_PROVIDER_DEST`; default `target/provider-runtime` |
+| Build directory | `SHUCKED_PROVIDER_BUILD`; target-specific directory required |
+| Parallel jobs | `SHUCKED_BUILD_JOBS`; use 1 in small VMs |
+| Root-only containers | Explicit `FORCE_UNSAFE_CONFIGURE=1` for GNU configure; ordinary builds use an unprivileged account |
+| Source changes | Archive hashes and patches verified before build |
+| Build reproducibility | Pinned inputs and fixed source epoch; byte-identical output across toolchains is not asserted |
+| Release rejection | Unbuilt/untested targets, missing sources/helpers/SBOM, mismatched targets, changed inventory, escaping links |
 
 ```sh
 # Refresh definitions from immutable revisions and verified archive hashes.
@@ -40,8 +55,14 @@ python3 tooling/providers/vendor.py
 tooling/providers/build-zsh.sh
 python3 tooling/providers/bundle-runtime.py
 
-# Linux target host; C/Rust toolchains, CMake, make, curl, Python, and POSIX tools required.
-tooling/providers/build-linux.sh
+# Unix target host; C/Rust toolchains, CMake, make, curl, Python, and POSIX tools required.
+tooling/providers/build-unix.sh
+
+# Stage Windows x64 packages; this does not produce a releasable artifact.
+python3.14 tooling/providers/bundle-msys.py --target win32-x64 --output target/provider-windows-x64
+
+# Explicit source/binary lock refresh, never part of packaging.
+python3 tooling/providers/refresh-msys-lock.py
 
 # Exercise the actual private engines with hostile personal startup files.
 python3 -m unittest discover -s tooling/providers/tests -v
