@@ -11,11 +11,13 @@ pub(crate) fn run(command: TargetCommand) -> Result<ExitStatus> {
             shell,
             output,
             cwd,
+            capabilities,
         } => {
             let context = ExecutionContext {
                 target_id: label.clone(),
                 cwd: Some(cwd.unwrap_or(std::env::current_dir()?)),
                 cwd_known: true,
+                native_execution_allowed: capabilities,
                 dialect: match shell.as_str() {
                     "zsh" => ShellDialect::Zsh,
                     "fish" => ShellDialect::Fish,
@@ -25,7 +27,19 @@ pub(crate) fn run(command: TargetCommand) -> Result<ExitStatus> {
                 },
                 ..Default::default()
             };
-            let snapshot = shucked_command::host::capture_current(&context, 0);
+            let mut snapshot = shucked_command::host::capture_current(&context, 0);
+            if capabilities {
+                let report = shucked_command::metadata::capture_capabilities(
+                    &context,
+                    &mut snapshot,
+                    &|| false,
+                );
+                eprintln!(
+                    "Captured {} command grammars; {} unsupported or unavailable",
+                    report.recorded.len(),
+                    report.unknown.len()
+                );
+            }
             let target = TargetInventory::capture(label, &context, &snapshot);
             let json = target.to_json()?;
             if let Some(path) = output {

@@ -1513,7 +1513,7 @@ mod tests {
 /// Offline execution target inventory operations.
 #[derive(Debug, Clone, Subcommand)]
 pub enum TargetCommand {
-    /// Capture filesystem command availability; execute no programs.
+    /// Capture availability, optionally querying audited tool capabilities.
     Capture {
         #[arg(long, default_value = "workspace")]
         /// Target display name.
@@ -1527,6 +1527,9 @@ pub enum TargetCommand {
         #[arg(long)]
         /// Explicit launch directory.
         cwd: Option<PathBuf>,
+        #[arg(long)]
+        /// Query supported installed tools for versioned command/flag capabilities.
+        capabilities: bool,
     },
     /// Verify and display an imported inventory.
     Inspect {

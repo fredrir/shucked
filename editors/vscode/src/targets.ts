@@ -16,7 +16,7 @@ export function registerTargetCommands(context: vscode.ExtensionContext, output:
     vscode.workspace.registerTextDocumentContentProvider("shucked-targets", { provideTextDocumentContent: uri => reports.get(uri.toString()) ?? "Report expired" }),
     vscode.workspace.onDidCloseTextDocument(document => { if (document.uri.scheme === "shucked-targets") { reports.delete(document.uri.toString()); } }),
     vscode.commands.registerCommand("shucked.captureTarget", async () => {
-      const destination = await vscode.window.showSaveDialog({ title: "Capture workspace host", filters: { "Target inventory": ["json"] }, saveLabel: "Capture" });
+      const destination = await vscode.window.showSaveDialog({ title: vscode.workspace.isTrusted ? "Capture workspace host and supported tool capabilities" : "Capture workspace host availability", filters: { "Target inventory": ["json"] }, saveLabel: "Capture" });
       if (!destination) { return; }
       const shell = await vscode.window.showQuickPick(["bash", "zsh", "fish", "sh", "ksh"], { title: "Target interpreter" });
       if (!shell) { return; }
@@ -24,8 +24,9 @@ export function registerTargetCommands(context: vscode.ExtensionContext, output:
       if (!label) { return; }
       try {
         const binary = await resolveBinary(context, output);
-        await execFile(binary, ["target", "capture", "--label", label, "--shell", shell, "--output", destination.fsPath], { timeout: 15000, maxBuffer: 1024 * 1024 });
-        void vscode.window.showInformationMessage("Target inventory captured. It records availability at capture time.");
+        const capabilities = vscode.workspace.isTrusted ? ["--capabilities"] : [];
+        await execFile(binary, ["target", "capture", ...capabilities, "--label", label, "--shell", shell, "--output", destination.fsPath], { timeout: 30000, maxBuffer: 1024 * 1024 });
+        void vscode.window.showInformationMessage(vscode.workspace.isTrusted ? "Target availability and supported tool capabilities captured." : "Target availability captured without running tool queries.");
       } catch (error) { void vscode.window.showErrorMessage(`Target capture failed: ${error instanceof Error ? error.message : String(error)}`); }
     }),
     vscode.commands.registerCommand("shucked.compareTargets", async () => {
