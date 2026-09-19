@@ -204,7 +204,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
             fixture.name
         );
 
-        let Some(shuck) = &expected.shuck else {
+        let Some(shuck) = &expected.shucked else {
             continue;
         };
 
