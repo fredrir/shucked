@@ -32,6 +32,8 @@ pub struct FishDocument {
     pub functions: Vec<FishFunction>,
     /// Per-command visible function names; ranges identify their call sites.
     pub function_calls: Vec<(Span, String)>,
+    /// Comment regions, excluding the terminating newline.
+    pub comment_spans: Vec<Span>,
 }
 #[derive(Clone)]
 struct Block {
@@ -359,6 +361,8 @@ fn tokenize(text: &str, start: Position, doc: &mut FishDocument, depth: usize) -
     let mut pos = start;
     while let Some((_, ch)) = chars.peek().copied() {
         if ch == '#' {
+            let comment_start = pos;
+            let mut comment_end = pos;
             for (_, ch) in chars.by_ref() {
                 pos.advance(ch);
                 if ch == '\n' {
@@ -371,7 +375,12 @@ fn tokenize(text: &str, start: Position, doc: &mut FishDocument, depth: usize) -
                     ));
                     break;
                 }
+                comment_end = pos;
             }
+            doc.comment_spans.push(Span {
+                start: comment_start,
+                end: comment_end,
+            });
             continue;
         }
         if ch.is_whitespace() || matches!(ch, ';' | '|' | '&') {

@@ -115,3 +115,29 @@ fn fish_negative_and_terminating_guards_keep_branch_scope() {
             .guarded_available
     );
 }
+
+#[test]
+fn fish_comments_and_incomplete_substitutions_preserve_editor_regions() {
+    let source = "echo '#literal' # command here\necho ø (str";
+    let doc = analyze_fish(source);
+    assert_eq!(doc.comment_spans.len(), 1);
+    let comment = doc.comment_spans[0];
+    assert_eq!(
+        &source[comment.start.offset()..comment.end.offset()],
+        "# command here"
+    );
+    let nested = doc
+        .commands
+        .iter()
+        .find(|site| site.name() == Some("str"))
+        .unwrap();
+    assert_eq!(
+        &source[nested.name_span().start.offset()..nested.name_span().end.offset()],
+        "str"
+    );
+    assert!(
+        doc.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("closing parenthesis"))
+    );
+}
