@@ -32,6 +32,7 @@
 | Linux GNU arm64 | Prior source-built engines/helpers and relocated worker tests passed in Podman | Revalidate latest worker revision |
 | Linux musl arm64 | Prior source-built engines/helpers and relocated worker tests passed in Alpine Podman | Revalidate latest worker revision |
 | Linux GNU/musl x64 | Source-built engines/helpers in native Docker on Arch x64; relocated workers and strict inventories pass | Passed on native x64 host |
+| Linux GNU armhf | Digest-pinned ARMv7 container recipe; target-native source build supports ARMHF | Full build and target execution required |
 | macOS x64 | Native target-host source recipe; no matching local execution host | Target execution required |
 | Windows x64 | Pinned MSYS engine/helper packages; 363 x64 PE images checked for DLL availability; full binary/source closure staged | Windows worker/containment validation required |
 | Windows ARM64 | Same x64 MSYS package closure; Windows 11 x64 emulation required | ARM64-host worker/containment validation required |

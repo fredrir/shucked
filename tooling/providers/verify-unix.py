@@ -86,7 +86,7 @@ def verify_links():
             for line in output.splitlines():
                 if '=>' not in line: continue
                 library = line.split('=>')[0].strip()
-                if library not in ('libc.so.6','libm.so.6','libdl.so.2','libpthread.so.0','librt.so.1','libgcc_s.so.1','libutil.so.1','libc.musl-aarch64.so.1','libc.musl-x86_64.so.1'):
+                if library not in ('libc.so.6','libm.so.6','libdl.so.2','libpthread.so.0','librt.so.1','libgcc_s.so.1','libutil.so.1','libc.musl-aarch64.so.1','libc.musl-x86_64.so.1','/lib64/ld-linux-x86-64.so.2','/lib/ld-linux-aarch64.so.1','/lib/ld-linux-armhf.so.3'):
                     raise ValueError(f'unbundled runtime dependency: {path}: {line}')
         elif magic in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe'):
             expected={'x86_64':0x01000007,'arm64':0x0100000c}[platform.machine()]

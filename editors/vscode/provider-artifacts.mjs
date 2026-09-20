@@ -7,11 +7,19 @@ const requiredHelpers = ['awk', 'basename', 'cat', 'cut', 'dirname', 'find', 'gr
 const checksum = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 function verifyArchitecture(file, relative, target) {
-  if (relative.startsWith('sources/') || target.startsWith('win32-')) { return; }
+  if (relative.startsWith('sources/')) { return; }
   const header = Buffer.alloc(64);
   const descriptor = fs.openSync(file, 'r');
   try { fs.readSync(descriptor, header, 0, 64, 0); } finally { fs.closeSync(descriptor); }
-  if (header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
+  if (header.subarray(0, 2).equals(Buffer.from('MZ'))) {
+    if (!target.startsWith('win32-')) { throw new Error('Provider binary OS mismatch: ' + relative); }
+    const offset = header.readUInt32LE(60);
+    if (offset < 64 || offset + 6 > fs.statSync(file).size) { throw new Error('Provider PE header invalid: ' + relative); }
+    const pe = Buffer.alloc(6);
+    const descriptor = fs.openSync(file, 'r');
+    try { fs.readSync(descriptor, pe, 0, 6, offset); } finally { fs.closeSync(descriptor); }
+    if (pe.readUInt32LE(0) !== 0x4550 || pe.readUInt16LE(4) !== 0x8664) { throw new Error('Provider PE architecture mismatch: ' + relative); }
+  } else if (header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
     if (!target.startsWith('linux-') && !target.startsWith('alpine-')) { throw new Error('Provider binary OS mismatch: ' + relative); }
     const expected = target.endsWith('-arm64') ? 183 : target.endsWith('-armhf') ? 40 : 62;
     const actual = header[5] === 1 ? header.readUInt16LE(18) : header.readUInt16BE(18);
@@ -20,7 +28,7 @@ function verifyArchitecture(file, relative, target) {
     if (!target.startsWith('darwin-')) { throw new Error('Provider binary OS mismatch: ' + relative); }
     const expected = target.endsWith('-arm64') ? 0x0100000c : 0x01000007;
     if (header.readUInt32LE(4) !== expected) { throw new Error('Provider Mach-O architecture mismatch: ' + relative); }
-  } else if (['bin/bash', 'bin/zsh', 'bin/fish'].includes(relative)) {
+  } else if (['bin/bash', 'bin/zsh', 'bin/fish', 'msys/usr/bin/bash.exe', 'msys/usr/bin/zsh.exe', 'msys/usr/bin/fish.exe'].includes(relative)) {
     throw new Error('Provider engine is not a target-native binary: ' + relative);
   }
 }
@@ -36,6 +44,7 @@ export function providerWorkerInputs() {
 export function verifyProviderRuntime(root, target) {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
   if (manifest.schemaVersion !== 2 || manifest.target !== target) { throw new Error('Provider runtime schema/target mismatch'); }
+  if (target.startsWith('win32-') && (manifest.architecture !== 'x86_64' || manifest.minimumHost?.binaryArchitecture !== 'x64' || (target === 'win32-arm64' && (manifest.minimumHost?.emulation !== 'Windows x64' || !(Number.isInteger(manifest.minimumHost?.windowsBuild) && manifest.minimumHost.windowsBuild >= 22000))))) { throw new Error('Provider Windows binary architecture/emulation declaration mismatch'); }
   if (manifest.validation?.workers !== 'passed') { throw new Error('Provider workers have not passed on this target'); }
   if (JSON.stringify(manifest.validation.inputs) !== JSON.stringify(providerWorkerInputs())) { throw new Error('Provider tested worker inputs changed'); }
   if (!manifest.sources?.length) { throw new Error('Provider source provenance missing'); }
@@ -62,7 +71,11 @@ export function verifyProviderRuntime(root, target) {
       if (!actual.some(file => file.path === archive.path && file.sha256 === archive.sha256)) { throw new Error('Corresponding provider source archive missing'); }
     }
   }
-  if (!target.startsWith('win32-')) {
+  if (target.startsWith('win32-')) {
+    for (const name of ['bash', 'zsh', 'fish']) {
+      if (!fs.statSync(path.join(root, 'msys/usr/bin', name + '.exe'), { throwIfNoEntry: false })?.isFile()) { throw new Error('Provider engine missing: ' + name); }
+    }
+  } else {
     for (const [directory, names] of [['bin', ['bash', 'zsh', 'fish']], ['helpers/bin', requiredHelpers]]) {
       for (const name of names) {
         const file = path.join(root, directory, name);
