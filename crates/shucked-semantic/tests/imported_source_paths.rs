@@ -47,9 +47,10 @@ fn candidates(main: &str, helpers: &[(&str, &str)]) -> Vec<Option<PathBuf>> {
             .collect(),
     );
     let resolved = SourcePathAnalyzer::default().resolve(&model, path, &files);
-    model
-        .source_refs()
-        .iter()
+    let mut references = model.source_refs().iter().collect::<Vec<_>>();
+    references.sort_by_key(|reference| reference.span.start.offset());
+    references
+        .into_iter()
         .filter(|reference| {
             matches!(
                 reference.kind,
@@ -228,7 +229,7 @@ fn deep_import_chains_and_growing_path_values_are_bounded() {
 }
 
 #[test]
-fn calls_to_imported_functions_invalidate_values_they_may_change() {
+fn calls_to_imported_functions_update_known_path_values() {
     assert_eq!(
         candidates(
             "source paths.sh\nchange_root\nsource \"$ROOT_DIR/values.sh\"\n",
@@ -237,7 +238,7 @@ fn calls_to_imported_functions_invalidate_values_they_may_change() {
                 "ROOT_DIR=/workspace\nchange_root() { ROOT_DIR=/runtime; }\n"
             )],
         ),
-        vec![None]
+        vec![Some(PathBuf::from("/runtime/values.sh"))]
     );
 }
 
@@ -253,4 +254,231 @@ fn exporting_a_known_path_without_reassigning_preserves_its_value() {
         ),
         vec![Some(PathBuf::from("/workspace/values.sh"))]
     );
+}
+
+#[test]
+fn conditional_imports_resolve_inside_the_guard_without_exporting_uncertain_values() {
+    for main in [
+        "if enabled; then source paths.sh; source \"$ROOT_DIR/values.sh\"; fi\nsource \"$ROOT_DIR/after.sh\"\n",
+        "enabled && { source paths.sh; source \"$ROOT_DIR/values.sh\"; }\nsource \"$ROOT_DIR/after.sh\"\n",
+    ] {
+        assert_eq!(
+            candidates(
+                main,
+                &[
+                    ("/workspace/paths.sh", "ROOT_DIR=/workspace\n"),
+                    ("/workspace/values.sh", "# unchanged\n")
+                ]
+            ),
+            vec![Some(PathBuf::from("/workspace/values.sh")), None],
+            "{main}"
+        );
+    }
+}
+
+#[test]
+fn branches_preserve_only_agreed_values_and_leave_unrelated_paths_intact() {
+    for body in [
+        "if enabled; then source paths.sh; else ROOT_DIR=/workspace; fi",
+        "ROOT_DIR=/workspace; if enabled; then source paths.sh; fi",
+        "ROOT_DIR=/workspace; if enabled; then UNRELATED=/other; fi; source paths.sh",
+    ] {
+        assert_eq!(
+            candidates(
+                &format!("{body}\nsource \"$ROOT_DIR/values.sh\"\n"),
+                &[("/workspace/paths.sh", "ROOT_DIR=/workspace\n")]
+            ),
+            vec![Some(PathBuf::from("/workspace/values.sh"))],
+            "{body}"
+        );
+    }
+    assert_eq!(
+        candidates(
+            "ROOT_DIR=/old\nif enabled; then source paths.sh; fi\nsource \"$ROOT_DIR/values.sh\"\n",
+            &[("/workspace/paths.sh", "ROOT_DIR=/new\n")]
+        ),
+        vec![None]
+    );
+}
+
+#[test]
+fn called_loaders_share_globals_and_restore_function_locals() {
+    assert_eq!(
+        candidates(
+            "ROOT_DIR=/outside\nload() { local ROOT_DIR=/inside; source paths.sh; source \"$ROOT_DIR/local.sh\"; }\nload\nsource \"$ROOT_DIR/global.sh\"\nsource \"$LIB_DIR/values.sh\"\n",
+            &[
+                (
+                    "/workspace/paths.sh",
+                    "ROOT_DIR=/changed\nLIB_DIR=/library\n"
+                ),
+                ("/changed/local.sh", "# unchanged\n"),
+                ("/outside/global.sh", "# unchanged\n")
+            ]
+        ),
+        vec![
+            Some(PathBuf::from("/changed/local.sh")),
+            Some(PathBuf::from("/outside/global.sh")),
+            Some(PathBuf::from("/library/values.sh"))
+        ]
+    );
+}
+
+#[test]
+fn loader_arguments_and_nested_calls_resolve_at_the_call_site() {
+    assert_eq!(
+        candidates(
+            "inner() { local ROOT_DIR=\"$1\"; source \"$ROOT_DIR/paths.sh\"; }\nouter() { inner /workspace; }\nouter\nsource \"$LIB_DIR/values.sh\"\n",
+            &[("/workspace/paths.sh", "LIB_DIR=/library\n")]
+        ),
+        vec![
+            Some(PathBuf::from("/workspace/paths.sh")),
+            Some(PathBuf::from("/library/values.sh"))
+        ]
+    );
+}
+
+#[test]
+fn conflicting_loader_calls_do_not_choose_one_source_target() {
+    assert_eq!(
+        candidates(
+            "load() { source \"$1/paths.sh\"; }\nload /one\nload /two\nsource \"$ROOT_DIR/values.sh\"\n",
+            &[
+                ("/one/paths.sh", "ROOT_DIR=/one\n"),
+                ("/two/paths.sh", "ROOT_DIR=/two\n")
+            ]
+        ),
+        vec![None, Some(PathBuf::from("/two/values.sh"))]
+    );
+}
+
+#[test]
+fn uncalled_guarded_and_recursive_loaders_do_not_prove_exports() {
+    for main in [
+        "load() { source paths.sh; }; source \"$ROOT_DIR/values.sh\"\n",
+        "load() { source paths.sh; }; enabled && load; source \"$ROOT_DIR/values.sh\"\n",
+        "load() { source paths.sh; load; }; load; source \"$ROOT_DIR/values.sh\"\n",
+    ] {
+        assert_eq!(
+            candidates(main, &[("/workspace/paths.sh", "ROOT_DIR=/workspace\n")]),
+            vec![None],
+            "{main}"
+        );
+    }
+}
+
+#[test]
+fn guarded_source_chains_keep_values_within_the_executed_chain() {
+    assert_eq!(
+        candidates(
+            "enabled && source paths.sh && source \"$ROOT_DIR/values.sh\"\nsource \"$ROOT_DIR/after.sh\"\n",
+            &[
+                ("/workspace/paths.sh", "ROOT_DIR=/workspace\n"),
+                ("/workspace/values.sh", "# unchanged\n")
+            ]
+        ),
+        vec![Some(PathBuf::from("/workspace/values.sh")), None]
+    );
+}
+
+#[test]
+fn uncertain_function_definitions_and_early_returns_do_not_leave_stale_exports() {
+    for body in [
+        "if enabled; then change() { ROOT_DIR=/other; }; fi\nROOT_DIR=/old\nchange\n",
+        "change() { ROOT_DIR=/other; }\nunset -f change\nROOT_DIR=/old\nchange\n",
+        "if enabled; then return; fi\nROOT_DIR=/old\n",
+    ] {
+        assert_eq!(
+            candidates(
+                "source paths.sh\nsource \"$ROOT_DIR/values.sh\"\n",
+                &[("/workspace/paths.sh", body)]
+            ),
+            vec![None],
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn source_arguments_override_function_arguments_and_shift_invalidates_them() {
+    assert_eq!(
+        candidates(
+            "load() { source paths.sh /actual; }; load /wrong\nsource \"$ROOT_DIR/values.sh\"\n",
+            &[("/workspace/paths.sh", "ROOT_DIR=\"$1\"\n")]
+        ),
+        vec![Some(PathBuf::from("/actual/values.sh"))]
+    );
+    assert_eq!(
+        candidates(
+            "load() { shift; source \"$1/paths.sh\"; }; load /wrong /actual\nsource \"$ROOT_DIR/values.sh\"\n",
+            &[("/wrong/paths.sh", "ROOT_DIR=/wrong\n")]
+        ),
+        vec![None, None]
+    );
+}
+
+#[test]
+fn case_imports_join_values_without_assuming_a_pattern_matches() {
+    for (body, expected) in [
+        (
+            "case $mode in first) source paths.sh;; *) ROOT_DIR=/workspace;; esac",
+            Some(PathBuf::from("/workspace/values.sh")),
+        ),
+        ("case $mode in first) source paths.sh;; esac", None),
+        (
+            "case $mode in first) source paths.sh;; *) ROOT_DIR=/other;; esac",
+            None,
+        ),
+    ] {
+        assert_eq!(
+            candidates(
+                &format!("{body}\nsource \"$ROOT_DIR/values.sh\"\n"),
+                &[("/workspace/paths.sh", "ROOT_DIR=/workspace\n")]
+            ),
+            vec![expected],
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn conditional_local_declarations_do_not_hide_possible_global_writes() {
+    assert_eq!(
+        candidates(
+            "ROOT_DIR=/old\nload() { if enabled; then local ROOT_DIR=/private; else ROOT_DIR=/new; fi; }\nload\nsource \"$ROOT_DIR/values.sh\"\n",
+            &[]
+        ),
+        vec![None]
+    );
+}
+
+#[test]
+fn sourced_variables_shadowed_by_loader_locals_are_not_imported_at_file_scope() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("main.sh");
+    std::fs::write(root.path().join("values.sh"), "value=shared\n").unwrap();
+    for (local, expected) in [("", true), ("local value=private;", false)] {
+        let source = format!("load() {{ {local} source ./values.sh; }}\nload\necho \"$value\"\n");
+        let parse = Parser::new(&source).parse();
+        assert!(!parse.is_err());
+        let indexer = Indexer::new(&source, &parse);
+        let model = SemanticModel::build_with_options(
+            &parse.file,
+            &source,
+            &indexer,
+            SemanticBuildOptions {
+                source_path: Some(&path),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            model
+                .bindings()
+                .iter()
+                .any(|binding| binding.name == "value"
+                    && matches!(binding.kind, shucked_semantic::BindingKind::Imported)
+                    && binding.scope == model.scope_at(0)),
+            expected,
+            "{source}"
+        );
+    }
 }

@@ -284,3 +284,45 @@ LIB_DIR="$ROOT_DIR/one"
     assert!(undefined(&session).is_empty());
     assert_eq!(fs::read_to_string(helper).unwrap(), source);
 }
+
+#[test]
+fn unsaved_loader_calls_refresh_usage_without_leaking_local_shadows() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".shucked.toml"),
+        "[lint]\nselect = ['C001']\n",
+    )
+    .unwrap();
+    let helper = root.path().join("values.sh");
+    let consumer = root.path().join("consumer.sh");
+    fs::write(&helper, "VALUE=shared\n").unwrap();
+    fs::write(
+        &consumer,
+        "load() { source ./values.sh; }; echo \"$VALUE\"\n",
+    )
+    .unwrap();
+    let mut session = session(root.path());
+    let uri = open(&mut session, &helper, "VALUE=shared\n", 1);
+    assert_eq!(unused(&session, &uri).len(), 1);
+    open(
+        &mut session,
+        &consumer,
+        "load() { source ./values.sh; }; enabled && load; echo \"$VALUE\"\n",
+        1,
+    );
+    assert!(unused(&session, &uri).is_empty());
+    open(
+        &mut session,
+        &consumer,
+        "load() { local VALUE=private; source ./values.sh; }; load; echo \"$VALUE\"\n",
+        2,
+    );
+    assert_eq!(unused(&session, &uri).len(), 1);
+    open(
+        &mut session,
+        &consumer,
+        "if enabled; then source ./values.sh; fi\necho \"$VALUE\"\n",
+        3,
+    );
+    assert!(unused(&session, &uri).is_empty());
+}

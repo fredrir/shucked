@@ -189,3 +189,86 @@ fn early_returns_preserve_values_that_can_reach_the_caller() {
         );
     }
 }
+
+#[test]
+fn conditional_sources_keep_each_possible_assignment_in_use() {
+    for main in [
+        "if enabled; then source values.sh; fi\necho \"$VALUE\"\n",
+        "enabled && source values.sh\necho \"$VALUE\"\n",
+        "if enabled; then source values.sh; else source other.sh; fi\necho \"$VALUE\"\n",
+    ] {
+        let usage = usage(&[
+            ("values.sh", "VALUE=one\n"),
+            ("other.sh", "VALUE=two\n"),
+            ("main.sh", main),
+        ]);
+        assert_eq!(consumed_offsets(&usage, "values.sh"), vec![0], "{main}");
+    }
+}
+
+#[test]
+fn named_loaders_export_sources_only_when_called_and_persistent() {
+    for (main, expected) in [
+        (
+            "load() { source values.sh; }; load; echo \"$VALUE\"\n",
+            vec![0],
+        ),
+        (
+            "load() { source values.sh; }; enabled && load; echo \"$VALUE\"\n",
+            vec![0],
+        ),
+        (
+            "load() { source values.sh; }; outer() { load; }; outer; echo \"$VALUE\"\n",
+            vec![0],
+        ),
+        ("load() { source values.sh; }; echo \"$VALUE\"\n", vec![]),
+        (
+            "load() { source values.sh; }; echo \"$VALUE\"; load\n",
+            vec![],
+        ),
+        (
+            "load() { source values.sh; }; (load); echo \"$VALUE\"\n",
+            vec![],
+        ),
+        (
+            "load() { local VALUE=private; source values.sh; }; load; echo \"$VALUE\"\n",
+            vec![],
+        ),
+    ] {
+        let usage = usage(&[("values.sh", "VALUE=one\n"), ("main.sh", main)]);
+        assert_eq!(consumed_offsets(&usage, "values.sh"), expected, "{main}");
+    }
+}
+
+#[test]
+fn guarded_imports_do_not_consume_an_overwritten_value() {
+    let usage = usage(&[
+        ("values.sh", "VALUE=one\n"),
+        (
+            "main.sh",
+            "enabled && source values.sh\nVALUE=local\necho \"$VALUE\"\n",
+        ),
+    ]);
+    assert!(consumed_offsets(&usage, "values.sh").is_empty());
+}
+
+#[test]
+fn sources_within_a_loader_keep_their_execution_order() {
+    for (body, expected) in [
+        ("source values.sh; source reader.sh", vec![0]),
+        ("source reader.sh; source values.sh", vec![]),
+        (
+            "source values.sh; source replacement.sh; source reader.sh",
+            vec![],
+        ),
+    ] {
+        let main = format!("load() {{ {body}; }}; load\n");
+        let usage = usage(&[
+            ("values.sh", "VALUE=one\n"),
+            ("replacement.sh", "VALUE=two\n"),
+            ("reader.sh", "echo \"$VALUE\"\n"),
+            ("main.sh", &main),
+        ]);
+        assert_eq!(consumed_offsets(&usage, "values.sh"), expected, "{body}");
+    }
+}

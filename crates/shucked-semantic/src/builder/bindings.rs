@@ -126,8 +126,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             binding_origin_for_assignment(assignment, self.source),
             attributes,
         );
-        if !flow.conditionally_executed
-            && matches!(kind, BindingKind::Assignment | BindingKind::Declaration(_))
+        if matches!(kind, BindingKind::Assignment | BindingKind::Declaration(_))
             && !attributes.intersects(
                 BindingAttributes::ARRAY | BindingAttributes::ASSOC | BindingAttributes::NAMEREF,
             )

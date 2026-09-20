@@ -1,10 +1,9 @@
-//! Workspace variable facts for cross-file editor navigation.
+//! Cross-file variable usage and editor navigation.
 //!
-//! Shell files sourced at top level execute in the caller's variable
-//! environment. This index projects source-backed, file-scope variable
-//! definitions and references, then relates them through statically resolved
-//! top-level `source`/`.` edges. Function-local and transient bindings stay
-//! document-local so lexical shadows never leak into workspace results.
+//! Known conditional imports contribute possible uses. Called loaders contribute
+//! source effects at their call sites; function locals and transient scopes stay isolated.
+
+pub(crate) mod loader_sources;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -49,6 +48,9 @@ struct VariableReference {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct IncomingVariableSource {
+    source_index: usize,
+    execution_offset: usize,
+    shadows: BTreeSet<Name>,
     parent: PathBuf,
     cutoff: usize,
 }
@@ -58,6 +60,7 @@ struct FileVariableFacts {
     definitions: Vec<VariableDefinition>,
     references: Vec<VariableReference>,
     source_effects: Vec<CallFactSourceEffect>,
+    source_shadows: BTreeMap<usize, BTreeSet<Name>>,
     clears: BTreeMap<Name, Vec<usize>>,
     return_offsets: Vec<usize>,
 }
@@ -159,13 +162,16 @@ impl FileVariableFacts {
                 .then_some(model.command_span(*command).start.offset())
             })
             .collect();
-        Self {
+        let mut facts = Self {
+            source_shadows: BTreeMap::new(),
             return_offsets,
             clears,
             definitions,
             references,
             source_effects: source_effects.to_vec(),
-        }
+        };
+        loader_sources::project(&mut facts, model);
+        facts
     }
 
     fn has_definition(&self, name: &Name) -> bool {
@@ -183,19 +189,22 @@ impl FileVariableFacts {
     fn resolved_top_level_source_edges(
         &self,
         cutoff: usize,
-    ) -> impl Iterator<Item = (&Path, usize)> {
-        self.source_effects.iter().filter_map(move |effect| {
-            (effect.persistent
-                && effect.enclosing_function.is_none()
-                && effect.span.start.offset() < cutoff)
-                .then_some(
-                    effect
-                        .path
-                        .as_deref()
-                        .map(|path| (path, effect.span.start.offset())),
-                )
-                .flatten()
-        })
+    ) -> impl Iterator<Item = (&Path, usize, usize)> {
+        self.source_effects
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, effect)| {
+                (effect.persistent
+                    && effect.enclosing_function.is_none()
+                    && effect.span.start.offset() < cutoff)
+                    .then_some(
+                        effect
+                            .path
+                            .as_deref()
+                            .map(|path| (path, effect.span.start.offset(), index)),
+                    )
+                    .flatten()
+            })
     }
 
     fn unconditional_top_level_source_paths(&self, cutoff: usize) -> impl Iterator<Item = &Path> {
@@ -336,20 +345,36 @@ impl WorkspaceVariableIndex {
 
     fn insert_facts(&mut self, path: PathBuf, facts: FileVariableFacts) {
         if let Some(previous) = self.files.remove(&path) {
-            for (target, cutoff) in previous.resolved_top_level_source_edges(usize::MAX) {
+            for (target, cutoff, source_index) in
+                previous.resolved_top_level_source_edges(usize::MAX)
+            {
                 if let Some(sources) = self.incoming.get_mut(target) {
                     sources.remove(&IncomingVariableSource {
+                        source_index,
+                        execution_offset: previous.source_effects[source_index].span.end.offset(),
+                        shadows: previous
+                            .source_shadows
+                            .get(&source_index)
+                            .cloned()
+                            .unwrap_or_default(),
                         parent: path.clone(),
                         cutoff,
                     });
                 }
             }
         }
-        for (target, cutoff) in facts.resolved_top_level_source_edges(usize::MAX) {
+        for (target, cutoff, source_index) in facts.resolved_top_level_source_edges(usize::MAX) {
             self.incoming
                 .entry(target.to_path_buf())
                 .or_default()
                 .insert(IncomingVariableSource {
+                    source_index,
+                    execution_offset: facts.source_effects[source_index].span.end.offset(),
+                    shadows: facts
+                        .source_shadows
+                        .get(&source_index)
+                        .cloned()
+                        .unwrap_or_default(),
                     parent: path.clone(),
                     cutoff,
                 });
@@ -369,6 +394,7 @@ impl WorkspaceVariableIndex {
                     path,
                     &reference.name,
                     reference.cutoff,
+                    None,
                     true,
                     &mut BTreeSet::new(),
                     is_cancelled,
@@ -395,6 +421,7 @@ impl WorkspaceVariableIndex {
         path: &Path,
         name: &Name,
         cutoff: usize,
+        source_limit: Option<usize>,
         inherit: bool,
         active: &mut BTreeSet<PathBuf>,
         is_cancelled: &dyn Fn() -> bool,
@@ -407,6 +434,7 @@ impl WorkspaceVariableIndex {
                 path,
                 name,
                 cutoff,
+                source_limit,
                 inherit,
                 active,
                 is_cancelled,
@@ -418,6 +446,7 @@ impl WorkspaceVariableIndex {
                         path,
                         name,
                         *offset,
+                        None,
                         inherit,
                         active,
                         is_cancelled,
@@ -438,13 +467,14 @@ impl WorkspaceVariableIndex {
         path: &Path,
         name: &Name,
         cutoff: usize,
+        source_limit: Option<usize>,
         inherit: bool,
         active: &mut BTreeSet<PathBuf>,
         is_cancelled: &dyn Fn() -> bool,
     ) -> Option<ReachingDefinitions> {
         enum Effect<'a> {
             Write(&'a VariableDefinition),
-            Source(&'a CallFactSourceEffect),
+            Source(usize, &'a CallFactSourceEffect),
             Clear,
         }
         let facts = self.files.get(path)?;
@@ -457,12 +487,14 @@ impl WorkspaceVariableIndex {
                 ));
             }
         }
-        for effect in &facts.source_effects {
+        for (index, effect) in facts.source_effects.iter().enumerate() {
             if effect.persistent
                 && effect.enclosing_function.is_none()
                 && effect.span.end.offset() <= cutoff
+                && (effect.span.end.offset() < cutoff
+                    || source_limit.is_none_or(|limit| index < limit))
             {
-                effects.push((effect.span.end.offset(), Effect::Source(effect)));
+                effects.push((effect.span.end.offset(), Effect::Source(index, effect)));
             }
         }
         if let Some(offsets) = facts.clears.get(name) {
@@ -490,20 +522,25 @@ impl WorkspaceVariableIndex {
                     }
                 }
                 Effect::Clear => return Some(result),
-                Effect::Source(effect) => {
-                    if effect.conditional {
-                        return None;
+                Effect::Source(index, effect) => {
+                    if facts
+                        .source_shadows
+                        .get(&index)
+                        .is_some_and(|names| names.contains(name))
+                    {
+                        continue;
                     }
                     let provided = self.reaching_variable_paths(
                         effect.path.as_deref()?,
                         name,
                         usize::MAX,
+                        None,
                         false,
                         active,
                         is_cancelled,
                     )?;
                     result.bindings.extend(provided.bindings);
-                    if !provided.inherits {
+                    if !effect.conditional && !provided.inherits {
                         return Some(result);
                     }
                 }
@@ -512,13 +549,17 @@ impl WorkspaceVariableIndex {
         result.inherits = true;
         if inherit && let Some(incoming) = self.incoming.get(path) {
             for source in incoming {
+                if source.shadows.contains(name) {
+                    continue;
+                }
                 if is_cancelled() {
                     return None;
                 }
                 if let Some(inherited) = self.reaching_variable_paths(
                     &source.parent,
                     name,
-                    source.cutoff,
+                    source.execution_offset,
+                    Some(source.source_index),
                     true,
                     active,
                     is_cancelled,
@@ -828,7 +869,7 @@ impl WorkspaceVariableIndex {
             };
             for target in facts
                 .resolved_top_level_source_edges(usize::MAX)
-                .map(|(path, _)| path)
+                .map(|(path, _, _)| path)
             {
                 if is_cancelled() {
                     return None;

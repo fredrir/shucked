@@ -363,6 +363,25 @@ fn collect_source_closure_contracts_with_cache(
         }
     }
 
+    let loader_imports = crate::workspace_variables::loader_sources::import_sites(model)
+        .into_iter()
+        .flat_map(|loader| {
+            imported_bindings.iter().filter_map(move |site| {
+                if site.span != loader.source || loader.locals.contains(&site.binding.name) {
+                    return None;
+                }
+                let mut site = site.clone();
+                site.scope = model.scope_at(loader.call.start.offset());
+                site.span = loader.call;
+                if loader.conditional {
+                    site.binding.certainty = ContractCertainty::Possible;
+                }
+                Some(site)
+            })
+        })
+        .collect::<Vec<_>>();
+    imported_bindings.extend(loader_imports);
+
     if let Some(plugin_resolver) = context.plugin_resolver {
         for request in collect_plugin_requests(model, file, source, source_path, plugin_resolver) {
             let scope = model.scope_at(request.span.start.offset());

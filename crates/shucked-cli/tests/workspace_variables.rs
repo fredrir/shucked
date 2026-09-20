@@ -447,3 +447,93 @@ LIB_DIR="$ROOT_DIR/lib one"
             .success();
     }
 }
+
+#[test]
+fn guarded_and_function_imports_keep_shared_variables_live() {
+    for consumer in [
+        "if enabled; then source ./values.sh; fi\necho \"$VALUE\"\n",
+        "enabled && source ./values.sh\necho \"$VALUE\"\n",
+        "load() { source ./values.sh; }; load; echo \"$VALUE\"\n",
+        "load() { source ./values.sh; }; enabled && load; echo \"$VALUE\"\n",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("values.sh"), "VALUE=shared\n").unwrap();
+        fs::write(root.path().join("consumer.sh"), consumer).unwrap();
+        assert!(check(root.path(), &[]).is_empty(), "{consumer}");
+        assert!(
+            check(root.path(), &["--fix", "--unsafe-fixes"]).is_empty(),
+            "{consumer}"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("values.sh")).unwrap(),
+            "VALUE=shared\n"
+        );
+    }
+}
+
+#[test]
+fn loader_local_paths_resolve_helper_usage_and_follow_cached_changes() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("values.sh"), "VALUE=shared\n").unwrap();
+    let consumer = root.path().join("consumer.sh");
+    let loader = format!(
+        "load() {{ local ROOT_DIR='{}'; source \"$ROOT_DIR/values.sh\"; }}\n",
+        root.path().display()
+    );
+    fs::write(&consumer, format!("{loader}load\necho \"$VALUE\"\n")).unwrap();
+    assert!(check(root.path(), &[]).is_empty());
+    fs::write(&consumer, format!("{loader}echo \"$VALUE\"\n")).unwrap();
+    assert!(
+        check(root.path(), &[])
+            .iter()
+            .any(|diagnostic| diagnostic["filename"] == "values.sh")
+    );
+    fs::write(&consumer, format!("{loader}load\necho \"$VALUE\"\n")).unwrap();
+    assert!(check(root.path(), &[]).is_empty());
+}
+
+#[test]
+fn loader_exports_are_available_only_after_persistent_calls() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("values.sh"), "value=shared\n").unwrap();
+    let main = root.path().join("consumer.sh");
+    for (body, invocation, expected) in [
+        ("source ./values.sh", "load", true),
+        ("source ./values.sh", "", false),
+        ("source ./values.sh", "(load)", false),
+        ("source ./values.sh; unset value", "load", false),
+    ] {
+        fs::write(
+            &main,
+            format!("load() {{ {body}; }}\n{invocation}\necho \"$value\"\n"),
+        )
+        .unwrap();
+        let output = Command::cargo_bin("shucked")
+            .unwrap()
+            .current_dir(root.path())
+            .args([
+                "check",
+                "consumer.sh",
+                "--select",
+                "C006",
+                "--no-cache",
+                "--output-format",
+                "json",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            expected,
+            "{body}; {invocation}: {output:?}"
+        );
+        if !expected {
+            let diagnostics: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic["code"] == "C006")
+            );
+        }
+    }
+}

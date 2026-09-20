@@ -32,7 +32,7 @@ impl CheckCacheSettings {
 
 impl CacheKey for CheckCacheSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
-        state.write_tag(b"check-cache-settings-workspace-variables-v3");
+        state.write_tag(b"check-cache-settings-workspace-variables-v4");
         self.effective.cache_key(state);
         self.analyzed_paths.cache_key(state);
         self.source_resolution_home.cache_key(state);
