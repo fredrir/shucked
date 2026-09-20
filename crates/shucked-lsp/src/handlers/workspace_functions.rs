@@ -208,7 +208,7 @@ impl WorkspaceFunctionIndex {
         let mut files = BTreeMap::new();
         let mut complete = true;
         let max_files = context.max_files;
-        let mut source_paths = SourcePathsCache::default();
+        let mut path_analyzer = shucked_semantic::SourcePathAnalyzer::default();
 
         let mut open_docs = context
             .open_documents
@@ -224,6 +224,8 @@ impl WorkspaceFunctionIndex {
             .map(|(path, _)| path.clone())
             .collect::<BTreeSet<_>>();
 
+        let path_provider = WorkspacePathProvider::new(context);
+
         for (path, open) in &open_docs {
             if context.cancellation.is_cancelled() {
                 return None;
@@ -236,9 +238,12 @@ impl WorkspaceFunctionIndex {
                 );
                 break;
             }
-            let resolution = source_paths.resolve(path, context);
+            let resolution = path_provider
+                .source_paths
+                .borrow_mut()
+                .resolve(path, context);
             complete &= resolution.complete;
-            insert_file(
+            complete &= insert_file(
                 &mut graph,
                 &mut variables,
                 &mut files,
@@ -250,6 +255,8 @@ impl WorkspaceFunctionIndex {
                 },
                 &resolution,
                 &open_paths,
+                &mut path_analyzer,
+                &path_provider,
             );
         }
 
@@ -276,9 +283,12 @@ impl WorkspaceFunctionIndex {
                 complete = false;
                 continue;
             };
-            let resolution = source_paths.resolve(&file, context);
+            let resolution = path_provider
+                .source_paths
+                .borrow_mut()
+                .resolve(&file, context);
             complete &= resolution.complete;
-            insert_file(
+            complete &= insert_file(
                 &mut graph,
                 &mut variables,
                 &mut files,
@@ -290,6 +300,8 @@ impl WorkspaceFunctionIndex {
                 },
                 &resolution,
                 &open_paths,
+                &mut path_analyzer,
+                &path_provider,
             );
         }
 
@@ -333,9 +345,12 @@ impl WorkspaceFunctionIndex {
                         graph.insert(target.clone(), FileCallFacts::default());
                         continue;
                     };
-                    let resolution = source_paths.resolve(&target, context);
+                    let resolution = path_provider
+                        .source_paths
+                        .borrow_mut()
+                        .resolve(&target, context);
                     complete &= resolution.complete;
-                    insert_file(
+                    complete &= insert_file(
                         &mut graph,
                         &mut variables,
                         &mut files,
@@ -347,12 +362,17 @@ impl WorkspaceFunctionIndex {
                         },
                         &resolution,
                         &open_paths,
+                        &mut path_analyzer,
+                        &path_provider,
                     );
                     continue;
                 };
-                let resolution = source_paths.resolve(&target, context);
+                let resolution = path_provider
+                    .source_paths
+                    .borrow_mut()
+                    .resolve(&target, context);
                 complete &= resolution.complete;
-                insert_file(
+                complete &= insert_file(
                     &mut graph,
                     &mut variables,
                     &mut files,
@@ -364,6 +384,8 @@ impl WorkspaceFunctionIndex {
                     },
                     &resolution,
                     &open_paths,
+                    &mut path_analyzer,
+                    &path_provider,
                 );
             }
         }
@@ -701,6 +723,58 @@ fn workspace_settings_for_path<'a>(
         .map(|(workspace, _)| workspace)
 }
 
+pub(crate) struct WorkspacePathProvider<'a> {
+    context: &'a WorkspaceFunctionContext,
+    source_paths: std::cell::RefCell<SourcePathsCache>,
+    open_sources: BTreeMap<PathBuf, &'a str>,
+}
+
+impl<'a> WorkspacePathProvider<'a> {
+    pub(crate) fn new(context: &'a WorkspaceFunctionContext) -> Self {
+        Self {
+            context,
+            source_paths: std::cell::RefCell::new(SourcePathsCache::default()),
+            open_sources: context
+                .open_documents
+                .iter()
+                .filter_map(|open| {
+                    Some((
+                        canonical_path(&open.uri.to_file_path().ok()?),
+                        open.document.contents(),
+                    ))
+                })
+                .collect(),
+        }
+    }
+}
+
+impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
+    fn candidates(&self, from: &Path, candidate: &str) -> Vec<PathBuf> {
+        let resolution = self.source_paths.borrow_mut().resolve(from, self.context);
+        shucked_semantic::source_candidate_paths(
+            from,
+            candidate,
+            &resolution.roots,
+            &resolution.project_root,
+        )
+    }
+
+    fn read_source(&self, path: &Path) -> Option<String> {
+        self.open_sources
+            .get(&canonical_path(path))
+            .map(|source| (*source).to_owned())
+            .or_else(|| std::fs::read_to_string(path).ok())
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.open_sources.contains_key(&canonical_path(path)) || path.is_file()
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.context.cancellation.is_cancelled()
+    }
+}
+
 struct WorkspaceFileInput<'a> {
     path: &'a Path,
     uri: types::Url,
@@ -708,6 +782,7 @@ struct WorkspaceFileInput<'a> {
     version: Option<DocumentVersion>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn insert_file(
     graph: &mut WorkspaceCallIndex,
     variables: &mut WorkspaceVariableIndex,
@@ -715,7 +790,9 @@ fn insert_file(
     input: WorkspaceFileInput<'_>,
     source_paths: &SourcePathResolution,
     open_paths: &BTreeSet<PathBuf>,
-) {
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    path_provider: &dyn shucked_semantic::SourcePathFileProvider,
+) -> bool {
     let key = canonical_path(input.path);
     let open_uri = input.version.is_some().then(|| input.uri.clone());
     let uri = std::fs::canonicalize(input.path)
@@ -725,18 +802,25 @@ fn insert_file(
     let shell = ShellDialect::infer(input.source, Some(input.path));
     let model = analyze_editor_document(input.source, Some(input.path), shell);
     let mut dependencies = vec![input.path.to_path_buf()];
+    let resolved_paths = path_analyzer.resolve(&model, input.path, path_provider);
+    dependencies.extend(resolved_paths.dependency_paths().cloned());
     let edges = model
         .source_refs()
         .iter()
         .filter_map(|source_ref| {
             let scope = model.scope_at(source_ref.span.start.offset());
-            let mut candidates = source_ref_candidate_paths(
-                input.path,
-                source_ref,
-                &source_paths.roots,
-                &source_paths.project_root,
-            );
-            if candidates.is_empty()
+            let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
+                candidate.map(PathBuf::from).into_iter().collect()
+            } else {
+                source_ref_candidate_paths(
+                    input.path,
+                    source_ref,
+                    &source_paths.roots,
+                    &source_paths.project_root,
+                )
+            };
+            if resolved_paths.candidate(source_ref).is_none()
+                && candidates.is_empty()
                 && let Some(candidate) = model.current_file_source_candidate(source_ref, input.path)
             {
                 candidates.push(candidate);
@@ -773,6 +857,7 @@ fn insert_file(
             content_hash: content_hash(input.source.as_bytes()),
         },
     );
+    resolved_paths.is_complete()
 }
 
 struct ClosedFileDiscovery {

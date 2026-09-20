@@ -202,10 +202,19 @@ pub(crate) fn collect_raw_diagnostics_for_analysis(
     snapshot: &DocumentSnapshot,
     analysis: &crate::analysis::DocumentAnalysis,
 ) -> RawDocumentDiagnostics {
+    let path_provider = snapshot
+        .workspace_functions
+        .as_ref()
+        .map(crate::workspace_functions::WorkspacePathProvider::new);
     let shellcheck_map = ShellCheckCodeMap::default();
     let lint = |settings| {
         AnalysisRequest::from_parse_result(analysis.parse_result(), analysis.source(), settings)
             .with_optional_source_path(analysis.path())
+            .with_optional_source_path_file_provider(
+                path_provider
+                    .as_ref()
+                    .map(|provider| provider as &dyn shucked_semantic::SourcePathFileProvider),
+            )
             .with_shellcheck_map(&shellcheck_map)
             .lint()
     };

@@ -197,3 +197,90 @@ fn unsaved_workspace_reads_follow_individual_assignments() {
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(diagnostics[0].range.start.line, 0);
 }
+
+#[test]
+fn unsaved_helper_path_values_retarget_workspace_imports() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".shucked.toml"),
+        "[lint]\nselect = ['C001']\n",
+    )
+    .unwrap();
+    for directory in ["one", "two"] {
+        fs::create_dir(root.path().join(directory)).unwrap();
+        fs::write(
+            root.path().join(directory).join("values.sh"),
+            "VALUE=shared\n",
+        )
+        .unwrap();
+    }
+    let helper = root.path().join("paths.sh");
+    let source = r#"#!/usr/bin/env bash
+ROOT_DIR="$(dirname -- "${BASH_SOURCE[0]}")"
+LIB_DIR="$ROOT_DIR/one"
+"#;
+    fs::write(&helper, source).unwrap();
+    fs::write(
+        root.path().join("consumer.sh"),
+        "source ./paths.sh\nsource \"$LIB_DIR/values.sh\"\necho \"$VALUE\"\n",
+    )
+    .unwrap();
+    let mut session = session(root.path());
+    let first = open(
+        &mut session,
+        &root.path().join("one/values.sh"),
+        "VALUE=shared\n",
+        1,
+    );
+    let second = open(
+        &mut session,
+        &root.path().join("two/values.sh"),
+        "VALUE=shared\n",
+        1,
+    );
+    assert!(unused(&session, &first).is_empty());
+    assert_eq!(unused(&session, &second).len(), 1);
+    open(&mut session, &helper, &source.replace("/one", "/two"), 1);
+    assert_eq!(unused(&session, &first).len(), 1);
+    assert!(unused(&session, &second).is_empty());
+    assert_eq!(fs::read_to_string(helper).unwrap(), source);
+}
+
+#[test]
+fn diagnostics_use_unsaved_helpers_when_resolving_imported_paths() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".shucked.toml"),
+        "[lint]\nselect = ['C006']\n",
+    )
+    .unwrap();
+    for (directory, value) in [("one", "first"), ("two", "second")] {
+        fs::create_dir(root.path().join(directory)).unwrap();
+        fs::write(
+            root.path().join(directory).join("values.sh"),
+            format!("{value}=shared\n"),
+        )
+        .unwrap();
+    }
+    let helper = root.path().join("paths.sh");
+    let source = r#"#!/usr/bin/env bash
+ROOT_DIR="$(dirname -- "${BASH_SOURCE[0]}")"
+LIB_DIR="$ROOT_DIR/one"
+"#;
+    fs::write(&helper, source).unwrap();
+    let consumer = root.path().join("consumer.sh");
+    let body = "source ./paths.sh\nsource \"$LIB_DIR/values.sh\"\necho \"$second\"\n";
+    fs::write(&consumer, body).unwrap();
+    let mut session = session(root.path());
+    let uri = open(&mut session, &consumer, body, 1);
+    let undefined = |session: &Session| {
+        generate_diagnostics(&session.take_snapshot(uri.clone()).unwrap())
+            .into_iter()
+            .filter(|d| d.code == Some(NumberOrString::String("C006".into())))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(undefined(&session).len(), 1);
+    open(&mut session, &helper, &source.replace("/one", "/two"), 1);
+    assert!(undefined(&session).is_empty());
+    assert_eq!(fs::read_to_string(helper).unwrap(), source);
+}

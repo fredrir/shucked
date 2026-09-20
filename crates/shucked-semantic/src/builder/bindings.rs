@@ -126,6 +126,21 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             binding_origin_for_assignment(assignment, self.source),
             attributes,
         );
+        if !flow.conditionally_executed
+            && matches!(kind, BindingKind::Assignment | BindingKind::Declaration(_))
+            && !attributes.intersects(
+                BindingAttributes::ARRAY | BindingAttributes::ASSOC | BindingAttributes::NAMEREF,
+            )
+            && let AssignmentValue::Scalar(word) = &assignment.value
+            && let Some(expression) = crate::source_closure::source_path_expression(
+                word,
+                self.source,
+                self.runtime.bash_enabled(),
+                self.shell_profile.dialect == ShellDialect::Zsh,
+            )
+        {
+            self.source_path_expressions.insert(binding, expression);
+        }
         if let Some(template) = source_path_template {
             self.source_path_templates_by_binding
                 .insert(binding, template);

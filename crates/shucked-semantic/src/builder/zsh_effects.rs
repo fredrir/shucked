@@ -104,6 +104,29 @@ pub(super) fn recorded_simple_command_info_with(
         .is_some_and(|resolved| resolved.ignored_root);
     let source_path_template = resolved_source_path_template.map(|resolved| resolved.template);
 
+    let source_path_expression = normalized
+        .literal_name
+        .as_deref()
+        .filter(|name| matches!(*name, "source" | "."))
+        .and_then(|_| command.args.first())
+        .filter(|word| {
+            word.parts.iter().all(|part| {
+                matches!(
+                    part.kind,
+                    shucked_ast::WordPart::Literal(_)
+                        | shucked_ast::WordPart::SingleQuoted { .. }
+                        | shucked_ast::WordPart::DoubleQuoted { .. }
+                )
+            })
+        })
+        .and_then(|word| {
+            crate::source_closure::source_path_expression(
+                word,
+                source,
+                bash_runtime_vars_enabled,
+                zsh_runtime_vars_enabled,
+            )
+        });
     let mut info = RecordedCommandInfo {
         original_words: std::iter::once(&command.name)
             .chain(command.args.iter())
@@ -118,6 +141,8 @@ pub(super) fn recorded_simple_command_info_with(
         static_args,
         source_path_template,
         source_path_template_ignored_root,
+        source_path_expression,
+        source_path_environment_unknown: !command.assignments.is_empty(),
         zsh_effects: Vec::new(),
     };
     let Some(effect_command) = normalized_zsh_effect_command(normalized, source) else {

@@ -380,6 +380,8 @@ pub(crate) struct RecordedCommandInfo {
     pub(crate) static_args: Box<[Option<compact_str::CompactString>]>,
     pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) source_path_template_ignored_root: bool,
+    pub(crate) source_path_expression: Option<SourcePathTemplate>,
+    pub(crate) source_path_environment_unknown: bool,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
 }
 

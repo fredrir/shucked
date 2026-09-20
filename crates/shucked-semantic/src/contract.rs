@@ -374,6 +374,8 @@ pub struct SemanticBuildOptions<'a> {
     pub source_path: Option<&'a Path>,
     /// Resolver for mapping source-like paths to candidate tracked files.
     pub source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    /// Optional source contents and search policy, including editor overlays.
+    pub source_path_file_provider: Option<&'a dyn crate::SourcePathFileProvider>,
     /// Resolver for deriving zsh plugin entrypoints and optional plugin contracts.
     pub plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     /// Precomputed file-entry contract to apply before analysis.
@@ -398,6 +400,7 @@ impl Default for SemanticBuildOptions<'_> {
         Self {
             source_path: None,
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract: None,
             workspace_variable_usage: None,

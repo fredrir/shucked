@@ -19,6 +19,8 @@ pub(super) fn variable_usage(
     resolver: &NativeSourceResolver,
 ) -> (Arc<WorkspaceVariableUsage>, Vec<PathBuf>) {
     let mut index = WorkspaceVariableIndex::default();
+    let mut path_analyzer = shucked_semantic::SourcePathAnalyzer::default();
+    let path_provider = resolver.clone();
     let mut visited = BTreeSet::new();
     let mut dependencies = BTreeSet::new();
     let mut pending = paths.to_vec();
@@ -55,12 +57,19 @@ pub(super) fn variable_usage(
                 ..SemanticBuildOptions::default()
             },
         );
+        let resolved_paths = path_analyzer.resolve(&model, &path, &path_provider);
+        dependencies.extend(resolved_paths.dependency_paths().cloned());
         let edges = model
             .source_refs()
             .iter()
             .filter_map(|source_ref| {
-                let mut candidates = source_ref_candidate_paths(&path, source_ref, resolver);
-                if candidates.is_empty()
+                let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
+                    candidate.map(PathBuf::from).into_iter().collect()
+                } else {
+                    source_ref_candidate_paths(&path, source_ref, resolver)
+                };
+                if resolved_paths.candidate(source_ref).is_none()
+                    && candidates.is_empty()
                     && let Some(candidate) = model.current_file_source_candidate(source_ref, &path)
                 {
                     candidates.push(candidate);

@@ -405,3 +405,45 @@ fn adding_an_ignore_keeps_later_workspace_assignment_locations_current() {
     assert!(source.contains("ADMIN_DIR=current\n"));
     assert!(check(root.path(), &[]).is_empty());
 }
+
+#[test]
+fn helper_defined_paths_resolve_later_imports_and_refresh_cached_consumers() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("config")).unwrap();
+    for directory in ["lib one", "lib two"] {
+        fs::create_dir_all(root.path().join(directory)).unwrap();
+        fs::write(
+            root.path().join(directory).join("values.sh"),
+            "value=shared\n",
+        )
+        .unwrap();
+    }
+    let helper = root.path().join("config/paths.sh");
+    let paths = r#"#!/usr/bin/env bash
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$ROOT_DIR/lib one"
+"#;
+    fs::write(
+        root.path().join("consumer.sh"),
+        "source ./config/paths.sh\nsource \"${LIB_DIR}/values.sh\"\necho \"$value\"\n",
+    )
+    .unwrap();
+    for (source, unused) in [
+        (paths.to_owned(), "lib two"),
+        (paths.replace("lib one", "lib two"), "lib one"),
+    ] {
+        fs::write(&helper, source).unwrap();
+        for _ in 0..2 {
+            let diagnostics = check(root.path(), &[]);
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(diagnostics[0]["filename"], format!("{unused}/values.sh"));
+        }
+        Command::cargo_bin("shucked")
+            .unwrap()
+            .current_dir(root.path())
+            .args(["check", "consumer.sh", "--select", "C006", "--no-cache"])
+            .assert()
+            .success();
+    }
+}

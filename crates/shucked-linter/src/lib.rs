@@ -219,6 +219,7 @@ pub struct AnalysisRequest<'a> {
     settings: &'a LinterSettings,
     source_path: Option<&'a Path>,
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    source_path_file_provider: Option<&'a dyn shucked_semantic::SourcePathFileProvider>,
     plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     suppressions: SuppressionRequest<'a>,
 }
@@ -252,6 +253,7 @@ impl<'a> AnalysisRequest<'a> {
             settings,
             source_path: None,
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             suppressions: SuppressionRequest::None,
         }
@@ -276,6 +278,7 @@ impl<'a> AnalysisRequest<'a> {
             settings,
             source_path: None,
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             suppressions: SuppressionRequest::DefaultShellCheckMap,
         }
@@ -308,6 +311,15 @@ impl<'a> AnalysisRequest<'a> {
         source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     ) -> Self {
         self.source_path_resolver = source_path_resolver;
+        self
+    }
+
+    /// Sets source contents and search policy for editor overlays.
+    pub fn with_optional_source_path_file_provider(
+        mut self,
+        provider: Option<&'a dyn shucked_semantic::SourcePathFileProvider>,
+    ) -> Self {
+        self.source_path_file_provider = provider;
         self
     }
 
@@ -919,6 +931,7 @@ fn build_linter_semantic_artifacts<'a>(
         SemanticBuildOptions {
             source_path: request.source_path,
             source_path_resolver: request.source_path_resolver,
+            source_path_file_provider: request.source_path_file_provider,
             plugin_resolver: request.plugin_resolver,
             file_entry_contract: None,
             workspace_variable_usage: request.settings.workspace_variable_usage.as_deref(),

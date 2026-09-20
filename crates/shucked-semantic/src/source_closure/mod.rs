@@ -6,6 +6,8 @@
 //! zsh-specific plugin request discovery and deferred callback modeling to
 //! focused plugin-manager implementations.
 
+pub(crate) mod paths;
+
 use std::cell::RefCell;
 use std::env;
 use std::fs;
@@ -84,6 +86,7 @@ type SourceRefMetadataResult = (
 #[derive(Clone)]
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    source_path_file_provider: Option<&'a dyn paths::SourcePathFileProvider>,
     plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     file_entry_contract_collector_factory:
         Option<&'a (dyn FileEntryContractCollectorFactory + Send + Sync)>,
@@ -95,6 +98,7 @@ struct SourceClosureLookupContext<'a> {
 
 pub(crate) struct SourceClosureResolverConfig<'a> {
     pub(crate) source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
+    pub(crate) source_path_file_provider: Option<&'a dyn paths::SourcePathFileProvider>,
     pub(crate) plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     pub(crate) file_entry_contract_collector_factory:
         Option<&'a (dyn FileEntryContractCollectorFactory + Send + Sync)>,
@@ -162,6 +166,7 @@ pub(crate) fn collect_source_closure_contracts(
     let mut active = FxHashSet::default();
     let context = SourceClosureLookupContext {
         source_path_resolver: config.source_path_resolver,
+        source_path_file_provider: config.source_path_file_provider,
         plugin_resolver: config.plugin_resolver,
         file_entry_contract_collector_factory: config.file_entry_contract_collector_factory,
         analyzed_paths: config.analyzed_paths,
@@ -194,6 +199,7 @@ pub(crate) fn collect_source_ref_metadata(
     };
     let context = SourceClosureLookupContext {
         source_path_resolver,
+        source_path_file_provider: None,
         plugin_resolver: None,
         file_entry_contract_collector_factory: None,
         analyzed_paths,
@@ -258,6 +264,18 @@ fn collect_source_closure_contracts_with_cache(
     active: &mut FxHashSet<HelperSummaryKey>,
     context: &SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
+    let disk_provider = paths::DiskSourcePathProvider {
+        resolver: context.source_path_resolver,
+    };
+    let derived_paths = paths::SourcePathAnalyzer::default().resolve(
+        model,
+        source_path,
+        context.source_path_file_provider.unwrap_or(&disk_provider),
+    );
+    context
+        .dependency_paths
+        .borrow_mut()
+        .extend(derived_paths.dependency_paths().cloned());
     let facts = collect_ast_facts(model);
     let function_binding_lookup = model.function_binding_lookup();
     let call_args_by_scope = if facts.source_templates_use_positional_args {
@@ -280,18 +298,25 @@ fn collect_source_closure_contracts_with_cache(
             source_ref,
             facts.source_templates.get(&SpanKey::new(source_ref.span)),
         );
-        let candidates = source_candidates(
+        let mut candidates = source_candidates(
             &source_ref.kind,
             template.as_ref(),
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
         );
 
+        let derived = derived_paths.candidate(source_ref);
+        if let Some(candidate) = derived {
+            candidates = candidate.map(path_to_template_string).into_iter().collect();
+        }
+        let derived_known = matches!(derived, Some(Some(_)));
+
         let (contract, resolved, mut explicit) =
             merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
         let has_current_source_anchor = template
             .as_ref()
-            .is_some_and(template_has_current_source_anchor);
+            .is_some_and(template_has_current_source_anchor)
+            || derived_known;
         if has_current_source_anchor
             && (resolved || model.shell_profile().dialect == ParseShellDialect::Zsh)
         {
@@ -305,8 +330,8 @@ fn collect_source_closure_contracts_with_cache(
         if resolved && source_ref.has_shuck_directive() {
             explicit = true;
         }
-        let trust_provided_bindings =
-            source_ref_can_import_provided_bindings(&source_ref.kind, template.as_ref());
+        let trust_provided_bindings = derived_known
+            || source_ref_can_import_provided_bindings(&source_ref.kind, template.as_ref());
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
         source_ref_diagnostic_classes.push(classify_source_ref_diagnostic_class(
@@ -820,6 +845,7 @@ pub(crate) enum TemplatePart {
     SourceDir,
     SourceFile,
     LogicalDirectory(Vec<TemplatePart>),
+    Variable(Name),
 }
 
 fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
@@ -867,6 +893,19 @@ fn source_template_uses_positional_args(template: &SourcePathTemplate) -> bool {
     match template {
         SourcePathTemplate::Interpolated(parts) => uses_positional_args(parts),
     }
+}
+
+pub(crate) fn source_path_expression(
+    word: &Word,
+    source: &str,
+    bash: bool,
+    zsh: bool,
+) -> Option<SourcePathTemplate> {
+    assignment_source_path_template(word, source, bash, zsh, |name, _| {
+        Some(SourcePathTemplate::Interpolated(vec![
+            TemplatePart::Variable(name.clone()),
+        ]))
+    })
 }
 
 pub(crate) fn assignment_source_path_template(
@@ -1097,6 +1136,9 @@ fn append_template_parts(parts: &mut Vec<TemplatePart>, template: &SourcePathTem
                     TemplatePart::Arg(index) => parts.push(TemplatePart::Arg(*index)),
                     TemplatePart::SourceDir => parts.push(TemplatePart::SourceDir),
                     TemplatePart::SourceFile => parts.push(TemplatePart::SourceFile),
+                    TemplatePart::Variable(name) => {
+                        parts.push(TemplatePart::Variable(name.clone()))
+                    }
                     TemplatePart::LogicalDirectory(directory) => {
                         parts.push(TemplatePart::LogicalDirectory(directory.clone()))
                     }
@@ -1437,7 +1479,10 @@ where
         &mut ignored_root,
         &mut saw_dynamic,
     ) || ignored_root
-        || !parts_have_current_source_anchor(&parts)
+        || !(parts_have_current_source_anchor(&parts)
+            || parts
+                .iter()
+                .any(|part| matches!(part, TemplatePart::Variable(_))))
     {
         return None;
     }
@@ -1666,6 +1711,7 @@ fn render_template_parts(
     for part in parts {
         match part {
             TemplatePart::Literal(text) => rendered.push_str(text),
+            TemplatePart::Variable(_) => return None,
             TemplatePart::Arg(index) => {
                 let value = args.get(index.saturating_sub(1))?.as_ref()?;
                 rendered.push_str(value);
@@ -1753,6 +1799,20 @@ fn resolve_helper_paths(
     candidate: &str,
     context: &SourceClosureLookupContext<'_>,
 ) -> HelperPathResolution {
+    if let Some(provider) = context.source_path_file_provider {
+        return HelperPathResolution {
+            paths: provider
+                .candidates(source_path, candidate)
+                .into_iter()
+                .inspect(|path| {
+                    context.dependency_paths.borrow_mut().insert(path.clone());
+                })
+                .find(|path| provider.is_file(path))
+                .into_iter()
+                .collect(),
+            plugin_resolved: false,
+        };
+    }
     for candidate_path in candidate_path_variants(candidate) {
         if candidate_path.is_absolute() {
             if candidate_path.is_file() {
@@ -1985,6 +2045,7 @@ fn summarize_helper_uncached(
         active,
         &SourceClosureLookupContext {
             source_path_resolver: context.source_path_resolver,
+            source_path_file_provider: context.source_path_file_provider,
             plugin_resolver: context.plugin_resolver,
             file_entry_contract_collector_factory: context.file_entry_contract_collector_factory,
             analyzed_paths: None,
@@ -2371,6 +2432,7 @@ noglob source \"$3\"
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
@@ -2403,6 +2465,7 @@ noglob source \"$3\"
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
@@ -2439,6 +2502,7 @@ set_flag() {
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
@@ -2479,6 +2543,7 @@ set_flag() {
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
@@ -2573,6 +2638,7 @@ set_flag() {
 
         let context = SourceClosureLookupContext {
             source_path_resolver: None,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,

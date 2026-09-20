@@ -35,8 +35,10 @@ mod reference;
 mod runtime;
 mod scope;
 mod source_closure;
+pub use source_closure::paths::{ResolvedSourcePaths, SourcePathAnalyzer, SourcePathFileProvider};
 mod source_ref;
 mod source_resolve;
+pub use source_resolve::candidate_paths as source_candidate_paths;
 mod uninitialized;
 mod unused;
 mod value_flow;
@@ -814,6 +816,7 @@ pub struct SemanticModel {
     call_graph: OnceLock<CallGraph>,
     source_refs: Vec<SourceRef>,
     source_path_templates_by_binding: FxHashMap<BindingId, source_closure::SourcePathTemplate>,
+    source_path_expressions: FxHashMap<BindingId, source_closure::SourcePathTemplate>,
     runtime: RuntimePrelude,
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
@@ -932,6 +935,7 @@ impl SemanticModel {
             call_graph: OnceLock::new(),
             source_refs: built.source_refs,
             source_path_templates_by_binding: built.source_path_templates_by_binding,
+            source_path_expressions: built.source_path_expressions,
             runtime: built.runtime,
             declarations: built.declarations,
             indirect_target_hints: built.indirect_target_hints,
@@ -2433,6 +2437,7 @@ pub fn build_with_observer_at_path_with_resolver<'a>(
         SemanticBuildOptions {
             source_path,
             source_path_resolver,
+            source_path_file_provider: None,
             plugin_resolver: None,
             file_entry_contract: None,
             workspace_variable_usage: None,
@@ -2455,6 +2460,7 @@ fn build_semantic_model<'a>(
     let SemanticBuildOptions {
         source_path,
         source_path_resolver,
+        source_path_file_provider,
         plugin_resolver,
         file_entry_contract,
         workspace_variable_usage,
@@ -2493,6 +2499,7 @@ fn build_semantic_model<'a>(
                 source_path,
                 source_closure::SourceClosureResolverConfig {
                     source_path_resolver,
+                    source_path_file_provider,
                     plugin_resolver,
                     file_entry_contract_collector_factory,
                     analyzed_paths,

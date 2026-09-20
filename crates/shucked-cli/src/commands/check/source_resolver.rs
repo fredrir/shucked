@@ -73,3 +73,9 @@ pub(super) fn source_ref_candidate_paths(
         &resolver.cwd,
     )
 }
+
+impl shucked_semantic::SourcePathFileProvider for NativeSourceResolver {
+    fn candidates(&self, from: &Path, candidate: &str) -> Vec<PathBuf> {
+        shucked_semantic::source_candidate_paths(from, candidate, &self.source_paths, &self.cwd)
+    }
+}

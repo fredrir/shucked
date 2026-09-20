@@ -70,7 +70,8 @@ pub fn resolve_candidate_targets(
         .find(|path| path.is_file())
 }
 
-fn candidate_paths(
+/// Candidate paths in configured search order.
+pub fn candidate_paths(
     source_path: &Path,
     candidate: &str,
     roots: &[String],
