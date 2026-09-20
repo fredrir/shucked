@@ -7,6 +7,7 @@ mod build;
 mod check;
 mod clean;
 mod corpus;
+mod deploy;
 mod flame;
 mod format;
 mod fuzz;
@@ -69,6 +70,9 @@ enum Commands {
 
     /// VS Code extension development tooling
     Vscode(VscodeArgs),
+
+    /// Build release binaries and install them locally
+    Deploy(DeployArgs),
 
     /// Release verification and workflow security audits
     Release(ReleaseArgs),
@@ -486,6 +490,17 @@ enum VscodeCommands {
 }
 
 #[derive(Args, Debug)]
+struct DeployArgs {
+    /// Reinstall the VS Code extension only
+    #[arg(long)]
+    vscode: bool,
+
+    /// Install the shucked binaries only
+    #[arg(long)]
+    shucked: bool,
+}
+
+#[derive(Args, Debug)]
 struct ReleaseArgs {
     #[command(subcommand)]
     command: ReleaseCommands,
@@ -667,6 +682,7 @@ fn main() -> Result<()> {
             VscodeCommands::Test => vscode::run_vscode_test(),
             VscodeCommands::Lint => vscode::run_vscode_lint(),
         },
+        Commands::Deploy(args) => deploy::run_deploy(args.vscode, args.shucked),
         Commands::Release(args) => match args.command {
             ReleaseCommands::CheckSecurity(s) => {
                 release::run_check_security(s.fix, s.workflow.as_deref())

@@ -46,6 +46,9 @@ just check
 # Run the shucked CLI
 just run check .             # cargo run -p shucked-cli -- check .
 
+# Build release and install locally (~/.local/bin + VS Code extension)
+just deploy                  # both; --shucked or --vscode to narrow
+
 # Build/test everything (including shucked-parser)
 cargo build
 cargo test --features http_client

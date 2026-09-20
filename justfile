@@ -26,6 +26,11 @@ build *args="":
 run *args="":
     cargo run -p shucked-cli -- {{ args }}
 
+# [ --vscode, --shucked ] -- Build release and install locally
+[group('dev')]
+deploy *args="":
+    cargo run -q -p shucked-tooling -- deploy {{ args }}
+
 # Fast pre-push checks: formatting, clippy, dependencies, workflow security
 [group('verify')]
 check:

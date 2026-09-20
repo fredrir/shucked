@@ -5,6 +5,15 @@ use crate::runner::{
     print_warning, run_command,
 };
 
+/// Platform-specific names of the built Shucked binaries.
+pub fn binary_names() -> (&'static str, &'static str) {
+    if cfg!(target_os = "windows") {
+        ("shucked.exe", "shucked-server.exe")
+    } else {
+        ("shucked", "shucked-server")
+    }
+}
+
 fn detect_node_runner() -> &'static str {
     if is_tool_available("bun") {
         "bun"
@@ -76,12 +85,7 @@ pub fn run_vscode_package() -> Result<()> {
     let bin_dir = vscode_dir.join("bin");
     std::fs::create_dir_all(&bin_dir)?;
 
-    let is_win = cfg!(target_os = "windows");
-    let (cli_bin, server_bin) = if is_win {
-        ("shucked.exe", "shucked-server.exe")
-    } else {
-        ("shucked", "shucked-server")
-    };
+    let (cli_bin, server_bin) = binary_names();
 
     let target_dir = repo_root.join("target/release");
     let cli_src = target_dir.join(cli_bin);
