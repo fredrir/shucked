@@ -885,8 +885,8 @@ fn document_links_follow_sources_for_encoding(
     assert_eq!(
         links[0]["range"],
         serde_json::json!({
-            "start": { "line": 0, "character": 16 },
-            "end": { "line": 0, "character": 25 },
+            "start": { "line": 0, "character": 18 },
+            "end": { "line": 0, "character": 27 },
         })
     );
     assert_eq!(links[1]["target"], relative_uri.as_str());
