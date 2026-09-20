@@ -124,7 +124,7 @@ def main():
         providers.mkdir()
         # Full copy verifies relocatability, without the build prefix remaining in use.
         shutil.copytree(DEST, providers/'runtime', symlinks=False, ignore=shutil.ignore_patterns('sources'))
-        (providers/'packs').symlink_to(ROOT/'tooling/providers/packs', target_is_directory=True)
+        shutil.copytree(ROOT/'tooling/providers/packs', providers/'packs', symlinks=False)
         # Hide the original prefix so hard-coded fallback paths cannot mask a broken relocation.
         hidden=DEST/('.validation-'+str(os.getpid()))
         hidden.mkdir()
