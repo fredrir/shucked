@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 mod bench;
@@ -15,6 +15,7 @@ mod lint;
 mod profile;
 mod release;
 mod runner;
+mod tag;
 mod test_cmd;
 mod vscode;
 
@@ -71,6 +72,9 @@ enum Commands {
 
     /// Release verification and workflow security audits
     Release(ReleaseArgs),
+
+    /// Show or bump the shucked and VS Code extension versions
+    Tag(TagArgs),
 
     /// Workspace cleaning
     Clean(CleanArgs),
@@ -511,6 +515,40 @@ struct ReleaseCheckSecurityArgs {
 }
 
 #[derive(Args, Debug)]
+struct TagArgs {
+    /// Component to show or bump (defaults to both)
+    #[arg(value_enum)]
+    target: Option<TagTarget>,
+
+    /// Increment the patch version
+    #[arg(long, group = "action")]
+    up: bool,
+
+    /// Decrement the patch version
+    #[arg(long, group = "action")]
+    down: bool,
+
+    /// Print the current version(s) (default)
+    #[arg(long, group = "action")]
+    get: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum TagTarget {
+    Shucked,
+    Vscode,
+}
+
+impl From<TagTarget> for tag::Target {
+    fn from(target: TagTarget) -> Self {
+        match target {
+            TagTarget::Shucked => tag::Target::Shucked,
+            TagTarget::Vscode => tag::Target::Vscode,
+        }
+    }
+}
+
+#[derive(Args, Debug)]
 struct CleanArgs {
     /// Deep clean including fuzz corpus, artifacts, and profiles
     #[arg(short, long)]
@@ -636,6 +674,16 @@ fn main() -> Result<()> {
             ReleaseCommands::CheckConfig => release::run_check_config(),
             ReleaseCommands::GenerateSbom => release::run_generate_sbom(),
         },
+        Commands::Tag(args) => {
+            let action = if args.up {
+                tag::Action::Up
+            } else if args.down {
+                tag::Action::Down
+            } else {
+                tag::Action::Get
+            };
+            tag::run_tag(args.target.map(Into::into), action)
+        }
         Commands::Clean(args) => clean::run_clean(args.all, args.dry_run),
     }
 }

@@ -31,6 +31,11 @@ run *args="":
 check:
     cargo run -q -p shucked-tooling -- check
 
+# [ --up, --down, --get ] target: shucked, vscode
+[group('release')]
+tag *args="":
+    cargo run -q -p shucked-tooling -- tag {{ args }}
+
 # Rust and workspace formatting (--check, --vscode)
 [group('verify')]
 fmt *args="":

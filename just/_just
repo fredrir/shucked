@@ -29,7 +29,7 @@ _just_tooling_argv() {
   fmt) reply=(format) ;;
   corpus | fuzz | release | vscode) reply=($1 $2) ;;
   wasm) [[ $2 == test ]] && reply=(test --wasm) || reply=(build --wasm) ;;
-  bench | build | check | clean | flame | init | lint | profile | test) reply=($1) ;;
+  bench | build | check | clean | flame | init | lint | profile | tag | test) reply=($1) ;;
   *) return 1 ;;
   esac
 }
