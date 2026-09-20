@@ -44,8 +44,9 @@ mod unused;
 mod value_flow;
 mod workspace_variables;
 pub use workspace_variables::{
-    WorkspaceConsumedBinding, WorkspaceVariableIndex, WorkspaceVariableOccurrence,
-    WorkspaceVariableTarget, WorkspaceVariableUsage, variable_target,
+    FileVariableFacts, WorkspaceConsumedBinding, WorkspaceVariableIndex,
+    WorkspaceVariableOccurrence, WorkspaceVariableTarget, WorkspaceVariableUsage,
+    canonical_workspace_path, variable_target,
 };
 mod zsh_options;
 mod zsh_plugin_framework;

@@ -3,11 +3,11 @@
 //! The index projects each shell file into compact semantic function and
 //! variable facts, resolves determinable `source` edges, and retains just
 //! enough source metadata to turn byte spans back into LSP ranges. Open
-//! buffers shadow disk content. The session caches one build and invalidates it
-//! whenever documents, workspaces, watched files, or configuration change.
+//! buffers shadow disk content. File analysis survives workspace invalidation;
+//! source effects are reused only while their content and dependencies match.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -21,7 +21,8 @@ use shucked_indexer::LineIndex;
 use shucked_linter::ShellDialect;
 use shucked_semantic::{
     CallFactSourceEdge, CallNodeKind, CrossFileCall, ExactFunctionRename, ExactFunctionRenameError,
-    FileCallFacts, VisibleSourcedFunction, WorkspaceCallIndex, source_ref_candidate_paths,
+    FileCallFacts, FileVariableFacts, SemanticModel, VisibleSourcedFunction, WorkspaceCallIndex,
+    source_ref_candidate_paths,
 };
 
 use crate::PositionEncoding;
@@ -30,6 +31,9 @@ use crate::editor::analyze_editor_document;
 use crate::session::{ClientOptions, RequestCancellationToken, WorkspaceSettingsSnapshot};
 use crate::symbols::WorkspaceOpenDocument;
 use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget};
+
+const MAX_RETAINED_MODELS: usize = 128;
+const MAX_RETAINED_MODEL_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Immutable session state needed to build or query the cross-file symbol index.
 #[derive(Clone)]
@@ -57,22 +61,28 @@ pub(crate) struct WorkspaceFunctionIndexCache {
 
 impl WorkspaceFunctionIndexCache {
     pub(crate) fn dependency_paths(&self) -> Vec<PathBuf> {
-        self.get(self.current_epoch())
+        self.previous()
             .map(|index| {
                 index
                     .files
                     .values()
-                    .flat_map(|file| file.dependencies.iter().cloned())
+                    .flat_map(|file| file.projection.dependencies.keys().cloned())
                     .collect()
             })
             .unwrap_or_default()
     }
-    /// Drops any cached index and marks in-flight builds stale.
+    /// Invalidates queries while retaining file analysis for the next build.
     pub(crate) fn invalidate(&self) {
+        let _slot = self.built.lock();
         self.epoch.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut slot) = self.built.lock() {
-            *slot = None;
-        }
+    }
+
+    fn previous(&self) -> Option<Arc<WorkspaceFunctionIndex>> {
+        self.built
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|(_, index)| index.clone())
     }
 
     pub(crate) fn current_epoch(&self) -> u64 {
@@ -81,16 +91,18 @@ impl WorkspaceFunctionIndexCache {
 
     fn get(&self, epoch: u64) -> Option<Arc<WorkspaceFunctionIndex>> {
         let slot = self.built.lock().ok()?;
+        if epoch != self.current_epoch() {
+            return None;
+        }
         slot.as_ref()
             .filter(|(built_epoch, _)| *built_epoch == epoch)
             .map(|(_, built)| built.clone())
     }
 
     fn store(&self, epoch: u64, built: Arc<WorkspaceFunctionIndex>) {
-        if epoch != self.current_epoch() {
-            return;
-        }
-        if let Ok(mut slot) = self.built.lock() {
+        if let Ok(mut slot) = self.built.lock()
+            && epoch == self.current_epoch()
+        {
             *slot = Some((epoch, built));
         }
     }
@@ -103,13 +115,16 @@ impl WorkspaceFunctionIndexCache {
 pub(crate) fn workspace_function_index(
     context: &WorkspaceFunctionContext,
 ) -> Option<Arc<WorkspaceFunctionIndex>> {
-    if context.cancellation.is_cancelled() {
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
         return None;
     }
     if let Some(built) = context.cache.get(context.epoch) {
         return Some(built);
     }
     let built = Arc::new(WorkspaceFunctionIndex::build(context)?);
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
+        return None;
+    }
     context.cache.store(context.epoch, built.clone());
     Some(built)
 }
@@ -137,13 +152,26 @@ pub(crate) fn fresh_workspace_function_index(
 
 /// Source snapshot retained for one indexed file.
 pub(crate) struct IndexedWorkspaceFile {
-    dependencies: Vec<PathBuf>,
+    analysis: Arc<WorkspaceFileAnalysis>,
+    projection: Arc<WorkspaceFileProjection>,
     uri: types::Url,
     open_uri: Option<types::Url>,
-    source: String,
-    line_index: LineIndex,
     version: Option<DocumentVersion>,
+}
+
+struct WorkspaceFileAnalysis {
+    source: Arc<str>,
+    model: Option<Arc<SemanticModel>>,
+    line_index: LineIndex,
     content_hash: [u8; 32],
+}
+
+struct WorkspaceFileProjection {
+    source_paths: SourcePathResolution,
+    dependencies: BTreeMap<PathBuf, DependencyFingerprint>,
+    calls: FileCallFacts,
+    variables: FileVariableFacts,
+    complete: bool,
 }
 
 impl IndexedWorkspaceFile {
@@ -158,11 +186,11 @@ impl IndexedWorkspaceFile {
     }
 
     pub(crate) fn source(&self) -> &str {
-        &self.source
+        &self.analysis.source
     }
 
     pub(crate) fn line_index(&self) -> &LineIndex {
-        &self.line_index
+        &self.analysis.line_index
     }
 
     /// Open-document version captured by the request, or `None` for disk input.
@@ -172,7 +200,7 @@ impl IndexedWorkspaceFile {
 
     /// SHA-256 of the exact content used to build semantic facts and ranges.
     pub(crate) fn content_hash(&self) -> [u8; 32] {
-        self.content_hash
+        self.analysis.content_hash
     }
 }
 
@@ -203,6 +231,7 @@ impl WorkspaceFunctionIndex {
     }
 
     fn build(context: &WorkspaceFunctionContext) -> Option<Self> {
+        let previous = context.cache.previous();
         let mut graph = WorkspaceCallIndex::new();
         let mut variables = WorkspaceVariableIndex::default();
         let mut files = BTreeMap::new();
@@ -247,6 +276,7 @@ impl WorkspaceFunctionIndex {
                 &mut graph,
                 &mut variables,
                 &mut files,
+                previous.as_deref(),
                 WorkspaceFileInput {
                     path,
                     uri: open.uri.clone(),
@@ -254,7 +284,6 @@ impl WorkspaceFunctionIndex {
                     version: Some(open.document.version()),
                 },
                 &resolution,
-                &open_paths,
                 &mut path_analyzer,
                 &path_provider,
             );
@@ -275,7 +304,7 @@ impl WorkspaceFunctionIndex {
             if context.cancellation.is_cancelled() {
                 return None;
             }
-            let Ok(source) = std::fs::read_to_string(&file) else {
+            let Some(source) = path_provider.source(&file) else {
                 complete = false;
                 continue;
             };
@@ -292,6 +321,7 @@ impl WorkspaceFunctionIndex {
                 &mut graph,
                 &mut variables,
                 &mut files,
+                previous.as_deref(),
                 WorkspaceFileInput {
                     path: &file,
                     uri,
@@ -299,7 +329,6 @@ impl WorkspaceFunctionIndex {
                     version: None,
                 },
                 &resolution,
-                &open_paths,
                 &mut path_analyzer,
                 &path_provider,
             );
@@ -335,7 +364,7 @@ impl WorkspaceFunctionIndex {
                     .iter()
                     .find_map(|(path, open)| (path == &target).then_some(*open))
                 else {
-                    let Ok(source) = std::fs::read_to_string(&target) else {
+                    let Some(source) = path_provider.source(&target) else {
                         complete = false;
                         graph.insert(target.clone(), FileCallFacts::default());
                         continue;
@@ -354,6 +383,7 @@ impl WorkspaceFunctionIndex {
                         &mut graph,
                         &mut variables,
                         &mut files,
+                        previous.as_deref(),
                         WorkspaceFileInput {
                             path: &target,
                             uri,
@@ -361,7 +391,6 @@ impl WorkspaceFunctionIndex {
                             version: None,
                         },
                         &resolution,
-                        &open_paths,
                         &mut path_analyzer,
                         &path_provider,
                     );
@@ -376,6 +405,7 @@ impl WorkspaceFunctionIndex {
                     &mut graph,
                     &mut variables,
                     &mut files,
+                    previous.as_deref(),
                     WorkspaceFileInput {
                         path: &target,
                         uri: open.uri.clone(),
@@ -383,7 +413,6 @@ impl WorkspaceFunctionIndex {
                         version: Some(open.document.version()),
                     },
                     &resolution,
-                    &open_paths,
                     &mut path_analyzer,
                     &path_provider,
                 );
@@ -628,7 +657,7 @@ impl WorkspaceFunctionIndex {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct SourcePathResolution {
     roots: Vec<String>,
     project_root: PathBuf,
@@ -723,16 +752,101 @@ fn workspace_settings_for_path<'a>(
         .map(|(workspace, _)| workspace)
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct DependencyFingerprint {
+    canonical_path: PathBuf,
+    is_file: bool,
+    content_hash: Option<[u8; 32]>,
+    source_paths: SourcePathResolution,
+}
+
+struct WorkspaceSourceSnapshot {
+    canonical_path: PathBuf,
+    is_file: bool,
+    source: Option<Arc<str>>,
+    content_hash: Option<[u8; 32]>,
+}
+
 pub(crate) struct WorkspacePathProvider<'a> {
     context: &'a WorkspaceFunctionContext,
     source_paths: std::cell::RefCell<SourcePathsCache>,
     open_sources: BTreeMap<PathBuf, &'a str>,
+    sources: std::cell::RefCell<BTreeMap<PathBuf, Arc<WorkspaceSourceSnapshot>>>,
+    retained_models: std::cell::Cell<usize>,
+    retained_source_bytes: std::cell::Cell<usize>,
 }
 
 impl<'a> WorkspacePathProvider<'a> {
+    fn retain_analysis(&self, analysis: Arc<WorkspaceFileAnalysis>) -> Arc<WorkspaceFileAnalysis> {
+        let Some(model) = &analysis.model else {
+            return analysis;
+        };
+        let bytes = self
+            .retained_source_bytes
+            .get()
+            .saturating_add(analysis.source.len());
+        if !model.source_refs().is_empty()
+            && self.retained_models.get() < MAX_RETAINED_MODELS
+            && bytes <= MAX_RETAINED_MODEL_SOURCE_BYTES
+        {
+            self.retained_models.set(self.retained_models.get() + 1);
+            self.retained_source_bytes.set(bytes);
+            analysis
+        } else {
+            Arc::new(WorkspaceFileAnalysis {
+                source: analysis.source.clone(),
+                model: None,
+                line_index: analysis.line_index.clone(),
+                content_hash: analysis.content_hash,
+            })
+        }
+    }
+
+    fn snapshot(&self, path: &Path) -> Arc<WorkspaceSourceSnapshot> {
+        if let Some(snapshot) = self.sources.borrow().get(path) {
+            return snapshot.clone();
+        }
+        let canonical_path = canonical_path(path);
+        let overlay = self.open_sources.get(&canonical_path);
+        let is_file = overlay.is_some() || path.is_file();
+        let source: Option<Arc<str>> = overlay
+            .map(|source| Arc::from(*source))
+            .or_else(|| std::fs::read_to_string(path).ok().map(Arc::from));
+        let content_hash = source
+            .as_ref()
+            .map(|source| content_hash(source.as_bytes()));
+        let snapshot = Arc::new(WorkspaceSourceSnapshot {
+            canonical_path,
+            is_file,
+            source,
+            content_hash,
+        });
+        self.sources
+            .borrow_mut()
+            .insert(path.to_path_buf(), snapshot.clone());
+        snapshot
+    }
+
+    fn source(&self, path: &Path) -> Option<Arc<str>> {
+        self.snapshot(path).source.clone()
+    }
+
+    fn fingerprint(&self, path: &Path) -> DependencyFingerprint {
+        let snapshot = self.snapshot(path);
+        DependencyFingerprint {
+            canonical_path: snapshot.canonical_path.clone(),
+            is_file: snapshot.is_file,
+            content_hash: snapshot.content_hash,
+            source_paths: self.source_paths.borrow_mut().resolve(path, self.context),
+        }
+    }
+
     pub(crate) fn new(context: &'a WorkspaceFunctionContext) -> Self {
         Self {
             context,
+            sources: Default::default(),
+            retained_models: Default::default(),
+            retained_source_bytes: Default::default(),
             source_paths: std::cell::RefCell::new(SourcePathsCache::default()),
             open_sources: context
                 .open_documents
@@ -760,14 +874,11 @@ impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
     }
 
     fn read_source(&self, path: &Path) -> Option<String> {
-        self.open_sources
-            .get(&canonical_path(path))
-            .map(|source| (*source).to_owned())
-            .or_else(|| std::fs::read_to_string(path).ok())
+        self.source(path).map(|source| source.to_string())
     }
 
     fn is_file(&self, path: &Path) -> bool {
-        self.open_sources.contains_key(&canonical_path(path)) || path.is_file()
+        self.snapshot(path).is_file
     }
 
     fn is_cancelled(&self) -> bool {
@@ -787,11 +898,11 @@ fn insert_file(
     graph: &mut WorkspaceCallIndex,
     variables: &mut WorkspaceVariableIndex,
     files: &mut BTreeMap<PathBuf, IndexedWorkspaceFile>,
+    previous: Option<&WorkspaceFunctionIndex>,
     input: WorkspaceFileInput<'_>,
     source_paths: &SourcePathResolution,
-    open_paths: &BTreeSet<PathBuf>,
     path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
-    path_provider: &dyn shucked_semantic::SourcePathFileProvider,
+    path_provider: &WorkspacePathProvider<'_>,
 ) -> bool {
     let key = canonical_path(input.path);
     let open_uri = input.version.is_some().then(|| input.uri.clone());
@@ -799,10 +910,79 @@ fn insert_file(
         .ok()
         .and_then(|path| types::Url::from_file_path(path).ok())
         .unwrap_or(input.uri);
-    let shell = ShellDialect::infer(input.source, Some(input.path));
-    let model = analyze_editor_document(input.source, Some(input.path), shell);
-    let mut dependencies = vec![input.path.to_path_buf()];
-    let resolved_paths = path_analyzer.resolve(&model, input.path, path_provider);
+    let previous = previous.and_then(|index| index.files.get(&key));
+    let analysis = previous
+        .filter(|file| file.source() == input.source)
+        .map(|file| file.analysis.clone())
+        .unwrap_or_else(|| {
+            Arc::new(WorkspaceFileAnalysis {
+                model: Some(Arc::new(analyze_editor_document(
+                    input.source,
+                    Some(input.path),
+                    ShellDialect::infer(input.source, Some(input.path)),
+                ))),
+                source: Arc::from(input.source),
+                line_index: LineIndex::new(input.source),
+                content_hash: content_hash(input.source.as_bytes()),
+            })
+        });
+    let projection = previous
+        .filter(|file| {
+            Arc::ptr_eq(&file.analysis, &analysis)
+                && file.projection.complete
+                && file.projection.source_paths == *source_paths
+                && file
+                    .projection
+                    .dependencies
+                    .iter()
+                    .all(|(path, fingerprint)| {
+                        !path_provider.context.cancellation.is_cancelled()
+                            && path_provider.fingerprint(path) == *fingerprint
+                    })
+        })
+        .map(|file| file.projection.clone())
+        .unwrap_or_else(|| {
+            let model = analysis.model.clone().unwrap_or_else(|| {
+                Arc::new(analyze_editor_document(
+                    input.source,
+                    Some(input.path),
+                    ShellDialect::infer(input.source, Some(input.path)),
+                ))
+            });
+            Arc::new(project_file(
+                &model,
+                input.path,
+                source_paths,
+                path_analyzer,
+                path_provider,
+            ))
+        });
+    let analysis = path_provider.retain_analysis(analysis);
+    let complete = projection.complete;
+    variables.insert_facts(key.clone(), projection.variables.clone());
+    graph.insert(key.clone(), projection.calls.clone());
+    files.insert(
+        key,
+        IndexedWorkspaceFile {
+            analysis,
+            projection,
+            uri,
+            open_uri,
+            version: input.version,
+        },
+    );
+    complete
+}
+
+fn project_file(
+    model: &SemanticModel,
+    path: &Path,
+    source_paths: &SourcePathResolution,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    path_provider: &WorkspacePathProvider<'_>,
+) -> WorkspaceFileProjection {
+    let mut dependencies = vec![path.to_path_buf()];
+    let resolved_paths = path_analyzer.resolve(model, path, path_provider);
     dependencies.extend(resolved_paths.dependency_paths().cloned());
     let edges = model
         .source_refs()
@@ -813,7 +993,7 @@ fn insert_file(
                 candidate.map(PathBuf::from).into_iter().collect()
             } else {
                 source_ref_candidate_paths(
-                    input.path,
+                    path,
                     source_ref,
                     &source_paths.roots,
                     &source_paths.project_root,
@@ -821,15 +1001,17 @@ fn insert_file(
             };
             if resolved_paths.candidate(source_ref).is_none()
                 && candidates.is_empty()
-                && let Some(candidate) = model.current_file_source_candidate(source_ref, input.path)
+                && let Some(candidate) = model.current_file_source_candidate(source_ref, path)
             {
                 candidates.push(candidate);
             }
             candidates
                 .into_iter()
                 .inspect(|path| dependencies.push(path.clone()))
-                .map(|candidate| canonical_path(&candidate))
-                .find(|candidate| open_paths.contains(candidate) || candidate.is_file())
+                .find_map(|candidate| {
+                    let snapshot = path_provider.snapshot(&candidate);
+                    snapshot.is_file.then(|| snapshot.canonical_path.clone())
+                })
                 .map(|target| CallFactSourceEdge {
                     path: target,
                     span: source_ref.span,
@@ -842,22 +1024,21 @@ fn insert_file(
                 })
         })
         .collect::<Vec<_>>();
-    let call_facts = FileCallFacts::project_with_source_edges(&model, edges);
-    variables.insert(key.clone(), &model, &call_facts.source_effects);
-    graph.insert(key.clone(), call_facts);
-    files.insert(
-        key,
-        IndexedWorkspaceFile {
-            dependencies,
-            uri,
-            open_uri,
-            source: input.source.to_owned(),
-            line_index: LineIndex::new(input.source),
-            version: input.version,
-            content_hash: content_hash(input.source.as_bytes()),
-        },
-    );
-    resolved_paths.is_complete()
+    let call_facts = FileCallFacts::project_with_source_edges(model, edges);
+    let variables = FileVariableFacts::project(model, &call_facts.source_effects);
+    WorkspaceFileProjection {
+        source_paths: source_paths.clone(),
+        dependencies: dependencies
+            .into_iter()
+            .map(|path| {
+                let fingerprint = path_provider.fingerprint(&path);
+                (path, fingerprint)
+            })
+            .collect(),
+        calls: call_facts,
+        variables,
+        complete: resolved_paths.is_complete(),
+    }
 }
 
 struct ClosedFileDiscovery {
@@ -927,43 +1108,7 @@ fn discover_closed_shell_files(
 }
 
 pub(crate) fn canonical_path(path: &Path) -> PathBuf {
-    if let Ok(canonical) = std::fs::canonicalize(path) {
-        return canonical;
-    }
-
-    let normalized = normalize_path(path);
-    let mut ancestor = normalized.as_path();
-    let mut suffix = Vec::new();
-    while let Some(name) = ancestor.file_name() {
-        suffix.push(name.to_owned());
-        let Some(parent) = ancestor.parent() else {
-            break;
-        };
-        if let Ok(mut canonical) = std::fs::canonicalize(parent) {
-            for component in suffix.iter().rev() {
-                canonical.push(component);
-            }
-            return canonical;
-        }
-        ancestor = parent;
-    }
-    normalized
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    normalized.push(component.as_os_str());
-                }
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-    normalized
+    shucked_semantic::canonical_workspace_path(path)
 }
 
 fn content_hash(contents: &[u8]) -> [u8; 32] {
@@ -1417,3 +1562,7 @@ mod tests {
         assert!(context.cache.get(context.epoch).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/workspace_incremental.rs"]
+mod incremental_tests;

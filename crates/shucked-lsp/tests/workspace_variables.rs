@@ -326,3 +326,25 @@ fn unsaved_loader_calls_refresh_usage_without_leaking_local_shadows() {
     );
     assert!(unused(&session, &uri).is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn unsaved_only_helpers_keep_usage_through_a_symlinked_workspace() {
+    let root = tempfile::tempdir().unwrap();
+    let real = root.path().join("real");
+    let linked = root.path().join("linked");
+    fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, &linked).unwrap();
+    fs::write(real.join(".shucked.toml"), "[lint]\nselect = ['C001']\n").unwrap();
+    fs::write(real.join("main.sh"), "source helper.sh\necho \"$VALUE\"\n").unwrap();
+    let mut session = session(&linked);
+    let uri = open(&mut session, &linked.join("helper.sh"), "VALUE=shared\n", 1);
+    assert!(unused(&session, &uri).is_empty());
+    open(
+        &mut session,
+        &linked.join("main.sh"),
+        "source helper.sh\n",
+        2,
+    );
+    assert_eq!(unused(&session, &uri).len(), 1);
+}

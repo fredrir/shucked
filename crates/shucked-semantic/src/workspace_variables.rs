@@ -6,13 +6,54 @@
 pub(crate) mod loader_sources;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::{
     Binding, BindingAttributes, BindingKind, BindingOrigin, CallFactSourceEffect,
     EditorSymbolTarget, ReferenceKind, SemanticModel,
 };
 use shucked_ast::{Name, Span};
+
+/// Canonical workspace identity, including files that exist only in an editor.
+pub fn canonical_workspace_path(path: &Path) -> PathBuf {
+    if let Ok(canonical) = std::fs::canonicalize(path) {
+        return canonical;
+    }
+
+    let normalized = normalize_path(path);
+    let mut ancestor = normalized.as_path();
+    let mut suffix = Vec::new();
+    while let Some(name) = ancestor.file_name() {
+        suffix.push(name.to_owned());
+        let Some(parent) = ancestor.parent() else {
+            break;
+        };
+        if let Ok(mut canonical) = std::fs::canonicalize(parent) {
+            for component in suffix.iter().rev() {
+                canonical.push(component);
+            }
+            return canonical;
+        }
+        ancestor = parent;
+    }
+    normalized
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
 
 /// A variable target under the active editor cursor.
 pub struct WorkspaceVariableTarget {
@@ -55,8 +96,9 @@ struct IncomingVariableSource {
     cutoff: usize,
 }
 
+/// Reusable variable facts for one file and its resolved source effects.
 #[derive(Clone, Debug, Default)]
-struct FileVariableFacts {
+pub struct FileVariableFacts {
     definitions: Vec<VariableDefinition>,
     references: Vec<VariableReference>,
     source_effects: Vec<CallFactSourceEffect>,
@@ -66,7 +108,8 @@ struct FileVariableFacts {
 }
 
 impl FileVariableFacts {
-    fn project(model: &SemanticModel, source_effects: &[CallFactSourceEffect]) -> Self {
+    /// Project file facts without resolving cross-file reads.
+    pub fn project(model: &SemanticModel, source_effects: &[CallFactSourceEffect]) -> Self {
         let unconditional = crate::function_resolution::collect_unconditional_bindings(
             &model.recorded_program,
             &model.command_bindings,
@@ -265,7 +308,7 @@ pub struct WorkspaceVariableUsage {
 impl WorkspaceVariableUsage {
     /// Bindings read by another file in the same source environment.
     pub fn consumed_bindings(&self, path: &Path) -> Vec<WorkspaceConsumedBinding> {
-        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let path = canonical_workspace_path(path);
         self.consumed
             .get(&path)
             .map(|bindings| bindings.iter().cloned().collect())
@@ -288,7 +331,7 @@ impl WorkspaceVariableUsage {
         path: &Path,
         map_range: impl Fn(std::ops::Range<usize>) -> Option<std::ops::Range<usize>>,
     ) {
-        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let path = canonical_workspace_path(path);
         if let Some(bindings) = self.consumed.get_mut(&path) {
             *bindings = bindings
                 .iter()
@@ -343,7 +386,8 @@ impl WorkspaceVariableIndex {
         self.insert_facts(path, FileVariableFacts::project(model, source_effects));
     }
 
-    fn insert_facts(&mut self, path: PathBuf, facts: FileVariableFacts) {
+    /// Replace one file with previously projected facts.
+    pub fn insert_facts(&mut self, path: PathBuf, facts: FileVariableFacts) {
         if let Some(previous) = self.files.remove(&path) {
             for (target, cutoff, source_index) in
                 previous.resolved_top_level_source_edges(usize::MAX)
