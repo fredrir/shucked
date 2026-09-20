@@ -83,26 +83,35 @@ impl ManagedShell {
         let generation = self.generation.load(Ordering::Acquire);
         let mut command = std::process::Command::new(&self.executable);
         if self.name == "fish" {
-            command.args([
-                "--no-config",
-                "--private",
-                "-c",
-                include_str!("fish_worker.fish"),
-                "--",
-            ]);
+            assets::shell_args(
+                &mut command,
+                [
+                    "--no-config",
+                    "--private",
+                    "-c",
+                    include_str!("fish_worker.fish"),
+                    "--",
+                ],
+            );
         } else {
-            command.args([
-                "--noprofile",
-                "--norc",
-                "-c",
-                include_str!("bash_worker.bash"),
-                "shucked-complete",
-            ]);
+            assets::shell_args(
+                &mut command,
+                [
+                    "--noprofile",
+                    "--norc",
+                    "-c",
+                    include_str!("bash_worker.bash"),
+                    "shucked-complete",
+                ],
+            );
         }
+        assets::shell_args(
+            &mut command,
+            std::iter::once(assets::primary_word(&input[0])).chain(input[1..].iter().cloned()),
+        );
         command
-            .args(&input)
             .current_dir(directory)
-            .env("SHUCKED_PROVIDER_ROOT", &self.root)
+            .env("SHUCKED_PROVIDER_ROOT", assets::shell_path(&self.root))
             .env("LC_ALL", "C")
             .env("TERM", "dumb")
             .env("HOMEBREW_NO_AUTO_UPDATE", "1")

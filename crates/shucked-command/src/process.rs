@@ -145,7 +145,7 @@ fn capture_stream(
 ) -> Option<Vec<u8>> {
     use std::io::Read;
     use std::os::windows::io::AsRawHandle;
-    if zpty || cancellation() {
+    if cancellation() {
         return None;
     }
     let mut running = windows::Running::spawn(command, stderr)?;
@@ -179,6 +179,9 @@ fn capture_stream(
             output.extend_from_slice(&chunk[..count]);
             if output.len() > MAX_OUTPUT {
                 return None;
+            }
+            if zpty && output.ends_with(b"\0E\0") {
+                return Some(output);
             }
         } else if let Some(status) = running.child.try_wait().ok()? {
             return status.success().then_some(output);
@@ -220,6 +223,16 @@ mod windows {
         peak_process_memory: usize,
         peak_job_memory: usize,
     }
+    #[repr(C)]
+    struct ThreadEntry {
+        size: u32,
+        usage: u32,
+        id: u32,
+        process_id: u32,
+        base_priority: i32,
+        delta_priority: i32,
+        flags: u32,
+    }
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> Handle;
@@ -231,6 +244,11 @@ mod windows {
         ) -> i32;
         fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
         fn CloseHandle(handle: Handle) -> i32;
+        fn CreateToolhelp32Snapshot(flags: u32, process_id: u32) -> Handle;
+        fn Thread32First(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn Thread32Next(snapshot: Handle, entry: *mut ThreadEntry) -> i32;
+        fn OpenThread(access: u32, inherit: i32, id: u32) -> Handle;
+        fn ResumeThread(thread: Handle) -> u32;
         pub(super) fn PeekNamedPipe(
             pipe: Handle,
             buffer: *mut c_void,
@@ -283,7 +301,8 @@ mod windows {
                 } else {
                     Stdio::null()
                 })
-                .creation_flags(0x0800_0000)
+                // Suspend before assignment so even an immediate child cannot escape the job.
+                .creation_flags(0x0800_0000 | 0x0000_0004)
                 .spawn();
             let Ok(child) = child else {
                 unsafe {
@@ -295,8 +314,45 @@ mod windows {
             if unsafe { AssignProcessToJobObject(job, running.child.as_raw_handle()) } == 0 {
                 return None;
             }
+            if !resume_initial_thread(running.child.id()) {
+                return None;
+            }
             Some(running)
         }
+    }
+
+    fn resume_initial_thread(process_id: u32) -> bool {
+        // std retains only the process handle. The suspended child has not run
+        // any user code, so its initial thread can be found without a spawn race.
+        let snapshot = unsafe { CreateToolhelp32Snapshot(0x0000_0004, 0) };
+        if snapshot as isize == -1 {
+            return false;
+        }
+        let mut entry = ThreadEntry {
+            size: std::mem::size_of::<ThreadEntry>() as u32,
+            usage: 0,
+            id: 0,
+            process_id: 0,
+            base_priority: 0,
+            delta_priority: 0,
+            flags: 0,
+        };
+        let mut found = unsafe { Thread32First(snapshot, &mut entry) } != 0;
+        let mut resumed = false;
+        while found {
+            if entry.process_id == process_id {
+                let thread = unsafe { OpenThread(0x0002, 0, entry.id) };
+                if !thread.is_null() {
+                    resumed = unsafe { ResumeThread(thread) } != u32::MAX;
+                    unsafe { CloseHandle(thread) };
+                }
+                break;
+            }
+            entry.size = std::mem::size_of::<ThreadEntry>() as u32;
+            found = unsafe { Thread32Next(snapshot, &mut entry) } != 0;
+        }
+        unsafe { CloseHandle(snapshot) };
+        resumed
     }
     impl Drop for Running {
         fn drop(&mut self) {

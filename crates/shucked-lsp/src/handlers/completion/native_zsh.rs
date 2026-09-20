@@ -35,9 +35,6 @@ struct Cached {
 
 impl NativeZsh {
     pub(super) fn detect() -> Option<Self> {
-        if !cfg!(unix) {
-            return None;
-        }
         let shell = super::native::assets::shell("zsh")?;
         Some(Self {
             shell,
@@ -72,7 +69,14 @@ impl NativeZsh {
         let query_prefix = if prefix.starts_with('-') { "-" } else { prefix };
         let buffer = words
             .iter()
-            .map(|word| quote_word(word))
+            .enumerate()
+            .map(|(index, word)| {
+                if index == 0 {
+                    quote_word(&super::native::assets::primary_word(word))
+                } else {
+                    quote_word(word)
+                }
+            })
             .chain(std::iter::once(quote_word(query_prefix)))
             .collect::<Vec<_>>()
             .join(" ");
@@ -143,9 +147,15 @@ impl NativeZsh {
         primary: Option<&str>,
     ) -> Option<Vec<Candidate>> {
         let mut command = std::process::Command::new(&self.shell);
+        super::native::assets::shell_args(
+            &mut command,
+            ["-f", "-c", include_str!("zsh_supervisor.zsh")],
+        );
         command
-            .args(["-f", "-c", include_str!("zsh_supervisor.zsh")])
-            .env("SHUCKED_NATIVE_SHELL", &self.shell)
+            .env(
+                "SHUCKED_NATIVE_SHELL",
+                super::native::assets::shell_path(&self.shell),
+            )
             .env("SHUCKED_NATIVE_SCRIPT", include_str!("zsh_worker.zsh"))
             .env("SHUCKED_NATIVE_BUFFER", buffer)
             .env("SHUCKED_NATIVE_PERSONAL", if personal { "1" } else { "0" })
@@ -159,7 +169,10 @@ impl NativeZsh {
         }
         if let Some(root) = super::native::assets::root() {
             super::native::assets::configure_worker_path(&mut command, &root, execution_path);
-            command.env("SHUCKED_PROVIDER_ROOT", root);
+            command.env(
+                "SHUCKED_PROVIDER_ROOT",
+                super::native::assets::shell_path(&root),
+            );
         }
         let _primary = super::native::assets::bind_primary(&mut command, primary).ok()?;
         #[cfg(test)]
