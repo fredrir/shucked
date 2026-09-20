@@ -8,7 +8,7 @@ members  = ["crates/*", "tooling"]
 ignored = ["shucked-benchmark", "shucked-wasm"]
 
 [workspace.package]
-version      = "0.0.2"
+version      = "0.0.3"
 edition      = "2024"
 rust-version = "1.94.1"
 license      = "MIT"
@@ -21,22 +21,22 @@ categories   = ["command-line-utilities", "development-tools"]
 [workspace.dependencies]
 # Internal crates — path plus version so publishes to crates.io resolve.
 # The release script bumps these in lockstep with workspace.package.version.
-shucked-ast       = { path = "crates/shucked-ast", version = "0.0.2" }
+shucked-ast       = { path = "crates/shucked-ast", version = "0.0.3" }
 shucked-benchmark = { path = "crates/shucked-benchmark" }
-shucked-cache     = { path = "crates/shucked-cache", version = "0.0.2" }
-shucked-command   = { path = "crates/shucked-command", version = "0.0.2" }
-shucked-config    = { path = "crates/shucked-config", version = "0.0.2" }
-shucked-discover  = { path = "crates/shucked-discover", version = "0.0.2" }
-shucked-formatter = { path = "crates/shucked-formatter", version = "0.0.2" }
-shucked-indexer   = { path = "crates/shucked-indexer", version = "0.0.2" }
-shucked-linter    = { path = "crates/shucked-linter", version = "0.0.2" }
-shucked-parser    = { path = "crates/shucked-parser", version = "0.0.2" }
-shucked-semantic  = { path = "crates/shucked-semantic", version = "0.0.2" }
-shucked-cli       = { path = "crates/shucked-cli", version = "0.0.2" }
-shucked-extract   = { path = "crates/shucked-extract", version = "0.0.2" }
-shucked-lsp       = { path = "crates/shucked-lsp", version = "0.0.2" }
-shucked-server    = { path = "crates/shucked-server", version = "0.0.2" }
-shucked-wasm      = { path = "crates/shucked-wasm", version = "0.0.2" }
+shucked-cache     = { path = "crates/shucked-cache", version = "0.0.3" }
+shucked-command   = { path = "crates/shucked-command", version = "0.0.3" }
+shucked-config    = { path = "crates/shucked-config", version = "0.0.3" }
+shucked-discover  = { path = "crates/shucked-discover", version = "0.0.3" }
+shucked-formatter = { path = "crates/shucked-formatter", version = "0.0.3" }
+shucked-indexer   = { path = "crates/shucked-indexer", version = "0.0.3" }
+shucked-linter    = { path = "crates/shucked-linter", version = "0.0.3" }
+shucked-parser    = { path = "crates/shucked-parser", version = "0.0.3" }
+shucked-semantic  = { path = "crates/shucked-semantic", version = "0.0.3" }
+shucked-cli       = { path = "crates/shucked-cli", version = "0.0.3" }
+shucked-extract   = { path = "crates/shucked-extract", version = "0.0.3" }
+shucked-lsp       = { path = "crates/shucked-lsp", version = "0.0.3" }
+shucked-server    = { path = "crates/shucked-server", version = "0.0.3" }
+shucked-wasm      = { path = "crates/shucked-wasm", version = "0.0.3" }
 
 # Error handling
 thiserror          = "2"
