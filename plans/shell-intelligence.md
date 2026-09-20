@@ -43,6 +43,19 @@ macOS arm64, local stdio, 10 warmups and 100 samples. These figures include the 
 
 Linux ARM64 debug server in a local VM; 10 fresh processes, 10 warmups and 100 warm samples. Four PATH directories, 1,001 executable fixtures, 100 functions and 128 native-help candidates. Server caches start fresh for cold runs; filesystem caches remain warm. No simulated WAN latency. Reproduce with `tests/remote/benchmark_completion.py`; JSON output records binary identity and fixtures. Real SSH/container acceptance also checks installation refresh and reconnect with absolute and relative PATH.
 
+## Arch x86_64 SSH evidence
+
+| Check | Result |
+|---|---|
+| Real host | Arch Linux x86_64 over SSH from macOS arm64 |
+| Absolute and relative PATH | Host inventory, paths, install refresh and reconnect passed; 1.038 s each |
+| Startup through first completion | Debug p50 56.381 ms; p95 57.649 ms |
+| Warm command completion | Debug p50 14.611 ms; p95 18.432 ms |
+| Warm native arguments | Debug p50 3.586 ms; p95 3.977 ms |
+| Edit through completion | Debug p50 21.881 ms; p95 23.057 ms |
+| Measurement scope | Same fixture and sample counts as remote benchmark above; actual SSH, warm filesystem caches |
+| Unavailable hosts | User confirmed no Windows/WSL or Intel macOS host |
+
 ## Confirmed scope
 
 | Decision                | Value                                                                                                                                                                              |
