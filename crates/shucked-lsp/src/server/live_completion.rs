@@ -23,8 +23,14 @@ pub(crate) struct Params {
     pub prefix: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Encoding {
+    BashWord,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct Candidate {
     pub text: String,
+    pub encoding: Option<Encoding>,
     #[serde(default)]
     pub description: String,
 }
@@ -171,6 +177,29 @@ pub(crate) fn start(pending: Pending, session: &Session, client: &Client) -> cra
                                     && !candidate.text.contains('\0')
                                     && candidate.description.len() <= 16384
                             })
+                    })
+                    .map(|mut result| {
+                        result.candidates.retain_mut(|candidate| {
+                            if candidate.encoding.is_some() {
+                                let Some(text) = crate::handlers::completion::decode_bash_candidate(
+                                    &candidate.text,
+                                ) else {
+                                    result.partial = true;
+                                    return false;
+                                };
+                                candidate.text = text;
+                                candidate.encoding = None;
+                            }
+                            if candidate.text.is_empty()
+                                || candidate.text.len() > 8192
+                                || candidate.text.chars().any(char::is_control)
+                            {
+                                result.partial = true;
+                                return false;
+                            }
+                            true
+                        });
+                        result
                     })
             } else {
                 None

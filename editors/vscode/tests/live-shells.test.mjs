@@ -43,3 +43,9 @@ for (const shell of ['bash', 'zsh']) {
     assert.equal(JSON.parse(result.stdout).watchdog, true);
   });
 }
+
+test('Bash live completers distinguish raw filename spaces from shell-word quoting', async t => {
+  if (process.platform === 'win32') { t.skip('Unix signal transport'); return; }
+  const result = await execute('python3', [fileURLToPath(new URL('./live-shell-probe.py', import.meta.url)), 'bash', 'quoting'], { timeout: 15000, maxBuffer: 65536 });
+  assert.equal(JSON.parse(result.stdout).passed, true);
+});

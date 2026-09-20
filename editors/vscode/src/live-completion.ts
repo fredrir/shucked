@@ -17,7 +17,7 @@ export interface LiveCompletionParams {
   uri: string; version: number; sessionId: string; generation: number;
   dialect: string; words: string[]; prefix: string;
 }
-export interface LiveCompletionResponse { candidates: { text: string; description: string }[]; partial: boolean; reason?: string; }
+export interface LiveCompletionResponse { candidates: { text: string; description: string; encoding?: "bashWord" }[]; partial: boolean; reason?: string; }
 interface Identity { pid: number; parent: number; started: string; }
 interface Pending {
   query: string; params: LiveCompletionParams; session: LiveSession; filename: string;
@@ -135,7 +135,7 @@ export class LiveCompletionManager implements vscode.Disposable {
     if (message.phase !== "result" || !Array.isArray(message.candidates) || message.candidates.length > 2000 || typeof message.partial !== "boolean") { return; }
     let size = 0;
     const valid = message.candidates.every(item => {
-      if (!item || typeof item.text !== "string" || typeof item.description !== "string" || item.text.includes("\0") || item.text.length > 8192 || item.description.length > 16384) { return false; }
+      if (!item || (item.encoding !== undefined && item.encoding !== "bashWord") || typeof item.text !== "string" || typeof item.description !== "string" || item.text.includes("\0") || item.text.length > 8192 || item.description.length > 16384) { return false; }
       size += Buffer.byteLength(item.text) + Buffer.byteLength(item.description); return size <= 192 * 1024;
     });
     if (valid) { pending.finish({ candidates: message.candidates, partial: message.partial, reason: typeof message.reason === "string" ? message.reason.slice(0, 512) : undefined }); }

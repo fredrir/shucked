@@ -45,8 +45,15 @@ async def complete(client, uri, column=15):
 async def test_live_function_completer_returns_quoted_edits(shucked_binary, tmp_path):
     client, uri, _ = await setup(shucked_binary, tmp_path)
     try:
-        items = await complete(client, uri)
-        item = next(item for item in items if item["label"] == "alpha choice")
+        # Initial filesystem watch registration may invalidate the first snapshot.
+        # A client retries an incomplete request against the newly current context.
+        async with asyncio.timeout(3):
+            while True:
+                items = await complete(client, uri)
+                item = next((item for item in items if item["label"] == "alpha choice"), None)
+                if item is not None:
+                    break
+                await asyncio.sleep(0.05)
         assert item["detail"] == "Live fixture description"
         assert item["textEdit"]["newText"] == "alpha\\ choice"
         request = client.live_requests.get_nowait()["params"]
@@ -124,5 +131,39 @@ async def test_document_changes_discard_inflight_live_responses(shucked_binary, 
             await client.send_notification("shucked/selectEnvironment", {"uri": uri, "options": {"policy": "portable"}})
         await client.finish_live(request)
         assert not any(item["label"] == "alpha choice" for item in await task)
+    finally:
+        await client.shutdown_and_exit()
+
+@pytest.mark.parametrize("candidate,label,inserted", [
+    ({"text": "alpha ", "encoding": "bashWord"}, "alpha", "alpha"),
+    ({"text": "'alpha '", "encoding": "bashWord"}, "alpha ", "alpha\\ "),
+    ({"text": "alpha "}, "alpha ", "alpha\\ "),
+])
+async def test_live_bash_word_encoding_preserves_literal_filename_spaces(shucked_binary, tmp_path, candidate, label, inserted):
+    client, uri, _ = await setup(shucked_binary, tmp_path)
+    client.respond_live = False
+    try:
+        task = asyncio.create_task(complete(client, uri))
+        request = await asyncio.wait_for(client.live_requests.get(), 2)
+        await client.send_message({"jsonrpc": "2.0", "id": request["id"], "result": {"candidates": [candidate], "partial": False}})
+        item = next(item for item in await task if item["label"] == label)
+        assert item["textEdit"]["newText"] == inserted
+    finally:
+        await client.shutdown_and_exit()
+
+@pytest.mark.parametrize("candidate", [
+    {"text": "alpha\nother"},
+    {"text": '"alpha\nother"', "encoding": "bashWord"},
+    {"text": "alpha$(touch marker)", "encoding": "bashWord"},
+])
+async def test_live_completion_drops_control_characters_and_dynamic_words(shucked_binary, tmp_path, candidate):
+    client, uri, _ = await setup(shucked_binary, tmp_path)
+    client.respond_live = False
+    try:
+        task = asyncio.create_task(complete(client, uri))
+        request = await asyncio.wait_for(client.live_requests.get(), 2)
+        await client.send_message({"jsonrpc": "2.0", "id": request["id"], "result": {"candidates": [candidate], "partial": False}})
+        assert not any(item.get("detail") == "Live shell completion" for item in await task)
+        assert not (tmp_path / "marker").exists()
     finally:
         await client.shutdown_and_exit()

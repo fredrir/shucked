@@ -56,6 +56,10 @@ with tempfile.TemporaryDirectory(prefix="shucked-live-test-") as temporary:
         filename = directory / "init.fish"
         command = [shell, "--no-config", "-i", "--init-command", f"source {shlex.quote(str(filename))}"]
         update = "set -g my_completion_value live_second\n"
+    if mode == "quoting":
+        assert shell == "bash"
+        script += "_custom() { compopt -o filenames; COMPREPLY=('file '); }\n"
+        update = "_custom() { compopt +o filenames; COMPREPLY=('file\\ '); }\n"
     if mode in ("timeout", "background"):
         # The hook must clean up independently: no editor manager or PATH ps exists.
         callback = "_custom() { \"$SHUCKED_NODE\" -e 'require(\"fs\").writeFileSync(process.env.HOME+\"/worker-pid\",String(process.ppid))'; /bin/sleep 30 & echo $! > \"$HOME/child-pid\"; wait; }\nPATH=/nonexistent\n"
@@ -149,7 +153,7 @@ with tempfile.TemporaryDirectory(prefix="shucked-live-test-") as temporary:
             assert process.poll() is None, "The interactive parent was terminated"
             print(json.dumps({"shell": shell, "passed": True, "watchdog": True}))
             sys.exit(0)
-        for index, expected in enumerate(["live_first", "live_second"]):
+        for index, expected in enumerate(["file ", "file\\ "] if mode == "quoting" else ["live_first", "live_second"]):
             if index:
                 # Authored fixture input simulates a user's state change; the extension never sends this.
                 os.write(master, update.encode())
@@ -163,6 +167,8 @@ with tempfile.TemporaryDirectory(prefix="shucked-live-test-") as temporary:
             os.kill(process.pid, getattr(signal, metadata["liveSignal"]))
             reply = wait(lambda message: message.get("query") == query and message.get("phase") == "result", timeout=2)
             assert any(item["text"] == expected for item in reply["candidates"]), reply
+            if mode == "quoting":
+                assert reply["candidates"][0].get("encoding") == ("bashWord" if index else None), reply
             assert not marker.exists(), "Editor arguments were executed"
             assert not event_marker.exists(), "Private state restoration fired a user event handler"
             assert all(message.get("pid") == process.pid for message in messages if "shell" in message), "Private worker emitted parent prompt metadata"

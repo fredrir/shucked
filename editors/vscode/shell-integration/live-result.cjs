@@ -21,9 +21,10 @@ else {
   process.stdin.on('end', () => {
     const fields = Buffer.concat(chunks).toString('utf8').split('\0');
     for (let index = 0; index < fields.length; index++) {
-      if (fields[index] === 'M') {
+      if (fields[index] === 'M' || fields[index] === 'B') {
+        const encoding = fields[index] === 'B' ? 'bashWord' : undefined;
         const text = fields[++index], description = fields[++index];
-        if (typeof text === 'string' && typeof description === 'string' && text.length <= 8192 && description.length <= 16384 && message.candidates.length < 2000) { message.candidates.push({ text, description }); }
+        if (typeof text === 'string' && typeof description === 'string' && text.length <= 8192 && description.length <= 16384 && message.candidates.length < 2000) { message.candidates.push({ text, description, ...(encoding ? { encoding } : {}) }); }
         else { message.partial = true; }
       } else if (fields[index] === 'P') { message.partial = true; message.reason = fields[++index]?.slice(0, 512); }
     }

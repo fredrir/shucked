@@ -6,6 +6,7 @@ pub(crate) mod fish;
 mod native;
 pub(crate) mod native_process;
 mod native_zsh;
+pub(crate) use native_zsh::decode_bash_candidate;
 mod specs;
 
 use std::collections::BTreeSet;

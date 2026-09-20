@@ -21,11 +21,48 @@ __shucked_live_bash_complete() {
         COMP_LINE+=${COMP_LINE:+ }$__shucked_quoted
     done
     COMP_POINT=${#COMP_LINE}
+    # Readline quotes filename candidates itself. Other callbacks supply shell-word
+    # insertion text, which can include an unquoted completion delimiter.
+    __shucked_filenames=0
+    __shucked_noquote=0
+    for ((__shucked_i=0; __shucked_i<${#__shucked_parts[@]}-1; __shucked_i++)); do
+        if [[ ${__shucked_parts[__shucked_i]} == -o ]]; then
+            case ${__shucked_parts[__shucked_i+1]} in
+                filenames) __shucked_filenames=1 ;;
+                noquote) __shucked_noquote=1 ;;
+            esac
+        fi
+    done
+    compopt() {
+        local __shucked_mode __shucked_option
+        while (($#)); do
+            __shucked_mode=$1; shift
+            case $__shucked_mode in
+                -o|+o)
+                    (($#)) || return 1
+                    __shucked_option=$1; shift
+                    case $__shucked_option in
+                        filenames) [[ $__shucked_mode == -o ]] && __shucked_filenames=1 || __shucked_filenames=0 ;;
+                        noquote) [[ $__shucked_mode == -o ]] && __shucked_noquote=1 || __shucked_noquote=0 ;;
+                        bashdefault|default|dirnames|nosort|nospace|plusdirs) ;;
+                        *) return 1 ;;
+                    esac
+                    ;;
+                -D|-E|-I) ;;
+                *) return 1 ;;
+            esac
+        done
+        return 0
+    }
     "$__shucked_function" "${COMP_WORDS[0]}" "${COMP_WORDS[COMP_CWORD]}" "${COMP_WORDS[COMP_CWORD-1]}" >/dev/null 2>&1
     __shucked_i=0
     for __shucked_word in "${COMPREPLY[@]}"; do
         ((__shucked_i++ >= 2000)) && { builtin printf 'P\0Live candidate limit reached\0'; break; }
-        builtin printf 'M\0%s\0\0' "$__shucked_word"
+        if ((__shucked_filenames && !__shucked_noquote)); then
+            builtin printf 'M\0%s\0\0' "$__shucked_word"
+        else
+            builtin printf 'B\0%s\0\0' "$__shucked_word"
+        fi
     done
     builtin printf 'E\0'
 }
