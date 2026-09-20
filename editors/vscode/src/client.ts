@@ -13,6 +13,7 @@ import {
 } from "vscode-languageclient/node";
 import { resolveServerCommand, ServerCommand } from "./binary";
 import { StatusBarManager } from "./status";
+import { CompletionRefresh } from "./completion-refresh";
 
 /**
  * Tracks server crashes within a rolling time window to detect crash loops.
@@ -160,6 +161,7 @@ export class ClientManager implements vscode.Disposable {
   private restartPromise: Promise<void> = Promise.resolve();
   private isRestarting = false;
   private manualShutdown = false;
+  private readonly completionRefresh: CompletionRefresh;
   private traceChannel: vscode.LogOutputChannel | undefined;
   private readonly requestHandlers = new Map<string, { handler: (params: unknown, cancellation: vscode.CancellationToken) => Promise<unknown>; registration?: vscode.Disposable }>();
 
@@ -167,7 +169,7 @@ export class ClientManager implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
     private readonly outputChannel: vscode.LogOutputChannel,
     private readonly statusManager: StatusBarManager,
-  ) { }
+  ) { this.completionRefresh = new CompletionRefresh(outputChannel); }
 
   public configurationOptions(): Record<string, unknown> {
     return {
@@ -238,6 +240,10 @@ export class ClientManager implements vscode.Disposable {
       outputChannel: this.outputChannel,
       traceOutputChannel: this.traceChannel,
       initializationOptions: this.configurationOptions(),
+      middleware: {
+        provideCompletionItem: (document, position, context, token, next) =>
+          this.completionRefresh.provide(document, position, context, token, next),
+      },
       errorHandler: new ShuckedErrorHandler(
         this.crashTracker,
         this.outputChannel,
@@ -255,9 +261,15 @@ export class ClientManager implements vscode.Disposable {
     );
 
     for (const [method, entry] of this.requestHandlers) { entry.registration?.dispose(); entry.registration = this.client.onRequest(method, entry.handler); }
-    this.client.onDidChangeState((event) => {
+    const activeClient = this.client;
+    activeClient.onNotification("shucked/completionReady", value => {
+      if (this.client === activeClient) { this.completionRefresh.ready(value); }
+    });
+    activeClient.onDidChangeState((event) => {
+      if (this.client !== activeClient) { return; }
       switch (event.newState) {
         case State.Starting: {
+          this.completionRefresh.clear();
           this.statusManager.setStatus("starting");
           break;
         }
@@ -267,6 +279,7 @@ export class ClientManager implements vscode.Disposable {
           break;
         }
         case State.Stopped: {
+          this.completionRefresh.clear();
           this.statusManager.setStatus("stopped");
           break;
         }
@@ -306,6 +319,7 @@ export class ClientManager implements vscode.Disposable {
   }
 
   public async stop(): Promise<void> {
+    this.completionRefresh.clear();
     this.manualShutdown = true;
     const currentClient = this.client;
     this.client = undefined;
@@ -360,6 +374,7 @@ export class ClientManager implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this.completionRefresh.dispose();
     this.ready.dispose();
     void this.stop();
   }

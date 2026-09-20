@@ -138,7 +138,7 @@ pub(crate) fn complete(
     });
     let grammar_allowed =
         resolved_site.is_none_or(|(facts, resolution)| super::grammar_allowed(facts, resolution));
-    if let Some((environment, cancellation)) = environment {
+    if let Some((environment, _cancellation)) = environment {
         let scoped = environment.scoped(&command_analysis.context, &command_analysis.environment);
         let environment = &scoped;
         if variable && options.include_environment && local {
@@ -165,72 +165,89 @@ pub(crate) fn complete(
                     );
                 }
             }
-            let mut live_candidates = false;
+            environment.service.cancel_document(
+                snapshot.query().file_url(),
+                Some((document.version(), position)),
+            );
+            if let Some(client) = live_client {
+                environment
+                    .service
+                    .remember(super::background::notice(snapshot, client, position));
+            }
+            let mut provider_candidates = false;
             if !command_position
                 && options.include_native
                 && options.include_command_arguments
                 && environment.native_allowed
                 && local
-                && resolved_site.is_some_and(|(facts, _)| {
-                    facts.environment_uncertain.is_none()
-                        && facts.effective_words.iter().all(|word| word.text.is_some())
-                })
                 && let Some(client) = live_client
             {
-                incomplete |= command_analysis.context.mode
-                    == shucked_command::ExecutionMode::InteractiveSession;
-                if let Some(response) = crate::server::live_completion::request(
-                    client,
-                    snapshot,
-                    &words,
-                    &prefix,
-                    cancellation,
-                ) {
-                    incomplete |= response.partial;
-                    live_candidates = !response.candidates.is_empty();
-                    for candidate in response.candidates {
-                        add(
-                            &candidate.text,
-                            if candidate.description.is_empty() {
-                                "Live shell completion"
-                            } else {
-                                &candidate.description
-                            },
-                            types::CompletionItemKind::VALUE,
-                            0,
-                        );
+                for live in [true, false] {
+                    let allowed = if live {
+                        command_analysis.context.mode
+                            == shucked_command::ExecutionMode::InteractiveSession
+                            && resolved_site.is_some_and(|(facts, _)| {
+                                facts.environment_uncertain.is_none()
+                                    && facts.effective_words.iter().all(|word| word.text.is_some())
+                            })
+                    } else {
+                        grammar_allowed
+                    };
+                    if !allowed {
+                        continue;
+                    }
+                    let suffix = decode_prefix(&source[offset..end]);
+                    let (candidates, pending) = super::background::candidates(
+                        environment,
+                        snapshot,
+                        client,
+                        &words,
+                        &prefix,
+                        &suffix,
+                        position,
+                        live,
+                        false,
+                    );
+                    incomplete |= pending;
+                    if let Some(candidates) = candidates {
+                        for candidate in candidates
+                            .iter()
+                            .filter(|candidate| candidate.text.starts_with(&prefix))
+                        {
+                            provider_candidates = true;
+                            let detail =
+                                format!("{} · {}", candidate.description, candidate.provider);
+                            add(
+                                &candidate.text,
+                                &detail,
+                                candidate.kind.unwrap_or(types::CompletionItemKind::VALUE),
+                                if live { 0 } else { 1 },
+                            );
+                        }
+                    }
+                    if provider_candidates {
+                        break;
                     }
                 }
             }
-            if !command_position
-                && !live_candidates
-                && options.include_native
-                && options.include_command_arguments
+            if command_position
                 && environment.native_allowed
                 && local
-                && grammar_allowed
+                && options.include_command_arguments
+                && let Some(client) = live_client
+                && super::command_names(&command_analysis.context, &command_analysis.environment)
+                    .contains(&prefix)
             {
-                incomplete = true;
-                if let Some(candidates) = environment.native.complete(
+                super::background::prewarm_next(
                     environment,
+                    snapshot,
+                    client,
                     &words,
                     &prefix,
-                    &crate::handlers::commands::cwd(snapshot),
-                    cancellation,
-                    false,
-                    "fish",
-                ) {
-                    for candidate in candidates.iter() {
-                        add(
-                            &candidate.text,
-                            &candidate.description,
-                            types::CompletionItemKind::VALUE,
-                            1,
-                        );
-                    }
-                }
+                    position,
+                );
             }
-            if options.include_paths && local {
+            if options.include_paths && local && !provider_candidates && !prefix.starts_with('-') {
                 let (directory_prefix, basename) = prefix
                     .rsplit_once('/')
                     .map_or(("", prefix.as_str()), |(dir, base)| {
@@ -251,7 +268,11 @@ pub(crate) fn complete(
                         })
                     };
                 if let Some(path) = path {
-                    let listing = environment.directory(&path, cancellation);
+                    let listing = environment.directory_cached(
+                        &path,
+                        live_client
+                            .map(|client| super::background::notice(snapshot, client, position)),
+                    );
                     incomplete |= listing.incomplete;
                     for entry in &listing.entries {
                         if entry.name.starts_with(basename)

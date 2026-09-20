@@ -15,7 +15,7 @@ impl super::super::traits::NotificationHandler for DidChange {
 impl super::super::traits::SyncNotificationHandler for DidChange {
     fn run(
         session: &mut Session,
-        _client: &Client,
+        client: &Client,
         types::DidChangeTextDocumentParams {
             text_document:
                 types::VersionedTextDocumentIdentifier {
@@ -25,10 +25,42 @@ impl super::super::traits::SyncNotificationHandler for DidChange {
             content_changes,
         }: types::DidChangeTextDocumentParams,
     ) -> Result<()> {
-        let key = session.key_from_url(uri);
+        session.completion_environment.cancel_document(&uri);
+        let position = content_changes.last().map(|change| {
+            let start = change
+                .range
+                .map_or(types::Position::new(0, 0), |range| range.start);
+            let lines = change.text.bytes().filter(|byte| *byte == b'\n').count() as u32;
+            let tail = change.text.rsplit('\n').next().unwrap_or_default();
+            let columns = match session.encoding() {
+                crate::PositionEncoding::UTF8 => tail.len(),
+                crate::PositionEncoding::UTF16 => tail.encode_utf16().count(),
+                crate::PositionEncoding::UTF32 => tail.chars().count(),
+            } as u32;
+            types::Position::new(
+                start.line + lines,
+                if lines == 0 {
+                    start.character + columns
+                } else {
+                    columns
+                },
+            )
+        });
+        let key = session.key_from_url(uri.clone());
         session
             .update_text_document(&key, content_changes, new_version)
             .with_failure_code(ErrorCode::InternalError)?;
+
+        if let Some(position) = position
+            && let Some(snapshot) = session.take_snapshot(uri)
+        {
+            crate::handlers::completion::background::prewarm(
+                session.completion_environment.clone(),
+                snapshot,
+                client.clone(),
+                position,
+            );
+        }
 
         session.schedule_all_diagnostics();
 

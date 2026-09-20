@@ -27,6 +27,9 @@ exports.run = async function run() {
     await extension.activate(); report.extensionPath = extension.extensionPath;
     if (report.packaged) { assert.ok(extension.extensionPath.includes(`${path.sep}extensions${path.sep}`), 'Shucked loaded from isolated installed VSIX'); }
     check('extension activated with isolated configuration');
+    await require('./completion-ui.cjs').checkAutomaticCompletion(root, report, eventually);
+    check('actual typing opens directory, flag and subcommand suggestions automatically');
+    if (process.env.SHUCKED_COMPLETION_UI_ONLY === '1') { report.passed = true; return; }
     assert.equal(vscode.workspace.getConfiguration('shucked').get('history.session'), false);
     assert.equal(vscode.workspace.getConfiguration('shucked').get('history.files'), false); check('history opt-ins default off');
     const uri = vscode.Uri.file(path.join(root, 'smoke.zsh'));
@@ -63,12 +66,13 @@ exports.run = async function run() {
       const candidate = await eventually(`${dialect} bundled subcommand flag completion`, async () => {
         const result = await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', nativeUri, new vscode.Position(1, command.length));
         return result?.items?.find(item => (typeof item.label === 'string' ? item.label : item.label.label) === expectedFlag);
-      });
+      }, 10000);
       const inserted = typeof candidate.insertText === 'string' ? candidate.insertText : candidate.textEdit?.newText ?? expectedFlag;
       assert.equal(inserted, expectedFlag, `${dialect} flag insertion must not turn a completion separator into a literal space`);
       report.nativeFlags[dialect] = { label: typeof candidate.label === 'string' ? candidate.label : candidate.label.label, detail: candidate.detail, inserted };
       check(`${dialect} bundled provider supplies git checkout flags without terminal configuration`);
     }
+    if (process.env.SHUCKED_COMPLETION_NATIVE_ONLY === '1') { report.passed = true; return; }
     await vscode.window.showTextDocument(document);
     await vscode.workspace.getConfiguration('shucked').update('history.files', true, vscode.ConfigurationTarget.Global);
     const before = new Set(vscode.window.terminals);

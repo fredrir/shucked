@@ -82,6 +82,10 @@ impl DocumentAnalysisCache {
         Some(analysis)
     }
 
+    pub(crate) fn cached(&self, snapshot: &DocumentSnapshot) -> Option<Arc<DocumentAnalysis>> {
+        self.get(&analysis_cache_key(snapshot))
+    }
+
     pub(crate) fn invalidate_uri(&self, uri: &Url) {
         let mut state = lock_or_recover(&self.state);
         let mut retained = VecDeque::with_capacity(state.entries.len());

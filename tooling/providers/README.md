@@ -7,6 +7,8 @@
 | bash-completion | 2.16.0 | Bash definitions and helpers |
 | Git | 2.49.0 | Git's Bash completion definition |
 | Fish definitions | 4.0.2 | Fish definitions and helpers |
+| Oh My Zsh | `packs/manifest.json` | Always bundled standalone completion definitions and helpers |
+| Command upstreams | `packs/manifest.json` | Homebrew, eza, and paru Zsh definitions |
 | Bash runtime | macOS 5.3.20; Linux recipe 5.3 | Managed Bash engine |
 | Fish runtime | 4.9.3 | Managed Fish engine |
 | GNU helpers | `runtime-sources.json` | Private coreutils, findutils, grep, sed, awk |
@@ -25,6 +27,8 @@
 | Licenses | Original license files remain with packs; runtime sources, patches, build metadata, and Rust dependencies accompany binaries |
 | SBOM license IDs | Pinned SPDX3.27 identifiers; ambiguous upstream labels stay in manifest and become `NOASSERTION` in SPDX |
 | Pack refresh | Explicit maintenance operation; packaging verifies local assets without downloading |
+| Provider routing | Generated `packs/registry.json`; upstream registrations, engine, source, and definition path |
+| Extra Zsh definitions | `packs/zsh-extra`; autoloaded without the OMZ startup script or plugin bootstrap |
 | Unsupported runtime | Packaging fails instead of omitting a required engine |
 
 | Platform | Current evidence | Release gate |
@@ -59,6 +63,10 @@ Windows runtime dispatch, path conversion, and process containment are implement
 ```sh
 # Refresh definitions from immutable revisions and verified archive hashes.
 python3 tooling/providers/vendor.py
+
+# Refresh one pinned source or rebuild registration metadata locally.
+python3 tooling/providers/vendor.py --source oh-my-zsh
+python3 tooling/providers/vendor.py --registry-only
 
 # macOS arm64; installed Homebrew versions must match the runtime lock.
 tooling/providers/build-zsh.sh

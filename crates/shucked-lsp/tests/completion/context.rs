@@ -151,20 +151,14 @@ fn directories_redirects_hidden_files_and_literal_dollars() {
 }
 
 #[test]
-fn flags_subcommands_option_values_and_end_of_options() {
+fn unavailable_providers_do_not_invent_command_arguments() {
     let root = tempfile::tempdir().unwrap();
-    for (source, expected) in [
-        ("git --no-¦", "--no-pager"),
-        ("git -C /tmp sta¦", "status"),
-        ("git remote a¦", "add"),
-        ("git status --por¦", "--porcelain"),
-        ("curl --lo¦", "--location"),
-        ("docker compose u¦", "up"),
-    ] {
+    for source in ["git --no-¦", "docker compose u¦", "unregistered --¦"] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
         assert!(
-            complete(root.path(), source, serde_json::json!({}), false)
+            items
                 .iter()
-                .any(|item| item.label == expected),
+                .all(|item| item.kind != Some(types::CompletionItemKind::FIELD)),
             "{source}"
         );
     }
@@ -241,9 +235,12 @@ fn environment_variables_can_be_disabled_and_results_are_bounded() {
         false,
     );
     assert!(items.is_empty());
+    for name in ["one", "two", "three"] {
+        std::fs::create_dir(root.path().join(name)).unwrap();
+    }
     let list = completion_list(
         root.path(),
-        "git ¦",
+        "cd ¦",
         serde_json::json!({"server": {"completion": {"maxItems": 2}}}),
         false,
     );
@@ -255,7 +252,13 @@ fn environment_variables_can_be_disabled_and_results_are_bounded() {
 fn assignments_and_equals_options_complete_paths() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("file name"), "").unwrap();
-    for source in ["OUTPUT=fi¦", "OUTPUT=\"fi¦\"", "curl --output=fi¦"] {
+    for source in [
+        "OUTPUT=fi¦",
+        "OUTPUT=\"fi¦\"",
+        "curl --output=fi¦",
+        "curl --output=\"fi¦\"",
+        "curl --output='fi¦'",
+    ] {
         let items = complete(root.path(), source, serde_json::json!({}), false);
         assert!(
             items.iter().any(|item| item.label == "file name"),
@@ -408,5 +411,73 @@ fn source_alias_names_are_completed_only_when_shell_will_expand_them() {
             expected,
             "{source}"
         );
+    }
+}
+
+#[test]
+fn providers_receive_exact_option_values_suffixes_and_argument_boundaries() {
+    for (marked, prefix, suffix, words, replacement) in [
+        (
+            "eza --color=al¦ways",
+            "--color=al",
+            "ways",
+            vec!["eza"],
+            "--color=always",
+        ),
+        (
+            "eza --color=\"al¦ways\"",
+            "--color=al",
+            "ways",
+            vec!["eza"],
+            "--color=\"always\"",
+        ),
+        (
+            "docker compose --profile te¦st",
+            "te",
+            "st",
+            vec!["docker", "compose", "--profile"],
+            "always",
+        ),
+        ("eza - ¦", "", "", vec!["eza", "-"], "always"),
+    ] {
+        let cursor = marked.find('¦').unwrap();
+        let source = marked.replacen('¦', "", 1);
+        let parsed = shucked_parser::parser::Parser::new(&source).parse();
+        let index = shucked_indexer::Indexer::new(&source, &parsed);
+        let site = context::at(&source, &index, cursor).unwrap();
+        assert_eq!(site.prefix, prefix, "{marked}");
+        assert_eq!(site.suffix, suffix, "{marked}");
+        assert_eq!(site.words, words, "{marked}");
+        assert!(
+            !site.redirect,
+            "option values remain provider contexts: {marked}"
+        );
+        let candidate = if site.option.is_some() {
+            "--color=always"
+        } else {
+            "always"
+        };
+        assert_eq!(site.insert(candidate), replacement, "{marked}");
+    }
+}
+
+#[test]
+fn key_value_arguments_keep_provider_context_and_quoted_values() {
+    for marked in ["dd if=pa¦th", "docker run --mount type=\"bi¦nd\""] {
+        let cursor = marked.find('¦').unwrap();
+        let source = marked.replacen('¦', "", 1);
+        let parsed = shucked_parser::parser::Parser::new(&source).parse();
+        let index = shucked_indexer::Indexer::new(&source, &parsed);
+        let site = context::at(&source, &index, cursor).unwrap();
+        assert!(!site.redirect, "{marked}");
+        assert!(!site.command, "{marked}");
+        assert_eq!(site.range.end, source.len());
+        if marked.starts_with("dd") {
+            assert_eq!(site.prefix, "if=pa");
+            assert_eq!(site.insert("if=path"), "if=path");
+        } else {
+            assert_eq!(site.prefix, "type=bi");
+            assert_eq!(site.insert("type=bind"), "type=\"bind\"");
+        }
     }
 }

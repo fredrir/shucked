@@ -11649,6 +11649,496 @@
           "sha256": "eee61de41a7c8351bbc116bc36dd2a8844ad098ceec7777f8aa59cef9b443cc9"
         }
       ]
+    },
+    {
+      "name": "oh-my-zsh",
+      "repository": "https://github.com/ohmyzsh/ohmyzsh",
+      "revision": "6421f8e104e4e87f2373362cbf61e46a918612a7",
+      "source": "https://codeload.github.com/ohmyzsh/ohmyzsh/tar.gz/6421f8e104e4e87f2373362cbf61e46a918612a7",
+      "sha256": "d11e4cfd5f33a1cfdf5fa09e77d38f5633341c989fdd5349f46965a07ab92071",
+      "files": [
+        {
+          "path": "oh-my-zsh/LICENSE.txt",
+          "sha256": "6772e603fd19666902ab7541f49f3d9e92637539fb0840605615d8c6d18fc3f6"
+        },
+        {
+          "path": "zsh-extra/_opswd",
+          "sha256": "c516423fa510632bd72550652fb8b06ecfe50296c8567eb573d74df46f66c83b"
+        },
+        {
+          "path": "zsh-extra/_ant",
+          "sha256": "f9e2f183d5f87e04665e3ea2d1e727d9f28fcf6d2e14b7b69daddaff383e66d5"
+        },
+        {
+          "path": "zsh-extra/_appsignal-cli",
+          "sha256": "159b1bb439ad83752f484037845edb475353edce30d8674570ef1f7d9a25010b"
+        },
+        {
+          "path": "zsh-extra/_autopep8",
+          "sha256": "c1d6c82ee8802128dc0d2ef9a73219fd60ea937a1dd69b6589c197c1671a060f"
+        },
+        {
+          "path": "zsh-extra/_bazel",
+          "sha256": "198ee7ef5cebc9cbc830ca798f0069334c8e0eff16a9cb1d36c6c32734738622"
+        },
+        {
+          "path": "zsh-extra/_bedtools",
+          "sha256": "8e0880728879d2c819c0ae5be5981906e2d59bb846cb74dce6a1929c1d6eef4f"
+        },
+        {
+          "path": "zsh-extra/_bower",
+          "sha256": "f41809e7d751e82611aa46065ee57e7f011ae4f56297a378d547118eb4da45d4"
+        },
+        {
+          "path": "zsh-extra/_bundler",
+          "sha256": "722ee370306fa0d1604f7a1895ee6fbe92dddcd520fa8f11fb60edae7fd47ee7"
+        },
+        {
+          "path": "zsh-extra/_capistrano",
+          "sha256": "9e836e986f9ec2010cf351c0c131c1740f2933d6b7ee8a16cb00f1c44b6bfdd1"
+        },
+        {
+          "path": "zsh-extra/_cdk",
+          "sha256": "c1fa1a7855cfae4fa37e7238d040b322dd665e6f5ef4801caa6baee4eeca1409"
+        },
+        {
+          "path": "zsh-extra/_celery",
+          "sha256": "dd3d8fee8b2c5c83c1abf9c42f528705b0b94b06e7f11fbbd4d955c700f60842"
+        },
+        {
+          "path": "zsh-extra/_codeclimate",
+          "sha256": "43aff1689d26e5e66697d9364afe8dcf5b9cde35489badb557d3f6c11c79c576"
+        },
+        {
+          "path": "zsh-extra/_coffee",
+          "sha256": "697327c66aca3706a18493e72f535111ed256c6c653eb5a2b9f70e8e67ebb5a4"
+        },
+        {
+          "path": "zsh-extra/_cpanm",
+          "sha256": "dac471764f46fd098d402aa0083e9ab557cce7f99ff69f7e8f9d6d1b9b18ddd9"
+        },
+        {
+          "path": "zsh-extra/_dnf5",
+          "sha256": "81454028c5985f6641ce4071ad72d69a7c791526ec607647eeb00bb0e65a1e0a"
+        },
+        {
+          "path": "zsh-extra/_dnote",
+          "sha256": "5268c5278df4eae4d27ec7f590183769c78e8e41df598a2e708f2acf24ef294c"
+        },
+        {
+          "path": "zsh-extra/_docker-compose",
+          "sha256": "5fad7e94dc104670794594d39e6264530513e92edab6903cd32ad7c26cbeed93"
+        },
+        {
+          "path": "zsh-extra/_docker",
+          "sha256": "721b8125d40acb3a9e2995f581db1da8d3c23b92657b27a59d3ef14f7cb4433a"
+        },
+        {
+          "path": "zsh-extra/_ember-cli",
+          "sha256": "a12550cd482b724f7e5345a31e5b0399766a65bce85e9c35cae3bbf6d5ad7d0c"
+        },
+        {
+          "path": "zsh-extra/_extract",
+          "sha256": "409ea3a20c452e781f5cbe0d3237b6d50493ea8152de67420a121f35483fbfcd"
+        },
+        {
+          "path": "zsh-extra/_fab",
+          "sha256": "4c37414a2618a16c9659b2462b35b02f144c046bb65587682ad503cbc55a356c"
+        },
+        {
+          "path": "zsh-extra/_fossil",
+          "sha256": "995cff16c9773602b3eeb95bfe3819109d0a40fdf81dc2440d53ab22065cd3d1"
+        },
+        {
+          "path": "zsh-extra/_frontend",
+          "sha256": "89e7c13ba187cb7540bd597369c691e462f418ccd8b7fe44d839ca9467ac2f30"
+        },
+        {
+          "path": "zsh-extra/_gas",
+          "sha256": "090dcbb95ac7d475b786573be315868d7e20564ae8e847cbf59be1ae4a06ee78"
+        },
+        {
+          "path": "zsh-extra/_gatsby",
+          "sha256": "53ffeb6a8fa538f5e70015327231c9db632e9050d2ef2684baf394c59e04f897"
+        },
+        {
+          "path": "zsh-extra/_geeknote",
+          "sha256": "28898a4fd7fd4bac3c78b3c73e6a3044a44d2b896d5ddfdb3066a7dc70ff5d8c"
+        },
+        {
+          "path": "zsh-extra/_gem",
+          "sha256": "790fe7cc0c31fd9de5311e726cb25977b69bd1450f7e6fdf2fc291f099b10460"
+        },
+        {
+          "path": "zsh-extra/_git-flow",
+          "sha256": "0e229a4671fc1d4cb8349023f1f16060436ca353c6a43acf160b3485683a7ee9"
+        },
+        {
+          "path": "zsh-extra/_git",
+          "sha256": "9defa8915e99fafa2374a97f7448cf85fbf79f85a8eebd39462c9c78755eeebf"
+        },
+        {
+          "path": "zsh-extra/_hub",
+          "sha256": "bb9b297dd1a70a090404d55c62ccea147b1b9f2f23673dad4b6922faa1da164d"
+        },
+        {
+          "path": "zsh-extra/_asadmin",
+          "sha256": "9f6c81d26276e5160271116428da1f04331e39d9e0215d4ebaae9ae00a62ef59"
+        },
+        {
+          "path": "zsh-extra/_golang",
+          "sha256": "3257bf264eaabf084f31a7976c4ca28e70e2eb750590cd935ee0bc6146e79e22"
+        },
+        {
+          "path": "oh-my-zsh/plugins/gradle/LICENSE",
+          "sha256": "b797aa323201d88b2610852ba0bb4954e363d308e2661e5129f4fd52d39a311d"
+        },
+        {
+          "path": "zsh-extra/_gradle",
+          "sha256": "fe4373a005e730654f0a2c1d998ad13984e4b1c7800befedd46e17942c5e6f39"
+        },
+        {
+          "path": "zsh-extra/_httpie",
+          "sha256": "16e75b5c489605e5b09908eb1e7b3f701f42a8f91c6f54ed62424488c04cacf3"
+        },
+        {
+          "path": "oh-my-zsh/plugins/ipfs/LICENSE",
+          "sha256": "2b423e31277597a07ce23633a46d54cfb8958ab8bab327e818d62d6c8e99810f"
+        },
+        {
+          "path": "zsh-extra/_ipfs",
+          "sha256": "189768a06243d3e282ca38e4611f0e3d6571c516609fbc776c186917d4f25dcd"
+        },
+        {
+          "path": "zsh-extra/_jira",
+          "sha256": "7837275820c178526e15c59997f167e511d0a348707ebb0e6a7fbca42d3ecf86"
+        },
+        {
+          "path": "zsh-extra/_juju",
+          "sha256": "96a7666262dc04e0fce06184003fd48bae1a98b25153f6a3f2eae36f6481ad1c"
+        },
+        {
+          "path": "zsh-extra/_kamal",
+          "sha256": "f10ebccf3457aa870e09986c407d3b1f5df7cd59e5a35366302e7053ec92aff2"
+        },
+        {
+          "path": "zsh-extra/_kitchen",
+          "sha256": "104cc8db1e6c78b71983df40d06f19c3b42240e5f54ca34fe19055299c3c7511"
+        },
+        {
+          "path": "zsh-extra/_knife",
+          "sha256": "bf06506291a9220035cb8e5dc245bec176424f36b6f8d5771be8f77838de702f"
+        },
+        {
+          "path": "oh-my-zsh/plugins/kube-ps1/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "oh-my-zsh/plugins/lando/LICENSE",
+          "sha256": "e2568575ff3d86e27737d818d70dbcdda88fc8c06a4ee3d7a2ac06c0ad93a219"
+        },
+        {
+          "path": "zsh-extra/_artisan",
+          "sha256": "79321f392f86ef3e962415c34afef14cdc5f5b68368c8b19f0a319e057980de3"
+        },
+        {
+          "path": "zsh-extra/_lein",
+          "sha256": "0e4170f24ccd04403107ba91172af8b6bfc6ab6b5d6feb3afdce7580ee248b7e"
+        },
+        {
+          "path": "zsh-extra/_lpass",
+          "sha256": "1e3007c84c7e653ec4fca3bf97055179a17b0c74c2c150880708471f5c1c3d81"
+        },
+        {
+          "path": "zsh-extra/_security",
+          "sha256": "b97067d3bab4c540af3945f6f7277de4f64a5ad0668526e843069aaa397836ca"
+        },
+        {
+          "path": "zsh-extra/_port",
+          "sha256": "0584381346d3285b2fb0354ec773a8d0b4293ad72542936e01eb4a168612c381"
+        },
+        {
+          "path": "zsh-extra/_meteor",
+          "sha256": "d6d3b05591a4baa05a28465f2fac0aa5e7a3e5c274511b75a5ccf59956ce210a"
+        },
+        {
+          "path": "zsh-extra/_mix",
+          "sha256": "ea37e534dd4101e307486270f00e4958e89f738dfbdd9ae9afe4d7dada4b6e73"
+        },
+        {
+          "path": "zsh-extra/_multipass",
+          "sha256": "8cb476deabc8145e01f0e8eb47e47bdd0b0aa9ab1968117af53afee739ae5ba3"
+        },
+        {
+          "path": "zsh-extra/_nanoc",
+          "sha256": "ac8d08e2133e7f8549d61268f341423487e11081cfd26956f8e9e1cf9bc0fd9b"
+        },
+        {
+          "path": "zsh-extra/_ng",
+          "sha256": "8a2b93a998f8bf324dc693f63eaa9dea0d0f35020e07368e6a4ae6c087579bdd"
+        },
+        {
+          "path": "zsh-extra/_nomad",
+          "sha256": "f4a0db6043290e9477441b0996f55049a3daa11f0cf0d344f427114b42d87a55"
+        },
+        {
+          "path": "zsh-extra/_pass",
+          "sha256": "b6fb9855ad99f7a0029d33459eb593f77b0a7dd6d0f13aca23ce8a0a9cbed2d9"
+        },
+        {
+          "path": "zsh-extra/_pep8",
+          "sha256": "e55cc23b774f14a072db251bf33317f151d7b942fddb8032eb1327391575ad41"
+        },
+        {
+          "path": "zsh-extra/_pip",
+          "sha256": "f382177c404a7c408f39008ddd0330357aad1761f0a9c6465b5042d998dcf01f"
+        },
+        {
+          "path": "zsh-extra/_pm2",
+          "sha256": "ea47ebdbf9bd19fb888ab01a07c09ef52896a421351a4b5893650bff89eed477"
+        },
+        {
+          "path": "zsh-extra/_pod",
+          "sha256": "b689a1b0bfddf4502b0fab7eac650be043a6fc027c1b522ce058b1c1822438eb"
+        },
+        {
+          "path": "zsh-extra/_powder",
+          "sha256": "a28f588be6d0077112cdcc765f7df565da72209dc50ea221128a2eb9ed31d85b"
+        },
+        {
+          "path": "zsh-extra/_powify",
+          "sha256": "2bd4084af72ca371656b9549c8787ac484d3de53a3d58baa75b21e7caf5f0b52"
+        },
+        {
+          "path": "zsh-extra/_pylint",
+          "sha256": "614892607b8c38ea3c179198a0c7b7fcfa659625f6699a39c227b3ad52292d65"
+        },
+        {
+          "path": "zsh-extra/_rails",
+          "sha256": "6f28850100b67d33ac294737e9ab256553790cc78cf93c4845fbebaa2a9a8dd5"
+        },
+        {
+          "path": "zsh-extra/_react-native",
+          "sha256": "bf803e57ded71f18fce3cb09612ac78113d8a5007cea5b4a92e14994101ca744"
+        },
+        {
+          "path": "zsh-extra/_rebar",
+          "sha256": "9e41f9b561e66f0388d0be0a507180feb78db8bf385356b6682a1816620f1f38"
+        },
+        {
+          "path": "zsh-extra/_redis-cli",
+          "sha256": "8db299b2076b797d3e75fe6befdead325763bd7e628fe6b83ebd3c24df533f46"
+        },
+        {
+          "path": "zsh-extra/_repo",
+          "sha256": "de254325b6b13367cf57927fcf4ff4b828de641d85f43f73cca486ca809f1750"
+        },
+        {
+          "path": "zsh-extra/_ros",
+          "sha256": "21aeded401f3e1b9fdfc14831b7affa8edda615d75954e9d1e4903c6e6c1c040"
+        },
+        {
+          "path": "zsh-extra/_rustc",
+          "sha256": "f8147d1b4940418c184386c66f2e373a9dc53970f9156d2f465469b1b7b68586"
+        },
+        {
+          "path": "zsh-extra/_salt",
+          "sha256": "c17a9b4fd73099640fe7a03c72627c9884f9f78ac8068ae3fc07899fe9b36f90"
+        },
+        {
+          "path": "zsh-extra/_samtools",
+          "sha256": "1e95e94c4faa797ad9347db15afe44c525107a5924ab73736dd7aa110c18ad93"
+        },
+        {
+          "path": "zsh-extra/_sbt",
+          "sha256": "2f421eb35d87c199a2c10422ca64c7f9641a0c26c6667f7e09811370681676b6"
+        },
+        {
+          "path": "zsh-extra/_scala",
+          "sha256": "26b5eb2e17a1c345b61f478367e07e553bedee8b15baeb303ac0b01ed4708d37"
+        },
+        {
+          "path": "zsh-extra/_scd",
+          "sha256": "67da8491ff465be9cfd2b4c0dfc78c360c43b510b6da1c3148b8f34985b094e1"
+        },
+        {
+          "path": "zsh-extra/_sfdx",
+          "sha256": "431e7b5132df74c3d371f4723befc000f2113ca609cb81e1fa382854c66e4e9a"
+        },
+        {
+          "path": "zsh-extra/_shopify",
+          "sha256": "2691be46df200844a3674d5254fda336b7273e330732aa9409744875c349ac2a"
+        },
+        {
+          "path": "zsh-extra/_spring",
+          "sha256": "21cb32a007b96e36dfb114605e9bccfde9da9be8da58b39075ec275fea64af3c"
+        },
+        {
+          "path": "zsh-extra/_supervisorctl",
+          "sha256": "916c44d62a97b81889c2d247d8a9d4a3aa98d4a0a8c9b47a33f9a358598ac68a"
+        },
+        {
+          "path": "zsh-extra/_supervisord",
+          "sha256": "44ee5f19a5182da0baf7487f611e5e0e8b449a82b23d85b308cff44b17b05ece"
+        },
+        {
+          "path": "zsh-extra/_swift",
+          "sha256": "9ae768e7ba94c06f32f10c0d0f55015f5200ad86520ac24ae5bd073e58430d20"
+        },
+        {
+          "path": "zsh-extra/_task",
+          "sha256": "30402dad1a2f28e74ebfb3fd41076607972749ab68adca55d4e8c10e6b42dac3"
+        },
+        {
+          "path": "zsh-extra/_terminitor",
+          "sha256": "fac2d5687bbebcbda4848cff68fb1f9090b8325792779991ec05b006302db3a6"
+        },
+        {
+          "path": "zsh-extra/_terraform",
+          "sha256": "7e8955a34db67af46d5dd1e443b19c90b9eb04a04f665d12d578089da2797a99"
+        },
+        {
+          "path": "zsh-extra/_thor",
+          "sha256": "6030bf7efecf4ac2cb7cc4bbd4e98bde411287d9e163797978a801ba7f77be43"
+        },
+        {
+          "path": "zsh-extra/_tmux-cssh",
+          "sha256": "01fb1293c54955706f5aff6014c7e684a4b4206dd03ae62472711dad53933e24"
+        },
+        {
+          "path": "zsh-extra/_tmuxinator",
+          "sha256": "61c8e331da09ecd52ca9bdf86b202b4ac7b2c27afeed747dc72f6f211022443d"
+        },
+        {
+          "path": "zsh-extra/_tugboat",
+          "sha256": "e00aade6c6742a6cb83cb95eabf1a9588a83b586b4c18d4bfd9397f74087393a"
+        },
+        {
+          "path": "zsh-extra/_ufw",
+          "sha256": "435ab9c4e0c89057954192577c8294d5d673ecc8bbec1422d93db9f90d0e8cc3"
+        },
+        {
+          "path": "zsh-extra/_universalarchive",
+          "sha256": "ec6c3df38bcd9a2e5247c6f9be5991fac16dc993658b7306176f2c9ddd04d71e"
+        },
+        {
+          "path": "zsh-extra/_vagrant",
+          "sha256": "96febcbbbeec92ecc19824789bf91891f05fae1a07a4e7a9eb6fd72fcdb40096"
+        },
+        {
+          "path": "zsh-extra/_wake",
+          "sha256": "ed23519aacd63099473426fb06b18c0b7e22133423e495b6fe194df031a3be80"
+        },
+        {
+          "path": "zsh-extra/_watson",
+          "sha256": "c792a44f7494cb50e8af46ee107074de3a1052950e4b87e28ad601d424b78956"
+        },
+        {
+          "path": "oh-my-zsh/plugins/wd/LICENSE",
+          "sha256": "1c770a183f46b173c260b41ae754df8655824c91835ddc7865d15f4ad2a2c672"
+        },
+        {
+          "path": "zsh-extra/_wd.sh",
+          "sha256": "155d482524000333d14666eb8a5c5267e007729247e05a1085ae5a46409bfc09"
+        },
+        {
+          "path": "zsh-extra/_xcselv",
+          "sha256": "f1ca8186772fc81d58cd482fb61d74b16524fbfcf55edf8af873278c6d34b3e4"
+        },
+        {
+          "path": "zsh-extra/_yarn",
+          "sha256": "67b39486dc924e4534aa901779c76f06fe4785e379897cfa7523cb5d99cb2d34"
+        },
+        {
+          "path": "oh-my-zsh/plugins/z/LICENSE",
+          "sha256": "fdc191b8b4d8a5eb58062816e9708b171f7650c841d10ccead129e301f4fc649"
+        },
+        {
+          "path": "zsh-extra/_z",
+          "sha256": "f2dcf5058a5eb5275358b644b259c342e492ab0d17e1f4ff8968ca62bbc6cca0"
+        },
+        {
+          "path": "zsh-extra/_zeus",
+          "sha256": "f71956f3137bf4221bb155df04bfc25fdb67dc1be1780a5f0ca61960f9a63a81"
+        },
+        {
+          "path": "oh-my-zsh/plugins/zsh-autosuggestions/LICENSE",
+          "sha256": "4598a6be0b8d7f2b708da5259d2a30d4e15e59b3c66781bab9e27744a9f859d8"
+        },
+        {
+          "path": "oh-my-zsh/plugins/zsh-interactive-cd/LICENSE",
+          "sha256": "9931b48b8a031881163ccbf80730460ee3ad43178b10df56b528ff49a95690fe"
+        },
+        {
+          "path": "oh-my-zsh/plugins/zsh-navigation-tools/LICENSE",
+          "sha256": "e758d199c5eca23d7842d8fba1b7ad8a5d2fa4aee234327696c6a090b5384541"
+        },
+        {
+          "path": "zsh-extra/_n-kill",
+          "sha256": "df145be430e2808827a3674493989b09e3c5b0b95fc7dbd890052a87a8da680e"
+        },
+        {
+          "path": "oh-my-zsh/plugins/zsh-syntax-highlighting/LICENSE",
+          "sha256": "d810908db3cb75d30e46f5e55b18c8f483e1bc625b8f7dc5a581f5ad353af82e"
+        }
+      ]
+    },
+    {
+      "name": "brew",
+      "repository": "https://github.com/Homebrew/brew",
+      "revision": "13eeb3b76e7fde4cc6f7084487946ea8ea940ada",
+      "source": "https://codeload.github.com/Homebrew/brew/tar.gz/13eeb3b76e7fde4cc6f7084487946ea8ea940ada",
+      "sha256": "bfe6191ca073a4058fa28861ab3f721a891e94ddf76a7e4be57dddb793b47661",
+      "files": [
+        {
+          "path": "brew/LICENSE.txt",
+          "sha256": "f80329e58613ad669c0e73cb132d8060b9b2c55e339c73848068e4d1567f4627"
+        },
+        {
+          "path": "zsh-extra/_brew",
+          "sha256": "29078274397f9291025e59f35a7b18e6f4c407e983fa97e9c91ca0478b3ba7fb"
+        }
+      ]
+    },
+    {
+      "name": "eza",
+      "repository": "https://github.com/eza-community/eza",
+      "revision": "471bfbc7b03cbac8c738e8d9050edb06ee79132a",
+      "source": "https://codeload.github.com/eza-community/eza/tar.gz/471bfbc7b03cbac8c738e8d9050edb06ee79132a",
+      "sha256": "e79ca92ade932673c250a43f494da8bb67bec64fab90e2e0d533b5c8f51e84ff",
+      "files": [
+        {
+          "path": "eza/LICENSE.txt",
+          "sha256": "57fb42fbcd0b037ce528ed8f72f1ec095d67bc6825ecf1448ff39be1fe68a4b4"
+        },
+        {
+          "path": "zsh-extra/_eza",
+          "sha256": "251d3f3059fe6dbe17a14f55250b554ffa85ad7939e7a55720ff61a9747aff1e"
+        }
+      ]
+    },
+    {
+      "name": "paru",
+      "repository": "https://github.com/Morganamilo/paru",
+      "revision": "9ac3578807a87858651e81a02586ceb947686e7c",
+      "source": "https://codeload.github.com/Morganamilo/paru/tar.gz/9ac3578807a87858651e81a02586ceb947686e7c",
+      "sha256": "fa1e2da402283f9584f98458c61ae8d0bb04c92b2cddb1d2727c8ce944da457e",
+      "files": [
+        {
+          "path": "paru/LICENSE",
+          "sha256": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2"
+        },
+        {
+          "path": "zsh-extra/_paru",
+          "sha256": "7129483b8023a780f2a87cd81126276d4ef197b90ffcb172d4a2b18dd519aa48"
+        }
+      ]
+    }
+  ],
+  "generated": [
+    {
+      "path": "registry.json",
+      "sha256": "b2ed333f5ca98d9693547f77fea5dd7b1fe405fce02ed4cfdd1d357ca5e0770b"
     }
   ]
 }

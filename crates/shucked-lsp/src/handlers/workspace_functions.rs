@@ -129,6 +129,15 @@ pub(crate) fn workspace_function_index(
     Some(built)
 }
 
+pub(crate) fn cached_workspace_function_index(
+    context: &WorkspaceFunctionContext,
+) -> Option<Arc<WorkspaceFunctionIndex>> {
+    if context.cancellation.is_cancelled() {
+        return None;
+    }
+    context.cache.get(context.epoch)
+}
+
 /// Builds a new index for a mutation request instead of trusting a cached
 /// discovery snapshot.
 ///

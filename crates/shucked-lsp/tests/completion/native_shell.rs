@@ -109,7 +109,7 @@ fn invalidation_during_completion_cannot_repopulate_the_cache() {
         executable,
         root: root.path().to_owned(),
         cache: Mutex::default(),
-        running: Mutex::default(),
+        worker: crate::handlers::completion::native_process::Persistent::default(),
         generation: AtomicU64::new(0),
         home: None,
     });

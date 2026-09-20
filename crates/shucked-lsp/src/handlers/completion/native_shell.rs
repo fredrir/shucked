@@ -13,7 +13,7 @@ pub(super) struct ManagedShell {
     executable: PathBuf,
     root: PathBuf,
     cache: Mutex<VecDeque<Cached>>,
-    running: Mutex<()>,
+    worker: super::super::native_process::Persistent,
     generation: AtomicU64,
     #[cfg(test)]
     home: Option<PathBuf>,
@@ -34,7 +34,7 @@ impl ManagedShell {
             executable: assets::shell(name)?,
             root: assets::root()?,
             cache: Mutex::default(),
-            running: Mutex::default(),
+            worker: super::super::native_process::Persistent::default(),
             generation: AtomicU64::new(0),
             #[cfg(test)]
             home: None,
@@ -43,12 +43,14 @@ impl ManagedShell {
 
     pub(super) fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.worker.invalidate();
         self.cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
     }
 
+    #[cfg(test)]
     pub(super) fn complete(
         &self,
         words: &[String],
@@ -57,29 +59,42 @@ impl ManagedShell {
         cancellation: &RequestCancellationToken,
         execution_path: Option<&std::ffi::OsStr>,
     ) -> Option<Arc<Vec<Candidate>>> {
+        self.complete_at(words, prefix, "", directory, cancellation, execution_path)
+    }
+
+    pub(super) fn complete_at(
+        &self,
+        words: &[String],
+        prefix: &str,
+        suffix: &str,
+        directory: &Path,
+        cancellation: &RequestCancellationToken,
+        execution_path: Option<&std::ffi::OsStr>,
+    ) -> Option<Arc<Vec<Candidate>>> {
         if words.is_empty()
             || words.len() > 256
-            || words.iter().map(String::len).sum::<usize>() + prefix.len() > 8192
+            || words.iter().map(String::len).sum::<usize>() + prefix.len() + suffix.len() > 8192
         {
             return None;
         }
         let mut input = words.to_vec();
         input.push(prefix.to_owned());
+        let mut cache_input = input.clone();
+        cache_input.push(suffix.to_owned());
         if let Some(entry) = self
             .cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .find(|entry| {
-                entry.words == input
+                entry.words == cache_input
                     && entry.execution_path.as_deref() == execution_path
                     && entry.directory == directory
-                    && entry.created.elapsed() < Duration::from_secs(30)
+                    && entry.created.elapsed() < Duration::from_secs(2)
             })
         {
             return Some(Arc::clone(&entry.result));
         }
-        let _running = self.running.try_lock().ok()?;
         let generation = self.generation.load(Ordering::Acquire);
         let mut command = std::process::Command::new(&self.executable);
         if self.name == "fish" {
@@ -105,10 +120,6 @@ impl ManagedShell {
                 ],
             );
         }
-        assets::shell_args(
-            &mut command,
-            std::iter::once(assets::primary_word(&input[0])).chain(input[1..].iter().cloned()),
-        );
         command
             .current_dir(directory)
             .env("SHUCKED_PROVIDER_ROOT", assets::shell_path(&self.root))
@@ -132,13 +143,41 @@ impl ManagedShell {
                 .env("HOME", home)
                 .env("XDG_CONFIG_HOME", home.join(".config"));
         }
-        let output = super::super::native_process::capture(
+        let installed = assets::completion_directories(execution_path, self.name);
+        command.env(
+            "SHUCKED_COMPLETION_PATHS",
+            assets::joined_completion_paths(&installed),
+        );
+        let path = command
+            .get_envs()
+            .find(|(name, _)| *name == "PATH")
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let key = format!(
+            "{:?}:{:?}:{:?}:{}:{:?}",
+            self.executable, self.root, execution_path, generation, installed
+        );
+        let mut fields = vec![
+            assets::shell_path(directory).to_string_lossy().into_owned(),
+            path,
+            suffix.to_owned(),
+            input.len().to_string(),
+        ];
+        fields.push(assets::primary_word(&input[0]));
+        fields.extend(input[1..].iter().cloned());
+        let output = self.worker.request(
             &mut command,
+            key,
+            &fields,
             Duration::from_millis(1500),
+            Duration::from_secs(5),
             cancellation,
-            false,
         )?;
-        let result = Arc::new(parse_output(&output)?);
+        let mut candidates = parse_output(&output)?;
+        for candidate in &mut candidates {
+            candidate.provider = self.name.into();
+        }
+        let result = Arc::new(candidates);
         if cancellation.is_cancelled() {
             return None;
         }
@@ -150,7 +189,7 @@ impl ManagedShell {
             return Some(result);
         }
         cache.push_back(Cached {
-            words: input,
+            words: cache_input,
             directory: directory.to_owned(),
             execution_path: execution_path.map(ToOwned::to_owned),
             created: Instant::now(),

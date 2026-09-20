@@ -20,6 +20,7 @@ impl super::super::traits::SyncNotificationHandler for DidClose {
             text_document: types::TextDocumentIdentifier { uri },
         }: types::DidCloseTextDocumentParams,
     ) -> Result<()> {
+        session.completion_environment.cancel_document(&uri);
         let key = session.key_from_url(uri);
         if let Some(snapshot) = session.take_snapshot(key.clone().into_url()) {
             clear_diagnostics_for_document(snapshot.query(), client)?;

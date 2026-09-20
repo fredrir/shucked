@@ -11,10 +11,12 @@ pub(in crate::handlers) enum Quote {
     Double,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::handlers) struct Site {
     pub range: Range<usize>,
     pub prefix: String,
+    pub suffix: String,
+    pub option: Option<String>,
     pub words: Vec<String>,
     pub quote: Quote,
     pub closed_quote: bool,
@@ -144,10 +146,12 @@ pub(in crate::handlers) fn at(source: &str, indexer: &Indexer, offset: usize) ->
         }
     }
 
+    let words = command_words(frame.words);
     let mut start = frame.start.unwrap_or(offset);
     let mut raw = &source[start..offset];
     if let Some((name, _)) = raw.split_once('=')
-        && (identifier(name) || name.starts_with("--") && !name.contains(['\\', '\'', '"']))
+        && identifier(name)
+        && words.is_empty()
     {
         start += name.len() + 1;
         frame.word = frame
@@ -158,14 +162,21 @@ pub(in crate::handlers) fn at(source: &str, indexer: &Indexer, offset: usize) ->
         frame.redirect = true;
         raw = &source[start..offset];
     }
-    let quote = match raw.chars().next() {
+    let option = raw
+        .split_once('=')
+        .filter(|(name, _)| {
+            (name.starts_with("--") || identifier(name)) && !name.contains(['\\', '\'', '"'])
+        })
+        .map(|(name, _)| format!("{name}="));
+    let value_raw = option.as_ref().map_or(raw, |option| &raw[option.len()..]);
+    let quote = match value_raw.chars().next() {
         Some('\'') => Quote::Single,
         Some('"') => Quote::Double,
         _ => Quote::None,
     };
     // Mixed quoted fragments and completed substitutions cannot be resolved as paths.
     if (quote != Quote::None && frame.quote != quote)
-        || (quote == Quote::None && raw.contains(['\'', '"', '`']))
+        || (quote == Quote::None && value_raw.contains(['\'', '"', '`']))
         || raw.contains("$(")
     {
         return None;
@@ -188,17 +199,38 @@ pub(in crate::handlers) fn at(source: &str, indexer: &Indexer, offset: usize) ->
         end += ch.len_utf8();
     }
 
-    let words = command_words(frame.words);
     let command = words.is_empty() && !frame.redirect;
     Some(Site {
         range: start..end,
         prefix: frame.word,
+        suffix: decode_suffix(&source[offset..end - usize::from(closed_quote)], quote),
+        option,
         words,
         quote,
         closed_quote,
         redirect: frame.redirect,
         command,
     })
+}
+
+fn decode_suffix(source: &str, quote: Quote) -> String {
+    let mut result = String::new();
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\'
+            && quote != Quote::Single
+            && let Some(next) = chars.peek().copied()
+            && (quote == Quote::None || matches!(next, '$' | '`' | '"' | '\\' | '\n'))
+        {
+            chars.next();
+            if next != '\n' {
+                result.push(next);
+            }
+            continue;
+        }
+        result.push(ch);
+    }
+    result
 }
 
 fn command_words(words: Vec<String>) -> Vec<String> {
@@ -276,6 +308,14 @@ pub(in crate::handlers) fn identifier(name: &str) -> bool {
 impl Site {
     pub(in crate::handlers) fn insert(&self, text: &str) -> String {
         let mut result = String::new();
+        let text = if let Some(option) = &self.option
+            && let Some(value) = text.strip_prefix(option)
+        {
+            result.push_str(option);
+            value
+        } else {
+            text
+        };
         let delimiter = match self.quote {
             Quote::None => None,
             Quote::Single => Some('\''),

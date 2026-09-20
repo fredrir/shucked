@@ -1,5 +1,5 @@
 //! Host-side dependency watches; polling remains the fallback for unsupported filesystems.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -48,6 +48,7 @@ impl EnvironmentWatcher {
                     return;
                 };
                 let mut watched = BTreeSet::new();
+                let mut observed = None;
                 let mut pending = None;
                 let mut revalidate = false;
                 let mut last_registration = Instant::now() - Duration::from_secs(30);
@@ -81,22 +82,38 @@ impl EnvironmentWatcher {
                             .iter()
                             .filter_map(|path| existing_directory(path))
                             .collect::<BTreeSet<_>>();
-                        for path in watched.difference(&targets) {
-                            let _ = watcher.unwatch(path);
-                        }
-                        let mut next = watched
-                            .intersection(&targets)
-                            .cloned()
-                            .collect::<BTreeSet<_>>();
-                        for path in targets.difference(&watched) {
-                            if watcher.watch(path, RecursiveMode::NonRecursive).is_ok() {
-                                next.insert(path.clone());
+                        if targets != watched {
+                            // A batch avoids restarting the entire native event stream
+                            // for every newly discovered provider directory.
+                            let mut changes = watcher.paths_mut();
+                            for path in watched.difference(&targets) {
+                                let _ = changes.remove(path);
+                            }
+                            let mut next = watched
+                                .intersection(&targets)
+                                .cloned()
+                                .collect::<BTreeSet<_>>();
+                            for path in targets.difference(&watched) {
+                                if changes.add(path, RecursiveMode::NonRecursive).is_ok() {
+                                    next.insert(path.clone());
+                                }
+                            }
+                            if changes.commit().is_ok() {
+                                watched = next;
+                            } else {
+                                watched.clear();
                             }
                         }
-                        watched = next;
+                        let fingerprint = fingerprints(&desired);
+                        let metadata_changed = observed
+                            .as_ref()
+                            .is_some_and(|previous| previous != &fingerprint);
+                        observed = Some(fingerprint);
                         last_registration = Instant::now();
                         // Inputs can change between analysis and native watch registration.
-                        if std::mem::take(&mut revalidate) && client.environment_changed().is_err()
+                        let registration_changed = std::mem::take(&mut revalidate);
+                        if (registration_changed || metadata_changed)
+                            && client.environment_changed().is_err()
                         {
                             return;
                         }
@@ -125,6 +142,38 @@ impl EnvironmentWatcher {
         *current = paths;
         let _ = self.updates.try_send(());
     }
+}
+
+#[derive(PartialEq, Eq)]
+struct Fingerprint {
+    directory: bool,
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+    permissions: u32,
+}
+
+fn fingerprints(paths: &BTreeSet<PathBuf>) -> BTreeMap<PathBuf, Option<Fingerprint>> {
+    paths
+        .iter()
+        .map(|path| {
+            let fingerprint = path.metadata().ok().map(|metadata| {
+                #[cfg(unix)]
+                let permissions = {
+                    use std::os::unix::fs::PermissionsExt;
+                    metadata.permissions().mode()
+                };
+                #[cfg(not(unix))]
+                let permissions = u32::from(metadata.permissions().readonly());
+                Fingerprint {
+                    directory: metadata.is_dir(),
+                    length: metadata.len(),
+                    modified: metadata.modified().ok(),
+                    permissions,
+                }
+            });
+            (path.clone(), fingerprint)
+        })
+        .collect()
 }
 
 fn existing_directory(path: &Path) -> Option<PathBuf> {

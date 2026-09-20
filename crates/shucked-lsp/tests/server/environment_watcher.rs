@@ -40,3 +40,16 @@ fn executable_install_and_removal_trigger_host_refresh() {
         "removal did not refresh environment"
     );
 }
+
+#[test]
+fn metadata_revalidation_detects_installation_and_removal_without_native_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let candidate = temp.path().join("new-command");
+    let targets = BTreeSet::from([temp.path().to_path_buf(), candidate.clone()]);
+    let missing = fingerprints(&targets);
+    std::fs::write(&candidate, "#!/bin/sh\n").unwrap();
+    let installed = fingerprints(&targets);
+    assert!(missing != installed);
+    std::fs::remove_file(&candidate).unwrap();
+    assert!(installed != fingerprints(&targets));
+}

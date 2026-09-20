@@ -178,6 +178,7 @@ impl Session {
         self.workspace_diagnostics.invalidate_all();
         self.command_service.invalidate();
         self.completion_environment.invalidate();
+        self.completion_environment.prewarm_recent(self);
         self.schedule_all_diagnostics();
     }
 
@@ -207,6 +208,7 @@ impl Session {
                 }),
         );
         let mut paths = self.command_service.watch_directories(&directories);
+        paths.extend(self.completion_environment.watch_directories());
         paths.extend(self.workspace_function_index.dependency_paths());
         self.environment_watcher.update(paths);
     }
@@ -538,6 +540,10 @@ impl DocumentSnapshot {
 
     pub(crate) fn analysis(&self) -> Option<Arc<DocumentAnalysis>> {
         self.analysis_cache.get_or_build(self)
+    }
+
+    pub(crate) fn cached_analysis(&self) -> Option<Arc<DocumentAnalysis>> {
+        self.analysis_cache.cached(self)
     }
 
     pub(crate) fn workspace_epoch(&self) -> Option<u64> {

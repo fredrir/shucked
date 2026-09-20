@@ -60,6 +60,42 @@
     "supported": true
   },
   "contributes": {
+    "keybindings": [
+      {
+        "key": "escape",
+        "command": "shucked.dismissCompletion",
+        "when": "editorTextFocus && shucked.completionPending"
+      },
+      {
+        "key": "shift+escape",
+        "command": "shucked.dismissCompletion",
+        "when": "editorTextFocus && shucked.completionPending"
+      },
+      {
+        "key": "down",
+        "command": "shucked.navigateCompletion",
+        "args": "selectNextSuggestion",
+        "when": "editorTextFocus && suggestWidgetVisible && shucked.completionPending"
+      },
+      {
+        "key": "up",
+        "command": "shucked.navigateCompletion",
+        "args": "selectPrevSuggestion",
+        "when": "editorTextFocus && suggestWidgetVisible && shucked.completionPending"
+      },
+      {
+        "key": "pagedown",
+        "command": "shucked.navigateCompletion",
+        "args": "selectNextPageSuggestion",
+        "when": "editorTextFocus && suggestWidgetVisible && shucked.completionPending"
+      },
+      {
+        "key": "pageup",
+        "command": "shucked.navigateCompletion",
+        "args": "selectPrevPageSuggestion",
+        "when": "editorTextFocus && suggestWidgetVisible && shucked.completionPending"
+      }
+    ],
     "commands": [
       {
         "command": "shucked.restartServer",
@@ -196,12 +232,12 @@
         "shucked.server.completion.includeNative": {
           "type": "boolean",
           "default": true,
-          "description": "Complete flags and package names using tools on the workspace host. Requires workspace trust; personal shell startup files are disabled by default."
+          "description": "Use installed and bundled shell completion providers, including Oh My Zsh. Requires workspace trust; personal startup files are not loaded."
         },
         "shucked.server.completion.includeCommandArguments": {
           "type": "boolean",
           "default": true,
-          "description": "Complete flags and subcommands from the built-in command catalog.",
+          "description": "Complete flags, subcommands, and option values from installed and bundled upstream definitions.",
           "scope": "resource"
         },
         "shucked.server.completion.includeRuntimeNames": {

@@ -240,3 +240,51 @@ fn without_exe_suffix(name: &str) -> &str {
         .filter(|suffix| suffix.eq_ignore_ascii_case(".exe"))
         .map_or(name, |_| &name[..name.len() - 4])
 }
+
+/// Standard completion installation directories on the selected execution host.
+/// Only absolute PATH prefixes are considered; personal startup files stay out.
+pub(in super::super) fn completion_directories(
+    execution_path: Option<&std::ffi::OsStr>,
+    engine: &str,
+) -> Vec<PathBuf> {
+    let path = execution_path
+        .map(ToOwned::to_owned)
+        .or_else(|| std::env::var_os("PATH"))
+        .unwrap_or_default();
+    let relative = match engine {
+        "zsh" => "share/zsh/site-functions",
+        "bash" => "share/bash-completion/completions",
+        _ => "share/fish/vendor_completions.d",
+    };
+    let mut directories = Vec::new();
+    for prefix in std::env::split_paths(&path)
+        .filter(|path| path.is_absolute())
+        .filter_map(|path| path.parent().map(Path::to_owned))
+    {
+        let directory = prefix.join(relative);
+        if directory.is_dir() && !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    for prefix in ["/usr/local", "/usr", "/opt/homebrew"] {
+        let directory = Path::new(prefix).join(relative);
+        if directory.is_dir() && !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    if engine == "zsh" {
+        let directory = PathBuf::from("/usr/share/zsh/vendor-completions");
+        if directory.is_dir() && !directories.contains(&directory) {
+            directories.push(directory);
+        }
+    }
+    directories
+}
+
+pub(in super::super) fn joined_completion_paths(directories: &[PathBuf]) -> String {
+    directories
+        .iter()
+        .map(|path| shell_path(path).to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(":")
+}

@@ -19,7 +19,6 @@ contracts:
       consumes:
         prefixes:
           - ZSH_AUTOSUGGEST_
-
   - id: zsh/plugin/zsh-autosuggestions/request-config
     groups:
       - zsh
@@ -34,7 +33,6 @@ contracts:
       consumes:
         prefixes:
           - ZSH_AUTOSUGGEST_
-
   - id: zsh/plugin/zsh-autosuggestions/prezto-module-config
     groups:
       - zsh

@@ -11,6 +11,7 @@ Covers:
 
 import pytest
 from tests.lsp.client import LspClient
+from tests.lsp.test_native_completion import complete_when_ready
 
 
 @pytest.mark.asyncio
@@ -149,9 +150,9 @@ print -r -- "$ZSH_VERSION"
 
 
 @pytest.mark.asyncio
-async def test_zsh_builtin_completions(initialized_lsp_client: LspClient):
+async def test_zsh_builtin_completions(initialized_lsp_client: LspClient, tmp_path):
     """Verify completions for Zsh builtins (e.g. zstyle, compinit)."""
-    uri = "file:///tmp/completion_test.zsh"
+    uri = (tmp_path / "completion_test.zsh").as_uri()
     base_text = "#!/usr/bin/env zsh\n"
     await initialized_lsp_client.open_document(uri, "shellscript", base_text)
     await initialized_lsp_client.wait_for_diagnostics(uri)
@@ -159,7 +160,7 @@ async def test_zsh_builtin_completions(initialized_lsp_client: LspClient):
     # Trigger completion for 'zst'
     await initialized_lsp_client.change_document(uri, base_text + "zst", version=2)
     await initialized_lsp_client.wait_for_diagnostics(uri)
-    res_zst = await initialized_lsp_client.completion(uri, line=1, character=3)
+    res_zst = await complete_when_ready(initialized_lsp_client, uri, 1, 3, "zstyle", version=2)
     items_zst = res_zst.get("items", []) if isinstance(res_zst, dict) else res_zst
     labels_zst = [item["label"] for item in items_zst]
     assert "zstyle" in labels_zst, f"Expected 'zstyle' in completions, got: {labels_zst}"
@@ -167,7 +168,7 @@ async def test_zsh_builtin_completions(initialized_lsp_client: LspClient):
     # Trigger completion for 'comp'
     await initialized_lsp_client.change_document(uri, base_text + "comp", version=3)
     await initialized_lsp_client.wait_for_diagnostics(uri)
-    res_comp = await initialized_lsp_client.completion(uri, line=1, character=4)
+    res_comp = await complete_when_ready(initialized_lsp_client, uri, 1, 4, "compinit", version=3)
     items_comp = res_comp.get("items", []) if isinstance(res_comp, dict) else res_comp
     labels_comp = [item["label"] for item in items_comp]
     assert "compinit" in labels_comp, f"Expected 'compinit' in completions, got: {labels_comp}"
@@ -205,4 +206,3 @@ print -r -- "$my_format"
     content = hover_format["contents"]["value"]
     assert "my_format" in content
     assert "Variable" in content
-

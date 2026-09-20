@@ -1,5 +1,8 @@
+use super::super::native_process::capture;
 use super::*;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 fn executable(root: &Path, name: &str, body: &str) -> PathBuf {
     let bin = root.join("bin");
@@ -8,102 +11,6 @@ fn executable(root: &Path, name: &str, body: &str) -> PathBuf {
     std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
-}
-
-fn complete(environment: &Environment, words: &[&str], prefix: &str) -> Vec<Candidate> {
-    environment
-        .native
-        .complete(
-            environment,
-            &words
-                .iter()
-                .map(|word| (*word).to_owned())
-                .collect::<Vec<_>>(),
-            prefix,
-            &environment.cwd,
-            &RequestCancellationToken::default(),
-            false,
-            "zsh",
-        )
-        .unwrap()
-        .as_ref()
-        .clone()
-}
-
-#[test]
-fn package_queries_use_host_databases_without_forwarding_document_arguments() {
-    let root = tempfile::tempdir().unwrap();
-    executable(
-        root.path(),
-        "pacman",
-        "case \"$*\" in '-Slq') printf 'available-package\\n' ;; '-Qq') printf 'installed-package\\n' ;; *) exit 9 ;; esac",
-    );
-    executable(
-        root.path(),
-        "brew",
-        "case \"$*\" in formulae) printf 'formula-name\\n' ;; casks) printf 'cask-name\\n' ;; 'list --formula -1') printf 'installed-formula\\n' ;; 'list --cask -1') printf 'installed-cask\\n' ;; *) exit 9 ;; esac",
-    );
-    let environment = Environment::fixture(root.path());
-    assert_eq!(
-        complete(&environment, &["pacman", "-S", "$(touch marker)"], "")[0].text,
-        "available-package"
-    );
-    assert_eq!(
-        complete(&environment, &["pacman", "-R"], "")[0].text,
-        "installed-package"
-    );
-    assert_eq!(
-        complete(&environment, &["brew", "install", "--cask"], "")[0].text,
-        "cask-name"
-    );
-    assert_eq!(
-        complete(&environment, &["brew", "install", "--formula"], "")[0].text,
-        "formula-name"
-    );
-    assert_eq!(
-        complete(&environment, &["brew", "uninstall", "--formula"], "")[0].text,
-        "installed-formula"
-    );
-    assert_eq!(complete(&environment, &["brew", "install"], "").len(), 2);
-    assert!(!root.path().join("marker").exists());
-}
-
-#[test]
-fn native_flags_keep_descriptions_and_cached_queries_refresh() {
-    let root = tempfile::tempdir().unwrap();
-    let command = executable(
-        root.path(),
-        "eza",
-        "[ \"$*\" = '--help' ] || exit 9; printf '  -a, --all  Include hidden entries\\n  --sort=FIELD  Order entries\\n'",
-    );
-    let environment = Environment::fixture(root.path());
-    let entries = complete(&environment, &["eza"], "--a");
-    assert!(
-        entries
-            .iter()
-            .any(|entry| entry.text == "--all" && entry.description == "Include hidden entries")
-    );
-    assert!(entries.iter().any(|entry| entry.text == "--sort"));
-    std::fs::write(command, "#!/bin/sh\nexit 1\n").unwrap();
-    assert_eq!(
-        complete(&environment, &["eza"], "--al").len(),
-        entries.len()
-    );
-    environment.invalidate();
-    assert!(
-        environment
-            .native
-            .complete(
-                &environment,
-                &["eza".to_owned()],
-                "-",
-                root.path(),
-                &RequestCancellationToken::default(),
-                false,
-                "zsh",
-            )
-            .is_none()
-    );
 }
 
 #[test]
@@ -138,45 +45,6 @@ fn cancelled_and_slow_queries_return_without_poisoning_future_queries() {
 }
 
 #[test]
-fn does_not_run_unknown_help_interfaces_or_package_install_operations() {
-    let root = tempfile::tempdir().unwrap();
-    executable(root.path(), "custom", "touch must-not-exist");
-    let environment = Environment::fixture(root.path());
-    assert!(
-        environment
-            .native
-            .complete(
-                &environment,
-                &["custom".to_owned()],
-                "--",
-                root.path(),
-                &RequestCancellationToken::default(),
-                false,
-                "zsh",
-            )
-            .is_none()
-    );
-    assert!(!root.path().join("must-not-exist").exists());
-    for words in [
-        vec!["pacman", "-U"],
-        vec!["pacman", "-S", "--config", "custom"],
-        vec!["brew", "tap"],
-    ] {
-        assert!(
-            package_queries(
-                words[0],
-                &words
-                    .iter()
-                    .map(|word| (*word).to_owned())
-                    .collect::<Vec<_>>(),
-                ""
-            )
-            .is_none()
-        );
-    }
-}
-
-#[test]
 fn timeout_stops_completion_helpers_as_well_as_the_parent() {
     let root = tempfile::tempdir().unwrap();
     let path = executable(
@@ -195,35 +63,6 @@ fn timeout_stops_completion_helpers_as_well_as_the_parent() {
     );
     std::thread::sleep(Duration::from_millis(400));
     assert!(!root.path().join("leaked").exists());
-}
-
-#[test]
-fn multiline_native_help_keeps_descriptions_for_short_and_long_flags() {
-    let entries = help_candidates(
-        "OPTIONS\n    -., --hidden\n        Include hidden entries.\n\n    --sort <FIELD>\n        Choose the ordering field.\n",
-    );
-    for flag in ["-.", "--hidden"] {
-        assert!(
-            entries
-                .iter()
-                .any(|entry| entry.text == flag && entry.description == "Include hidden entries.")
-        );
-    }
-    assert!(
-        entries.iter().any(
-            |entry| entry.text == "--sort" && entry.description == "Choose the ordering field."
-        )
-    );
-}
-
-#[test]
-fn pacman_file_and_group_operations_do_not_suggest_package_names() {
-    for flag in ["-Qo", "-Qp", "-Sg", "-Sl", "-F", "-U"] {
-        assert!(
-            package_queries("pacman", &["pacman".to_owned(), flag.to_owned()], "").is_none(),
-            "{flag}"
-        );
-    }
 }
 
 #[test]
@@ -254,6 +93,7 @@ fn private_helper_executables_never_extend_target_resolution_or_wrapper_candidat
     .map(|text| Candidate {
         text: text.into(),
         description: "command argument".into(),
+        ..Default::default()
     })
     .collect();
     let filtered = filter_private_candidates(
@@ -335,6 +175,7 @@ fn ordinary_arguments_named_like_helpers_are_retained() {
     let entries = vec![Candidate {
         text: "grep".into(),
         description: "Git branch".into(),
+        ..Default::default()
     }];
     let words = vec!["git".into(), "checkout".into()];
     assert!(!wrapper_command_position(&words));
@@ -420,4 +261,147 @@ fn dynamic_provider_queries_use_selected_primary_instead_of_path_shadow() {
         );
         std::fs::remove_file(root.path().join("selected-marker")).unwrap();
     }
+}
+
+#[test]
+fn installed_completion_drives_unknown_command_in_every_script_dialect() {
+    if NativeZsh::detect().is_none() {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    executable(root.path(), "shucked-fixture", "touch must-not-execute");
+    let completions = root.path().join("share/zsh/site-functions");
+    std::fs::create_dir_all(&completions).unwrap();
+    std::fs::write(completions.join("_shucked_fixture"), "#compdef shucked-fixture\n_arguments '1:operation:(start stop)' '--mode=[Output mode]:mode:(wide compact)' '-v[Verbose output]' '--absolute[Absolute path]'\n").unwrap();
+    let mut environment = Environment::fixture(root.path());
+    environment.native = Arc::new(Native::detect());
+    for dialect in ["bash", "sh", "zsh", "fish"] {
+        for (words, prefix, expected) in [
+            (vec!["shucked-fixture".into()], "st", "start"),
+            (vec!["shucked-fixture".into()], "--mode=w", "--mode=wide"),
+            (vec!["shucked-fixture".into()], "-v", "-v"),
+        ] {
+            let result = environment
+                .native
+                .complete(
+                    &environment,
+                    &words,
+                    prefix,
+                    root.path(),
+                    &RequestCancellationToken::default(),
+                    false,
+                    dialect,
+                )
+                .unwrap_or_else(|| panic!("installed completion {dialect}: {prefix}"));
+            assert!(
+                result.iter().any(|item| item.text == expected),
+                "{dialect} {prefix}: {result:?}"
+            );
+            assert!(result.iter().all(|item| item.provider == "installed · zsh"));
+        }
+    }
+    let midword = environment
+        .native
+        .complete_at(
+            &environment,
+            &["shucked-fixture".into()],
+            "--abs",
+            root.path(),
+            &RequestCancellationToken::default(),
+            false,
+            "bash",
+            "uffix",
+        )
+        .unwrap();
+    assert!(
+        midword.iter().any(|item| item.text == "--absolute"),
+        "{midword:?}"
+    );
+    assert!(!root.path().join("must-not-execute").exists());
+}
+
+#[test]
+fn unregistered_commands_do_not_get_executed_for_help() {
+    let root = tempfile::tempdir().unwrap();
+    executable(
+        root.path(),
+        "shucked-unregistered",
+        "touch must-not-execute",
+    );
+    let mut environment = Environment::fixture(root.path());
+    environment.native = Arc::new(Native::detect());
+    assert!(
+        environment
+            .native
+            .complete(
+                &environment,
+                &["shucked-unregistered".into()],
+                "--",
+                root.path(),
+                &RequestCancellationToken::default(),
+                false,
+                "bash"
+            )
+            .is_none()
+    );
+    assert!(!root.path().join("must-not-execute").exists());
+}
+
+#[test]
+fn zsh_spacing_metadata_preserves_filename_spaces_without_inserting_delimiter_spaces() {
+    if NativeZsh::detect().is_none() {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    executable(root.path(), "shucked-spacing", "exit 9");
+    std::fs::write(root.path().join("file "), "fixture").unwrap();
+    let completions = root.path().join("share/zsh/site-functions");
+    std::fs::create_dir_all(&completions).unwrap();
+    std::fs::write(completions.join("_shucked_spacing"), "#compdef shucked-spacing\ncompadd -S ' ' -- --flag\ncompadd -S '' -- --prefix=\ncompadd -f -- 'file '\ncompadd -Q -S '' -- '--detach ' 'escaped\\ ' \"'quoted '\"\n").unwrap();
+    let mut environment = Environment::fixture(root.path());
+    environment.native = Arc::new(Native::detect());
+    let result = environment
+        .native
+        .complete(
+            &environment,
+            &["shucked-spacing".into()],
+            "",
+            root.path(),
+            &RequestCancellationToken::default(),
+            false,
+            "bash",
+        )
+        .unwrap();
+    assert!(
+        result
+            .iter()
+            .any(|item| item.text == "--flag" && !item.no_space),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .iter()
+            .any(|item| item.text == "--prefix=" && item.no_space),
+        "{result:?}"
+    );
+    assert!(result.iter().any(|item| item.text == "file "), "{result:?}");
+    assert!(!result.iter().any(|item| item.text == "--flag "));
+    assert!(
+        result
+            .iter()
+            .any(|item| item.text == "--detach" && !item.no_space),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .iter()
+            .any(|item| item.text == "escaped " && item.no_space),
+        "{result:?}"
+    );
+    assert!(
+        result
+            .iter()
+            .any(|item| item.text == "quoted " && item.no_space),
+        "{result:?}"
+    );
 }

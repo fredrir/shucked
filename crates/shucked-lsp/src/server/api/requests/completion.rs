@@ -3,7 +3,7 @@ use lsp_types::{self as types, request as req};
 use crate::editor_features;
 use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
 use crate::workspace_functions::{
-    WorkspaceFunctionContext, canonical_path, workspace_function_index,
+    WorkspaceFunctionContext, cached_workspace_function_index, canonical_path,
 };
 
 pub(crate) struct Completion;
@@ -46,6 +46,21 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
         let Some(document) = snapshot.document else {
             return Ok(None);
         };
+        if !crate::handlers::completion::background::prepare(
+            &snapshot.environment,
+            &document,
+            &snapshot.workspace,
+            client,
+            params.text_document_position.position,
+        ) {
+            return Ok(Some(types::CompletionResponse::List(
+                types::CompletionList {
+                    is_incomplete: true,
+                    items: Vec::new(),
+                },
+            )));
+        }
+        let index = cached_workspace_function_index(&snapshot.workspace);
         let path = document
             .query()
             .file_url()
@@ -61,7 +76,7 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
                 let Some(path) = path.as_deref() else {
                     return Vec::new();
                 };
-                let Some(index) = workspace_function_index(&snapshot.workspace) else {
+                let Some(index) = index else {
                     return Vec::new();
                 };
                 index.function_completions(path, offset)

@@ -7,7 +7,8 @@ mod native;
 pub(crate) mod native_process;
 mod native_zsh;
 pub(crate) use native_zsh::decode_bash_candidate;
-mod specs;
+pub(crate) mod background;
+mod service;
 
 use std::collections::BTreeSet;
 
@@ -33,7 +34,7 @@ pub(super) fn extend(
     ),
     parameter_start: Option<usize>,
 ) -> bool {
-    let (environment, cancellation, client) = native;
+    let (environment, _cancellation, client) = native;
     let command_analysis = snapshot.command_service.analysis(snapshot);
     let local = command_analysis.local_environment;
     let scoped_environment =
@@ -130,161 +131,156 @@ pub(super) fn extend(
         )
     });
     let words = effective_words.as_ref().unwrap_or(&site.words);
-    let arguments = specs::arguments(words);
-    let mut native_arguments = false;
-    if !site.command
-        && !site.redirect
-        && options.include_native
-        && options.include_command_arguments
-        && local
-        && environment.native_allowed
-        && command_site.is_some_and(|(facts, _)| {
-            facts.environment_uncertain.is_none()
-                && facts.effective_words.iter().all(|word| word.text.is_some())
-        })
-    {
-        incomplete |=
-            command_analysis.context.mode == shucked_command::ExecutionMode::InteractiveSession;
-        if let Some(response) = crate::server::live_completion::request(
-            client,
-            snapshot,
-            words,
-            &site.prefix,
-            cancellation,
-        ) {
-            incomplete |= response.partial;
-            for candidate in response.candidates {
-                if candidate.text.starts_with(&site.prefix) && seen.insert(candidate.text.clone()) {
-                    native_arguments = true;
-                    items.push(item(
-                        &candidate.text,
-                        if candidate.text.starts_with('-') {
-                            types::CompletionItemKind::FIELD
-                        } else {
-                            types::CompletionItemKind::VALUE
-                        },
-                        if candidate.description.is_empty() {
-                            "Live shell completion"
-                        } else {
-                            &candidate.description
-                        },
-                        site.insert(&candidate.text),
-                        range,
-                        0,
-                    ));
-                }
-            }
-        }
-    }
+    let position = crate::edit::offset_to_position(
+        analysis.source(),
+        analysis.line_index(),
+        offset,
+        snapshot.encoding(),
+    );
+    environment.service.cancel_document(
+        snapshot.query().file_url(),
+        Some((snapshot.query().document().version(), position)),
+    );
+    environment
+        .service
+        .remember(background::notice(snapshot, client, position));
     let native_enabled = !site.command
         && !site.redirect
-        && !arguments.expecting_value
         && options.include_command_arguments
         && options.include_native
         && environment.native_allowed
         && local
         && grammar_allowed;
-    // Live providers can be busy or change their results between keystrokes.
-    // Do not let the editor permanently filter a temporary fallback response.
-    incomplete |= native_enabled;
-    if native_enabled
-        && !native_arguments
-        && let Some(candidates) = environment.native.complete(
+    let live_enabled = !site.command
+        && !site.redirect
+        && options.include_command_arguments
+        && options.include_native
+        && environment.native_allowed
+        && local
+        && command_analysis.context.mode == shucked_command::ExecutionMode::InteractiveSession
+        && command_site.is_some_and(|(facts, _)| {
+            facts.environment_uncertain.is_none()
+                && facts.effective_words.iter().all(|word| word.text.is_some())
+        });
+    let mut native_arguments = false;
+    tracing::debug!(
+        native_enabled,
+        live_enabled,
+        local,
+        grammar_allowed,
+        allowed = environment.native_allowed,
+        command_position = site.command,
+        redirect = site.redirect,
+        "completion provider eligibility"
+    );
+    for live in [true, false] {
+        if !(if live { live_enabled } else { native_enabled }) {
+            continue;
+        }
+        let (candidates, pending) = background::candidates(
             environment,
+            snapshot,
+            client,
             words,
             &site.prefix,
-            &crate::handlers::commands::cwd(snapshot),
-            cancellation,
+            &site.suffix,
+            position,
+            live,
             false,
-            crate::handlers::commands::dialect(snapshot),
-        )
-    {
-        native_arguments = !candidates.is_empty();
-        incomplete |= candidates.len() >= 2000;
-        for candidate in candidates.iter() {
-            if candidate.text.starts_with(&site.prefix)
-                && !site
-                    .words
-                    .iter()
-                    .skip(1)
-                    .any(|word| word == &candidate.text)
-                && seen.insert(candidate.text.clone())
-            {
-                items.push(item(
-                    &candidate.text,
-                    if candidate.text.starts_with('-') {
-                        types::CompletionItemKind::FIELD
+        );
+        incomplete |= pending;
+        if let Some(candidates) = candidates {
+            incomplete |= candidates.len() >= 2000;
+            for candidate in candidates.iter() {
+                if candidate.text.starts_with(&site.prefix) && seen.insert(candidate.text.clone()) {
+                    native_arguments = true;
+                    let detail = if candidate.description.is_empty() {
+                        candidate.provider.clone()
+                    } else if candidate.provider.is_empty() {
+                        candidate.description.clone()
                     } else {
-                        types::CompletionItemKind::VALUE
-                    },
-                    if candidate.description.is_empty() {
-                        "Native completion"
-                    } else {
-                        &candidate.description
-                    },
-                    site.insert(&candidate.text),
-                    range,
-                    1,
-                ));
+                        format!("{} · {}", candidate.description, candidate.provider)
+                    };
+                    let kind = candidate.kind.unwrap_or_else(|| {
+                        if candidate.text.starts_with('-') {
+                            types::CompletionItemKind::FIELD
+                        } else if candidate.text.ends_with('/') {
+                            types::CompletionItemKind::FOLDER
+                        } else {
+                            types::CompletionItemKind::VALUE
+                        }
+                    });
+                    let mut completed = item(
+                        &candidate.text,
+                        kind,
+                        &detail,
+                        site.insert(&candidate.text),
+                        range,
+                        if live { 0 } else { 1 },
+                    );
+                    if !candidate.no_space
+                        && !candidate.text.ends_with(['/', '='])
+                        && site.quote == Quote::None
+                    {
+                        completed.commit_characters = Some(vec![" ".into()]);
+                    }
+                    items.push(completed);
+                    if candidate.text == site.prefix && native_enabled {
+                        background::prewarm_next(
+                            environment,
+                            snapshot,
+                            client,
+                            words,
+                            &site.prefix,
+                            position,
+                        );
+                    }
+                }
+            }
+            if native_arguments {
+                break;
             }
         }
     }
-
-    if !site.command
-        && !site.redirect
+    if site.command
+        && environment.native_allowed
+        && local
         && options.include_command_arguments
-        && !native_arguments
-        && grammar_allowed
-        && !arguments.after_separator
-        && !arguments.expecting_value
+        && command_names(&command_analysis.context, &command_analysis.environment)
+            .contains(&site.prefix)
     {
-        if site.prefix.starts_with('-') {
-            for flag in arguments.flags {
-                if flag.starts_with(&site.prefix) && seen.insert(flag.to_owned()) {
-                    items.push(item(
-                        flag,
-                        types::CompletionItemKind::FIELD,
-                        specs::description(flag),
-                        site.insert(flag),
-                        range,
-                        2,
-                    ));
-                }
-            }
-        } else {
-            for command in arguments.subcommands {
-                if command.starts_with(&site.prefix) && seen.insert(command.to_owned()) {
-                    items.push(item(
-                        command,
-                        types::CompletionItemKind::ENUM_MEMBER,
-                        "Subcommand",
-                        site.insert(command),
-                        range,
-                        2,
-                    ));
-                }
-            }
-        }
+        background::prewarm_next(environment, snapshot, client, words, &site.prefix, position);
     }
     if options.include_paths
         && local
         && !native_arguments
         && (!site.command || site.prefix.contains('/') || site.prefix.starts_with('~'))
         && (!site.prefix.starts_with('-')
-            || arguments.after_separator
-            || arguments.expecting_value
+            || words.iter().any(|word| word == "--")
+            || site.prefix.contains('=')
             || site.redirect)
     {
+        // Complete just the value locally while preserving the complete option for providers.
+        let mut path_site = site.clone();
+        if !site.redirect
+            && site.option.is_some()
+            && let Some((name, value)) = site.prefix.split_once('=')
+        {
+            path_site.prefix = value.to_owned();
+            path_site.range.start += name.len() + 1;
+            path_site.option = None;
+        }
         incomplete |= paths(
             items,
-            site,
+            &path_site,
             snapshot,
             analysis,
             offset,
             environment,
-            cancellation,
+            Some(background::notice(snapshot, client, position)),
         );
     }
+
     incomplete
 }
 
@@ -326,7 +322,7 @@ fn paths(
     analysis: &DocumentAnalysis,
     offset: usize,
     environment: &Environment,
-    cancellation: &RequestCancellationToken,
+    notice: Option<service::Notice>,
 ) -> bool {
     let (parent, prefix) = site
         .prefix
@@ -371,7 +367,7 @@ fn paths(
     if prefix.contains(['$', '`']) && expands_variables {
         return false;
     }
-    let listing = environment.directory(&directory, cancellation);
+    let listing = environment.directory_cached(&directory, notice);
     let directories_only = !site.redirect
         && site
             .words
@@ -385,7 +381,7 @@ fn paths(
     let end = site.range.end - usize::from(site.closed_quote);
     let range = self::range(snapshot, analysis, start..end);
     for entry in &listing.entries {
-        if cancellation.is_cancelled() {
+        if snapshot.analysis_cancellation().is_cancelled() {
             return true;
         }
         if !entry.name.starts_with(prefix)

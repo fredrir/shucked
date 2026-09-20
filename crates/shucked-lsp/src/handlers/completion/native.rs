@@ -3,36 +3,30 @@ pub(super) mod assets;
 #[path = "native_shell.rs"]
 mod shell;
 
-use std::collections::{BTreeSet, VecDeque};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use super::environment::Environment;
+use super::native_zsh::{Candidate, NativeZsh};
+use crate::session::RequestCancellationToken;
+use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::environment::Environment;
-use super::native_process::capture;
-use super::native_zsh::{Candidate, NativeZsh};
-use crate::session::RequestCancellationToken;
-
-const TTL: Duration = Duration::from_secs(60);
-
 #[derive(Default)]
 pub(super) struct Native {
-    cache: Mutex<VecDeque<Cached>>,
-    running: Mutex<()>,
     zsh: Option<NativeZsh>,
     bash: Option<shell::ManagedShell>,
     fish: Option<shell::ManagedShell>,
-    generation: AtomicU64,
+    registry: Mutex<std::collections::BTreeMap<String, Vec<Registration>>>,
+    installed: Mutex<std::collections::VecDeque<Installed>>,
 }
 
-struct Cached {
-    executable: PathBuf,
-    arguments: Vec<&'static str>,
-    directory: PathBuf,
-    execution_path: Option<std::ffi::OsString>,
-    created: Instant,
-    result: Option<Arc<Vec<Candidate>>>,
+#[derive(Clone, serde::Deserialize)]
+struct Registration {
+    engine: String,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    path: std::path::PathBuf,
 }
 
 impl Native {
@@ -41,16 +35,24 @@ impl Native {
             zsh: NativeZsh::detect(),
             bash: shell::ManagedShell::detect("bash"),
             fish: shell::ManagedShell::detect("fish"),
-            ..Self::default()
+            registry: Mutex::new(load_registry()),
+            installed: Mutex::default(),
         }
     }
 
     pub(super) fn invalidate(&self) {
-        self.generation.fetch_add(1, Ordering::AcqRel);
-        self.cache
+        for index in self
+            .installed
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+            .iter_mut()
+        {
+            index.created = Instant::now() - Duration::from_secs(3);
+        }
+        *self
+            .registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = load_registry();
         for shell in [&self.bash, &self.fish].into_iter().flatten() {
             shell.invalidate();
         }
@@ -60,6 +62,7 @@ impl Native {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(super) fn complete(
         &self,
         environment: &Environment,
@@ -70,363 +73,341 @@ impl Native {
         personal: bool,
         dialect: &str,
     ) -> Option<Arc<Vec<Candidate>>> {
+        self.complete_at(
+            environment,
+            words,
+            prefix,
+            directory,
+            cancellation,
+            personal,
+            dialect,
+            "",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn complete_at(
+        &self,
+        environment: &Environment,
+        words: &[String],
+        prefix: &str,
+        directory: &Path,
+        cancellation: &RequestCancellationToken,
+        personal: bool,
+        dialect: &str,
+        suffix: &str,
+    ) -> Option<Arc<Vec<Candidate>>> {
+        tracing::debug!(
+            word_count = words.len(),
+            prefix_bytes = prefix.len(),
+            suffix_bytes = suffix.len(),
+            "native completion dispatch"
+        );
         let execution_path = environment.execution_path();
         let execution_path = execution_path.as_deref();
         let command = words.first()?;
-        let name = command.rsplit('/').next()?;
-        let executable = environment.executable_path(command, directory);
+        let primary = assets::primary_word(command);
+        let name = Path::new(&primary).file_name()?.to_str()?;
         let mut bound_words = words.to_vec();
-        if let Some(executable) = &executable {
+        if let Some(executable) = environment.executable_path(command, directory) {
             bound_words[0] = executable.to_string_lossy().into_owned();
         }
-        let words = &bound_words;
         if personal
             && dialect == "zsh"
             && let Some(zsh) = &self.zsh
-            && let Some(entries) = zsh.complete(
-                words,
+        {
+            return zsh.complete_at(
+                &bound_words,
                 prefix,
+                suffix,
                 directory,
                 1500,
                 true,
                 cancellation,
                 execution_path,
-            )
-            && !entries.is_empty()
-        {
-            return Some(entries);
+            );
         }
-        if let Some(executable) = &executable
-            && let Some(queries) = package_queries(name, words, prefix)
-        {
-            let mut result = Vec::new();
-            for arguments in queries {
-                let entries = self.query(
-                    executable,
-                    &arguments,
-                    directory,
-                    false,
-                    cancellation,
-                    execution_path,
-                )?;
-                result.extend(entries.iter().cloned());
-            }
-            result.sort_by(|a, b| a.text.cmp(&b.text));
-            result.dedup_by(|a, b| a.text == b.text);
-            return Some(Arc::new(result));
-        }
-        // Only known read-only help interfaces may be invoked. Never forward the
-        // edited command's arguments to an executable.
-        if prefix.starts_with('-')
-            && !words.iter().any(|word| word == "--")
-            && matches!(
-                name,
-                "ls" | "gls" | "eza" | "exa" | "rg" | "fd" | "fdfind" | "bat" | "batcat"
-            )
-            && let Some(executable) = &executable
-            && let Some(entries) = self.query(
-                executable,
-                &["--help"],
-                directory,
-                true,
-                cancellation,
-                execution_path,
-            )
-            && !entries.is_empty()
-        {
-            return Some(entries);
-        }
-        let entries = match dialect {
-            "fish" => {
-                self.fish
-                    .as_ref()?
-                    .complete(words, prefix, directory, cancellation, execution_path)
-            }
-            "bash" | "sh" => {
-                self.bash
-                    .as_ref()?
-                    .complete(words, prefix, directory, cancellation, execution_path)
-            }
-            _ => self.zsh.as_ref()?.complete(
-                words,
-                prefix,
-                directory,
-                1200,
-                false,
-                cancellation,
-                execution_path,
-            ),
-        }?;
-        let filtered = if let Some(root) = assets::root() {
-            filter_private_candidates(
-                &root,
-                environment,
-                directory,
-                dialect,
-                wrapper_command_position(words),
-                &entries,
-            )
-        } else {
-            entries.as_ref().clone()
-        };
-        (!filtered.is_empty()).then(|| Arc::new(filtered))
-    }
-
-    fn query(
-        &self,
-        executable: &Path,
-        arguments: &[&'static str],
-        directory: &Path,
-        help: bool,
-        cancellation: &RequestCancellationToken,
-        execution_path: Option<&std::ffi::OsStr>,
-    ) -> Option<Arc<Vec<Candidate>>> {
-        {
-            let cache = self
-                .cache
+        let mut providers = Vec::new();
+        // Installed definitions track the selected host's tool versions. Registry
+        // registrations provide the always-available bundled fallback.
+        providers.extend(self.installed_providers(name, execution_path));
+        let registry_count = {
+            let registry = self
+                .registry
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(entry) = cache.iter().find(|entry| {
-                entry.executable == executable
-                    && entry.arguments == arguments
-                    && entry.directory == directory
-                    && entry.execution_path.as_deref() == execution_path
-                    && entry.created.elapsed() < TTL
-            }) {
-                return entry.result.clone();
+            if let Some(registrations) = registry.get(name) {
+                providers.extend(registrations.iter().cloned());
+            }
+            registry.len()
+        };
+        tracing::debug!(
+            provider_count = providers.len(),
+            registry_commands = registry_count,
+            "registered completion providers"
+        );
+        let mut engines = std::collections::BTreeSet::new();
+        for registration in providers {
+            if cancellation.is_cancelled() {
+                return None;
+            }
+            if !engines.insert(registration.engine.clone()) {
+                continue;
+            }
+            tracing::debug!(
+                engine = registration.engine.as_str(),
+                source = registration.source.as_str(),
+                "selected completion provider"
+            );
+            let run = |suffix: &str| match registration.engine.as_str() {
+                "zsh" => self.zsh.as_ref().and_then(|shell| {
+                    shell.complete_at(
+                        &bound_words,
+                        prefix,
+                        suffix,
+                        directory,
+                        1500,
+                        false,
+                        cancellation,
+                        execution_path,
+                    )
+                }),
+                "bash" => self.bash.as_ref().and_then(|shell| {
+                    shell.complete_at(
+                        &bound_words,
+                        prefix,
+                        suffix,
+                        directory,
+                        cancellation,
+                        execution_path,
+                    )
+                }),
+                "fish" => self.fish.as_ref().and_then(|shell| {
+                    shell.complete_at(
+                        &bound_words,
+                        prefix,
+                        suffix,
+                        directory,
+                        cancellation,
+                        execution_path,
+                    )
+                }),
+                _ => None,
+            };
+            let mut entries = run(suffix);
+            if !suffix.is_empty() && entries.as_ref().is_some_and(|items| items.is_empty()) {
+                // The editor replaces the entire token. An unmatched suffix must
+                // not hide otherwise valid prefix candidates.
+                entries = run("");
+            }
+            let Some(entries) = entries else {
+                tracing::debug!(
+                    engine = registration.engine.as_str(),
+                    "completion provider unavailable or failed"
+                );
+                continue;
+            };
+            let mut filtered = if let Some(root) = assets::root() {
+                filter_private_candidates(
+                    &root,
+                    environment,
+                    directory,
+                    dialect,
+                    wrapper_command_position(words),
+                    &entries,
+                )
+            } else {
+                entries.as_ref().clone()
+            };
+            for candidate in &mut filtered {
+                candidate.provider = if registration.source == registration.engine
+                    || registration.source.is_empty()
+                {
+                    registration.engine.clone()
+                } else {
+                    format!("{} · {}", registration.source, registration.engine)
+                };
+                candidate.no_space |= candidate.text.ends_with(['/', '=']);
+            }
+            // Empty is a successful contextual answer, not permission to mix a
+            // second engine's grammar into the same command position.
+            tracing::debug!(
+                engine = registration.engine.as_str(),
+                candidates = filtered.len(),
+                "native completion result"
+            );
+            return Some(Arc::new(filtered));
+        }
+        None
+    }
+
+    pub(super) fn watch_directories(
+        &self,
+        execution_path: Option<&std::ffi::OsStr>,
+    ) -> Vec<std::path::PathBuf> {
+        let mut paths = std::collections::BTreeSet::new();
+        if let Some(root) = assets::root() {
+            let packs = root.join("packs");
+            paths.insert(packs.clone());
+            paths.insert(packs.join("registry.json"));
+            let registry = self
+                .registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for registration in registry.values().flatten() {
+                if let Some(parent) = registration.path.parent() {
+                    paths.insert(packs.join(parent));
+                }
             }
         }
-        let _running = self.running.try_lock().ok()?;
-        let generation = self.generation.load(Ordering::Acquire);
-        let mut command = std::process::Command::new(executable);
-        command
-            .args(arguments)
-            .current_dir(directory)
-            .env("LC_ALL", "C")
-            .env("NO_COLOR", "1")
-            .env("TERM", "dumb")
-            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
-            .env("HOMEBREW_NO_ANALYTICS", "1");
-        if let Some(path) = execution_path {
-            command.env("PATH", path);
+        let mut environments = self
+            .installed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|index| index.path.clone())
+            .collect::<Vec<_>>();
+        environments.push(execution_path.map(ToOwned::to_owned));
+        for path in environments {
+            for engine in ["zsh", "bash", "fish"] {
+                paths.extend(assets::completion_directories(path.as_deref(), engine));
+            }
         }
-        let result = capture(
-            &mut command,
-            Duration::from_millis(1500),
-            cancellation,
-            false,
-        )
-        .and_then(|output| String::from_utf8(output).ok())
-        .map(|output| {
-            Arc::new(if help {
-                help_candidates(&output)
-            } else {
-                package_candidates(&output)
-            })
-        });
-        if cancellation.is_cancelled() {
-            return None;
-        }
+        paths.into_iter().collect()
+    }
+
+    fn installed_providers(
+        &self,
+        name: &str,
+        execution_path: Option<&std::ffi::OsStr>,
+    ) -> Vec<Registration> {
         let mut cache = self
-            .cache
+            .installed
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if generation != self.generation.load(Ordering::Acquire) {
-            return result;
+        if let Some(index) = cache.iter().find(|index| {
+            index.path.as_deref() == execution_path
+                && index.created.elapsed() < Duration::from_secs(2)
+        }) {
+            return index.commands.get(name).cloned().unwrap_or_default();
         }
-        cache.retain(|entry| entry.created.elapsed() < TTL);
-        cache.push_back(Cached {
-            executable: executable.to_owned(),
-            arguments: arguments.to_vec(),
-            directory: directory.to_owned(),
-            execution_path: execution_path.map(ToOwned::to_owned),
+        let mut commands: std::collections::BTreeMap<String, Vec<Registration>> =
+            std::collections::BTreeMap::new();
+        let mut fingerprint = std::collections::hash_map::DefaultHasher::new();
+        for engine in ["zsh", "bash", "fish"] {
+            for directory in assets::completion_directories(execution_path, engine) {
+                directory.hash(&mut fingerprint);
+                let Ok(entries) = std::fs::read_dir(&directory) else {
+                    continue;
+                };
+                let mut paths = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .collect::<Vec<_>>();
+                paths.sort();
+                for path in paths {
+                    let Ok(metadata) = path.metadata() else {
+                        continue;
+                    };
+                    if !metadata.is_file() || metadata.len() > 1024 * 1024 {
+                        continue;
+                    }
+                    path.hash(&mut fingerprint);
+                    metadata.len().hash(&mut fingerprint);
+                    metadata.modified().ok().hash(&mut fingerprint);
+                    let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+                        continue;
+                    };
+                    let registered = if engine == "zsh" {
+                        use std::io::BufRead;
+                        let Ok(file) = std::fs::File::open(&path) else {
+                            continue;
+                        };
+                        let mut line = String::new();
+                        if std::io::BufReader::new(file).read_line(&mut line).is_err() {
+                            continue;
+                        }
+                        let Some(header) = line.strip_prefix("#compdef ") else {
+                            continue;
+                        };
+                        header
+                            .split_whitespace()
+                            .take_while(|word| !word.starts_with('#'))
+                            .filter(|word| !word.starts_with('-'))
+                            .map(|word| {
+                                word.split_once('=')
+                                    .map_or(word, |(name, _)| name)
+                                    .to_owned()
+                            })
+                            .collect::<Vec<_>>()
+                    } else if engine == "fish" {
+                        filename
+                            .strip_suffix(".fish")
+                            .map(|name| vec![name.to_owned()])
+                            .unwrap_or_default()
+                    } else {
+                        vec![filename.to_owned()]
+                    };
+                    for command in registered {
+                        let registrations = commands.entry(command).or_default();
+                        if !registrations.iter().any(|entry| entry.engine == engine) {
+                            registrations.push(Registration {
+                                engine: engine.into(),
+                                source: "installed".into(),
+                                path: path.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        let fingerprint = fingerprint.finish();
+        if cache.iter().any(|index| {
+            index.path.as_deref() == execution_path && index.fingerprint != fingerprint
+        }) {
+            for shell in [&self.bash, &self.fish].into_iter().flatten() {
+                shell.invalidate();
+            }
+            if let Some(shell) = &self.zsh {
+                shell.invalidate();
+            }
+        }
+        cache.retain(|index| index.path.as_deref() != execution_path);
+        let result = commands.get(name).cloned().unwrap_or_default();
+        cache.push_back(Installed {
+            path: execution_path.map(ToOwned::to_owned),
             created: Instant::now(),
-            result: result.clone(),
+            fingerprint,
+            commands,
         });
-        while cache.len() > 16
-            || cache
-                .iter()
-                .filter_map(|entry| entry.result.as_ref())
-                .map(|entries| entries.len())
-                .sum::<usize>()
-                > 100_000
-        {
+        while cache.len() > 16 {
             cache.pop_front();
         }
         result
     }
 }
 
-// Query package databases only. No document text is used as an executable argument.
-fn package_queries(name: &str, words: &[String], prefix: &str) -> Option<Vec<Vec<&'static str>>> {
-    if prefix.starts_with(['-', '/', '.', '~']) {
-        return None;
-    }
-    match name {
-        "brew" => {
-            let subcommand = words.get(1)?.as_str();
-            if words
-                .iter()
-                .any(|word| matches!(word.as_str(), "--prefix" | "--cache" | "--repository"))
-            {
-                return None;
-            }
-            let installed = match subcommand {
-                "install" | "info" | "home" => false,
-                "uninstall" | "remove" | "rm" | "reinstall" | "upgrade" | "pin" | "unpin"
-                | "link" | "unlink" => true,
-                _ => return None,
-            };
-            let formula = !words.iter().any(|word| word == "--cask");
-            let cask = !words.iter().any(|word| word == "--formula")
-                && !matches!(subcommand, "pin" | "unpin" | "link" | "unlink");
-            let mut queries = Vec::new();
-            if formula {
-                queries.push(if installed {
-                    vec!["list", "--formula", "-1"]
-                } else {
-                    vec!["formulae"]
-                });
-            }
-            if cask {
-                queries.push(if installed {
-                    vec!["list", "--cask", "-1"]
-                } else {
-                    vec!["casks"]
-                });
-            }
-            Some(queries)
-        }
-        "pacman" => {
-            if words.iter().any(|word| {
-                matches!(
-                    word.as_str(),
-                    "--root" | "--dbpath" | "--config" | "--sysroot" | "-r" | "-b"
-                ) || word.starts_with("--root=")
-                    || word.starts_with("--dbpath=")
-                    || word.starts_with("--config=")
-                    || word.starts_with("--sysroot=")
-            }) {
-                return None;
-            }
-            let flags: Vec<_> = words
-                .iter()
-                .skip(1)
-                .take_while(|word| word.as_str() != "--")
-                .filter(|word| word.starts_with('-'))
-                .collect();
-            let has = |short: char, long: &str| {
-                flags.iter().any(|word| {
-                    word.as_str() == long || (!word.starts_with("--") && word.contains(short))
-                })
-            };
-            if has('o', "--owns")
-                || has('p', "--file")
-                || has('g', "--groups")
-                || (has('S', "--sync") && has('l', "--list"))
-            {
-                return None;
-            }
-            for word in flags {
-                if word == "--sync"
-                    || (word.starts_with('-') && !word.starts_with("--") && word.contains('S'))
-                {
-                    return Some(vec![vec!["-Slq"]]);
-                }
-                if matches!(word.as_str(), "--remove" | "--query")
-                    || (word.starts_with('-')
-                        && !word.starts_with("--")
-                        && (word.contains('R') || word.contains('Q')))
-                {
-                    return Some(vec![vec!["-Qq"]]);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
+struct Installed {
+    path: Option<std::ffi::OsString>,
+    created: Instant,
+    fingerprint: u64,
+    commands: std::collections::BTreeMap<String, Vec<Registration>>,
 }
 
-fn package_candidates(output: &str) -> Vec<Candidate> {
-    output
-        .lines()
-        .map(str::trim)
-        .filter(|line| {
-            !line.is_empty()
-                && line.len() < 512
-                && line
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"@+._/-".contains(&byte))
+fn load_registry() -> std::collections::BTreeMap<String, Vec<Registration>> {
+    assets::root()
+        .and_then(|root| std::fs::read(root.join("packs/registry.json")).ok())
+        .and_then(|bytes| serde_json::from_slice::<Registry>(&bytes).ok())
+        .map(|registry| registry.commands)
+        .unwrap_or_else(|| {
+            tracing::debug!("completion pack registry unavailable");
+            Default::default()
         })
-        .take(50_000)
-        .map(|text| Candidate {
-            text: text.to_owned(),
-            description: "Package on workspace host".to_owned(),
-        })
-        .collect()
 }
 
-fn help_candidates(output: &str) -> Vec<Candidate> {
-    let mut result: Vec<Candidate> = Vec::new();
-    let mut pending: Vec<usize> = Vec::new();
-    let mut seen = BTreeSet::new();
-    let mut flag_indent = 0;
-    'lines: for line in output.lines() {
-        let indent = line.len() - line.trim_start().len();
-        let line = line.trim_start();
-        if !line.starts_with('-') {
-            if !line.is_empty() && !pending.is_empty() {
-                if indent > flag_indent {
-                    let description: String = line
-                        .chars()
-                        .filter(|ch| !ch.is_control())
-                        .take(4096)
-                        .collect();
-                    for index in pending.drain(..) {
-                        result[index].description.clone_from(&description);
-                    }
-                } else {
-                    pending.clear();
-                }
-            }
-            continue;
-        }
-        pending.clear();
-        flag_indent = indent;
-        let boundary = line
-            .find("  ")
-            .or_else(|| line.find('\t'))
-            .unwrap_or(line.len());
-        let (flags, description) = line.split_at(boundary);
-        let description = description.trim();
-        for token in flags.split([',', ' ', '|']) {
-            let flag = token.split(['=', '[', '<']).next().unwrap_or("");
-            if flag.len() < 2
-                || !flag.starts_with('-')
-                || !flag
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-?.".contains(&byte))
-                || !seen.insert(flag.to_owned())
-            {
-                continue;
-            }
-            if result.len() >= 2000 {
-                break 'lines;
-            }
-            if description.is_empty() {
-                pending.push(result.len());
-            }
-            result.push(Candidate {
-                text: flag.to_owned(),
-                description: description
-                    .chars()
-                    .filter(|ch| !ch.is_control())
-                    .take(4096)
-                    .collect(),
-            });
-        }
-    }
-    result
+#[derive(serde::Deserialize)]
+struct Registry {
+    commands: std::collections::BTreeMap<String, Vec<Registration>>,
 }
 
 fn wrapper_command_position(words: &[String]) -> bool {

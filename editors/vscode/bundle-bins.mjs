@@ -62,12 +62,10 @@ const providerRuntime = path.join(repoRoot, "target", "provider-runtime");
 const providerDestination = path.join(binDir, "providers");
 const packManifest = JSON.parse(fs.readFileSync(path.join(providerSource, "manifest.json"), "utf8"));
 const crypto = await import("node:crypto");
-for (const source of packManifest.sources) {
-  for (const file of source.files) {
-    const bytes = fs.readFileSync(path.join(providerSource, file.path));
-    if (crypto.createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
-      throw new Error(`Provider pack checksum mismatch: ${file.path}`);
-    }
+for (const file of [...packManifest.sources.flatMap(source => source.files), ...(packManifest.generated ?? [])]) {
+  const bytes = fs.readFileSync(path.join(providerSource, file.path));
+  if (crypto.createHash("sha256").update(bytes).digest("hex") !== file.sha256) {
+    throw new Error(`Provider pack checksum mismatch: ${file.path}`);
   }
 }
 if (!fs.existsSync(path.join(providerRuntime, "manifest.json"))) {

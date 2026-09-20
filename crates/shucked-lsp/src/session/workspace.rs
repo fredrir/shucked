@@ -34,29 +34,31 @@ impl Workspaces {
                     })
                     .collect()
             } else {
-                let uri = default_workspace_uri(root_uri, root_path)?;
-                let options = client_options_for_url(&uri);
-                vec![Workspace::default(uri).with_options(options)]
+                default_workspace_uri(root_uri, root_path)
+                    .into_iter()
+                    .map(|uri| {
+                        let options = client_options_for_url(&uri);
+                        Workspace::default(uri).with_options(options)
+                    })
+                    .collect()
             };
 
         Ok(Self(workspaces))
     }
 }
 
-fn default_workspace_uri(root_uri: Option<Url>, root_path: Option<String>) -> crate::Result<Url> {
+fn default_workspace_uri(root_uri: Option<Url>, root_path: Option<String>) -> Option<Url> {
     if let Some(root_uri) = root_uri {
-        return Ok(root_uri);
+        return Some(root_uri);
     }
 
     if let Some(root_path) = root_path
         && let Ok(root_uri) = Url::from_file_path(PathBuf::from(root_path))
     {
-        return Ok(root_uri);
+        return Some(root_uri);
     }
 
-    let current_dir = std::env::current_dir()?;
-    Url::from_file_path(current_dir)
-        .map_err(|()| anyhow::anyhow!("failed to create URL from current directory"))
+    None
 }
 
 impl Deref for Workspaces {
@@ -139,3 +141,7 @@ mod tests {
         assert_eq!(workspaces[0].url(), &expected_uri);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/session/workspace.rs"]
+mod standalone_tests;

@@ -208,20 +208,24 @@ impl CommandService {
         }
         environment
     }
-    pub fn analysis(&self, snapshot: &DocumentSnapshot) -> Arc<CommandAnalysis> {
+    pub(crate) fn cached_analysis(
+        &self,
+        snapshot: &DocumentSnapshot,
+    ) -> Option<Arc<CommandAnalysis>> {
         let key = analysis_key(snapshot);
-        {
-            let cache = self
-                .cache
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some((_, _, result)) = cache
-                .iter()
-                .find(|(k, created, _)| k == &key && created.elapsed() < Duration::from_secs(30))
-            {
-                return result.clone();
-            }
+        self.cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find(|(k, created, _)| k == &key && created.elapsed() < Duration::from_secs(30))
+            .map(|(_, _, result)| result.clone())
+    }
+
+    pub fn analysis(&self, snapshot: &DocumentSnapshot) -> Arc<CommandAnalysis> {
+        if let Some(result) = self.cached_analysis(snapshot) {
+            return result;
         }
+        let key = analysis_key(snapshot);
         let session = snapshot
             .client_settings()
             .environment()

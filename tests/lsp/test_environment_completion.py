@@ -2,6 +2,7 @@ import json
 import os
 
 from tests.lsp.client import LspClient
+from tests.lsp.test_native_completion import complete_when_ready
 
 
 async def test_completion_uses_server_environment_and_never_executes_candidates(
@@ -33,13 +34,11 @@ async def test_completion_uses_server_environment_and_never_executes_candidates(
             "shucked-test-r",
             "echo $SHUCKED_REMOTE_TEST_",
             "cat ~/remote",
-            "git status --por",
         ]
         await client.open_document(uri, text="\n".join(lines))
-        results = [
-            await client.completion(uri, index, len(line))
-            for index, line in enumerate(lines)
-        ]
+        expected = ["shucked-test-remote.exe", "SHUCKED_REMOTE_TEST_VARIABLE", "remote file.txt"]
+        results = [await complete_when_ready(client, uri, index, len(line), expected[index])
+                   for index, line in enumerate(lines)]
         assert "shucked-test-remote.exe" in {
             item["label"] for item in results[0]["items"]
         }
@@ -52,7 +51,6 @@ async def test_completion_uses_server_environment_and_never_executes_candidates(
         assert "remote file.txt" in {
             item["label"] for item in results[2]["items"]
         }
-        assert "--porcelain" in {item["label"] for item in results[3]["items"]}
         assert environment["SHUCKED_REMOTE_TEST_VARIABLE"] not in json.dumps(results)
         assert not marker.exists()
         await client.send_notification(

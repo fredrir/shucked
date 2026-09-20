@@ -6,19 +6,22 @@ use std::time::{Duration, Instant};
 
 use crate::session::RequestCancellationToken;
 
-const TTL: Duration = Duration::from_secs(30);
+const TTL: Duration = Duration::from_secs(2);
 const MAX_OUTPUT: usize = 1024 * 1024;
 
-#[derive(Clone, Debug)]
-pub(super) struct Candidate {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Candidate {
     pub text: String,
     pub description: String,
+    pub kind: Option<lsp_types::CompletionItemKind>,
+    pub no_space: bool,
+    pub provider: String,
 }
 
 pub(super) struct NativeZsh {
     shell: PathBuf,
     cache: Mutex<VecDeque<Cached>>,
-    running: Mutex<()>,
+    worker: super::native_process::Persistent,
     generation: AtomicU64,
     #[cfg(test)]
     zdotdir: Option<PathBuf>,
@@ -27,6 +30,7 @@ pub(super) struct NativeZsh {
 struct Cached {
     directory: PathBuf,
     buffer: String,
+    cursor: usize,
     personal: bool,
     execution_path: Option<std::ffi::OsString>,
     created: Instant,
@@ -39,7 +43,7 @@ impl NativeZsh {
         Some(Self {
             shell,
             cache: Mutex::default(),
-            running: Mutex::default(),
+            worker: super::native_process::Persistent::default(),
             generation: AtomicU64::new(0),
             #[cfg(test)]
             zdotdir: None,
@@ -48,6 +52,7 @@ impl NativeZsh {
 
     pub(super) fn invalidate(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
+        self.worker.invalidate();
         self.cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -55,6 +60,7 @@ impl NativeZsh {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(super) fn complete(
         &self,
         words: &[String],
@@ -65,9 +71,32 @@ impl NativeZsh {
         cancellation: &RequestCancellationToken,
         execution_path: Option<&std::ffi::OsStr>,
     ) -> Option<Arc<Vec<Candidate>>> {
-        // A single option request supplies all flags, so further typing uses the cache.
-        let query_prefix = if prefix.starts_with('-') { "-" } else { prefix };
-        let buffer = words
+        self.complete_at(
+            words,
+            prefix,
+            "",
+            directory,
+            timeout_ms,
+            personal,
+            cancellation,
+            execution_path,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn complete_at(
+        &self,
+        words: &[String],
+        prefix: &str,
+        suffix: &str,
+        directory: &Path,
+        timeout_ms: usize,
+        personal: bool,
+        cancellation: &RequestCancellationToken,
+        execution_path: Option<&std::ffi::OsStr>,
+    ) -> Option<Arc<Vec<Candidate>>> {
+        let current = format!("{prefix}{suffix}");
+        let mut parts = words
             .iter()
             .enumerate()
             .map(|(index, word)| {
@@ -77,9 +106,19 @@ impl NativeZsh {
                     quote_word(word)
                 }
             })
-            .chain(std::iter::once(quote_word(query_prefix)))
-            .collect::<Vec<_>>()
-            .join(" ");
+            .collect::<Vec<_>>();
+        parts.push(quote_word(&current));
+        let buffer = parts.join(" ");
+        let tail = if quote_word(&current).starts_with('\'') {
+            suffix.replace('\'', "'\\''").chars().count() + 1
+        } else {
+            suffix.chars().count()
+        };
+        let cursor = if suffix.is_empty() {
+            buffer.chars().count()
+        } else {
+            buffer.chars().count().saturating_sub(tail)
+        };
         if buffer.len() > 8192 || buffer.contains('\0') || cancellation.is_cancelled() {
             return None;
         }
@@ -91,6 +130,7 @@ impl NativeZsh {
             if let Some(entry) = cache.iter().find(|entry| {
                 entry.directory == directory
                     && entry.buffer == buffer
+                    && entry.cursor == cursor
                     && entry.personal == personal
                     && entry.execution_path.as_deref() == execution_path
                     && entry.created.elapsed() < TTL
@@ -98,11 +138,11 @@ impl NativeZsh {
                 return entry.result.clone();
             }
         }
-        let _running = self.running.try_lock().ok()?;
         let generation = self.generation.load(Ordering::Acquire);
         let result = self
             .run(
                 &buffer,
+                cursor,
                 directory,
                 Duration::from_millis(timeout_ms.clamp(100, 5000) as u64),
                 cancellation,
@@ -111,7 +151,7 @@ impl NativeZsh {
                 words.first().map(String::as_str),
             )
             .map(Arc::new);
-        if cancellation.is_cancelled() {
+        if cancellation.is_cancelled() || result.is_none() {
             return None;
         }
         let mut cache = self
@@ -123,6 +163,7 @@ impl NativeZsh {
             cache.push_back(Cached {
                 directory: directory.to_owned(),
                 buffer,
+                cursor,
                 personal,
                 execution_path: execution_path.map(ToOwned::to_owned),
                 created: Instant::now(),
@@ -139,6 +180,7 @@ impl NativeZsh {
     fn run(
         &self,
         buffer: &str,
+        cursor: usize,
         directory: &Path,
         timeout: Duration,
         cancellation: &RequestCancellationToken,
@@ -157,7 +199,6 @@ impl NativeZsh {
                 super::native::assets::shell_path(&self.shell),
             )
             .env("SHUCKED_NATIVE_SCRIPT", include_str!("zsh_worker.zsh"))
-            .env("SHUCKED_NATIVE_BUFFER", buffer)
             .env("SHUCKED_NATIVE_PERSONAL", if personal { "1" } else { "0" })
             .env("TERM", "dumb")
             .current_dir(directory);
@@ -179,8 +220,45 @@ impl NativeZsh {
         if let Some(zdotdir) = &self.zdotdir {
             command.env("ZDOTDIR", zdotdir);
         }
-        let output = super::native_process::capture(&mut command, timeout, cancellation, true)?;
-        parse_output(&output)
+        let installed = super::native::assets::completion_directories(execution_path, "zsh");
+        command.env(
+            "SHUCKED_COMPLETION_PATHS",
+            super::native::assets::joined_completion_paths(&installed),
+        );
+        let path = command
+            .get_envs()
+            .find(|(key, _)| *key == "PATH")
+            .and_then(|(_, value)| value.map(|value| value.to_string_lossy().into_owned()))
+            .or_else(|| execution_path.map(|value| value.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+        let key = format!(
+            "{:?}:{:?}:{personal}:{}:{:?}:{:?}",
+            self.shell,
+            execution_path,
+            self.generation.load(Ordering::Acquire),
+            super::native::assets::root(),
+            installed
+        );
+        let output = self.worker.request(
+            &mut command,
+            key,
+            &[
+                super::native::assets::shell_path(directory)
+                    .to_string_lossy()
+                    .into_owned(),
+                path,
+                buffer.to_owned(),
+                cursor.to_string(),
+            ],
+            timeout,
+            Duration::from_secs(5),
+            cancellation,
+        )?;
+        let mut result = parse_output(&output)?;
+        for candidate in &mut result {
+            candidate.provider = "zsh".into();
+        }
+        Some(result)
     }
 }
 
@@ -209,16 +287,29 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
     loop {
         match fields.next()? {
             b"E" => return Some(items),
-            kind @ (b"M" | b"B") => {
+            kind @ (b"M" | b"B" | b"C" | b"Q") => {
                 let raw_text = std::str::from_utf8(fields.next()?).ok()?;
                 let display = std::str::from_utf8(fields.next()?).ok()?;
+                let (candidate_kind, mut no_space) = if matches!(kind, b"C" | b"Q") {
+                    let candidate_kind = match fields.next()? {
+                        b"file" => Some(lsp_types::CompletionItemKind::FILE),
+                        b"directory" => Some(lsp_types::CompletionItemKind::FOLDER),
+                        _ => None,
+                    };
+                    (candidate_kind, fields.next()? == b"1")
+                } else {
+                    (None, false)
+                };
                 if raw_text.len() > 8192 {
                     continue;
                 }
-                let text = if kind == b"B" {
-                    let Some(text) = decode_bash_candidate(raw_text) else {
+                let text = if matches!(kind, b"B" | b"Q") {
+                    let Some((text, delimiter)) = decode_insertion_candidate(raw_text) else {
                         continue;
                     };
+                    if delimiter {
+                        no_space = false;
+                    }
                     std::borrow::Cow::Owned(text)
                 } else {
                     std::borrow::Cow::Borrowed(raw_text)
@@ -242,6 +333,8 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
                     .take(4096)
                     .collect::<String>();
                 if let Some(existing) = items.iter_mut().find(|item| item.text == text) {
+                    existing.no_space |= no_space;
+                    existing.kind = existing.kind.or(candidate_kind);
                     if existing.description.is_empty() {
                         existing.description = description;
                     }
@@ -249,6 +342,9 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
                     items.push(Candidate {
                         text: text.into_owned(),
                         description,
+                        kind: candidate_kind,
+                        no_space,
+                        provider: String::new(),
                     });
                 }
             }
@@ -260,6 +356,10 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
 /// Decode a callback's single shell-word insertion without evaluating it.
 /// Filename-mode callbacks bypass this: Readline would quote those raw names.
 pub(crate) fn decode_bash_candidate(candidate: &str) -> Option<String> {
+    decode_insertion_candidate(candidate).map(|(text, _)| text)
+}
+
+fn decode_insertion_candidate(candidate: &str) -> Option<(String, bool)> {
     const PREFIX: &str = "__shucked_completion__ ";
     let source = format!("{PREFIX}{candidate}");
     let parsed = shucked_parser::parser::Parser::new(&source).parse();
@@ -287,7 +387,8 @@ pub(crate) fn decode_bash_candidate(candidate: &str) -> Option<String> {
     {
         return None;
     }
-    shucked_ast::static_command_name_text(word, &source).map(|text| text.into_owned())
+    shucked_ast::static_command_name_text(word, &source)
+        .map(|text| (text.into_owned(), word.span.end.offset() < source.len()))
 }
 
 #[cfg(all(test, unix))]

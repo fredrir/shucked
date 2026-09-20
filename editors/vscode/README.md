@@ -37,10 +37,16 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Commands | Exact target `PATH`, applicable aliases/functions, and shell builtins |
 | Symbols | Document and sourced functions, variables, keywords, and shell options |
 | Paths | Selected launch directory; quoted/escaped names and supported home expansions |
-| Arguments | Bundled definitions plus bounded installed-tool queries |
-| Native engines | Managed Zsh, Bash, and Fish adapters; personal dotfiles are unnecessary |
+| Arguments | Installed and bundled upstream definitions; contextual subcommands, flags, and option values |
+| Native engines | Persistent Zsh, Bash, and Fish workers; prewarming and bounded background requests |
+| Oh My Zsh | Bundled completion functions, loaded automatically; no setup or separate toggle |
+| Automatic popup | Spaces, flags, paths, option values, pipes, redirections, and command boundaries |
+| First response | Local symbols and cached results when analysis is ready; cold analysis and providers run in the background |
+| Idle enrichment | Ready results refresh the current document version and cursor; no extra keystroke required |
+| Dismissal / navigation | Escape, edits, cursor changes, focus loss, and Up/Down/PageUp/PageDown stop idle refresh |
+| Provenance | Completion details identify the provider alongside available descriptions |
 | Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable |
-| Packages | Installed package tools and their available metadata; no package installation or database refresh |
+| Packages | Package names and other dynamic values come from the selected upstream completion definition |
 | Aliases | Preserve injected arguments and source ranges; standalone scripts do not inherit interactive aliases |
 | Missing commands | Debounced warning and invalid semantic classification when absence is established |
 | Uncertain context | Unknown; incomplete inventories and dynamic commands do not prove absence |
@@ -61,6 +67,16 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | `shucked.server.completion.useShellConfig` | Deprecated; attach a terminal instead |
 
 Managed completion workers bypass personal startup files. Creating a Shucked terminal starts a real shell with its normal trusted startup configuration. Attaching an existing terminal copies an attachment command for you to run at an idle prompt; it does not inject commands or modify dotfiles. Analysis never executes editor-buffer contents or follows sources by executing them.
+
+| Completion inspection | Action |
+|---|---|
+| Candidate source | Read the suggestion's details |
+| Response / provider timing | Set the **Shucked** output channel log level to **Trace**, then open **Shucked: Show Language Server Logs** |
+| Protocol traffic | Set `shucked.trace.server` to `verbose` |
+| Editor refresh boundary | VS Code requires closing and reopening the popup to request fresh items; a brief redraw is possible |
+| Custom navigation | Mouse-only selection and custom bindings may not stop refresh; VS Code exposes no public suggestion-selection event |
+
+Coverage follows installed or bundled completion definitions. A command without a suitable definition still receives applicable command, symbol, and path suggestions.
 
 History suggestions are separately opt-in for accepted session commands and history files. Attached sessions report their actual history path only when file reads are enabled, including custom `HISTFILE` and Fish namespaces. Entries stay in bounded memory caches; disabling history or disconnecting clears cached and displayed suggestions. Session collection requires an authenticated prompt confirmation.
 
@@ -164,6 +180,8 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Unit and hook tests | `npm test` |
 | Package host VSIX | `npm run vsix` |
 | Real editor smoke | `npm run test:extension-host` |
+| Automatic popup smoke | `SHUCKED_COMPLETION_UI_ONLY=1 npm run test:extension-host` |
+| Editor and native providers, without live terminals | `SHUCKED_COMPLETION_NATIVE_ONLY=1 npm run test:extension-host` |
 | Installed package smoke | `SHUCKED_TEST_VSIX=/absolute/path/package.vsix npm run test:extension-host` |
 
 ## Language server selection
