@@ -4,6 +4,7 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function eventually(description, operation, timeout = 20000) {
   const deadline = Date.now() + timeout;
@@ -48,6 +49,26 @@ exports.run = async function run() {
     const fish = await vscode.workspace.openTextDocument(fishUri); await vscode.window.showTextDocument(fish);
     assert.equal(fish.languageId, 'fish');
     await eventually('Fish function completion', async () => { const result = await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', fishUri, new vscode.Position(3, 7)); return result?.items?.some(item => (typeof item.label === 'string' ? item.label : item.label.label) === 'fish_fixture'); }); check('Fish registration and native document function completion');
+    // These script documents have no attached terminal or configured user completer.
+    // A subcommand-only option proves the installed LSP reaches its bundled provider.
+    execFileSync('git', ['init', '--quiet', root], { timeout: 5000, stdio: 'pipe' });
+    report.nativeFlags = {};
+    for (const dialect of ['bash', 'zsh', 'fish']) {
+      const nativeUri = vscode.Uri.file(path.join(root, `native-baseline.${dialect}`));
+      const command = 'git checkout --';
+      const expectedFlag = dialect === 'fish' ? '--track' : '--detach';
+      await vscode.workspace.fs.writeFile(nativeUri, Buffer.from(`#!/usr/bin/env ${dialect}\n${command}`));
+      const nativeDocument = await vscode.workspace.openTextDocument(nativeUri);
+      await vscode.window.showTextDocument(nativeDocument);
+      const candidate = await eventually(`${dialect} bundled subcommand flag completion`, async () => {
+        const result = await vscode.commands.executeCommand('vscode.executeCompletionItemProvider', nativeUri, new vscode.Position(1, command.length));
+        return result?.items?.find(item => (typeof item.label === 'string' ? item.label : item.label.label) === expectedFlag);
+      });
+      const inserted = typeof candidate.insertText === 'string' ? candidate.insertText : candidate.textEdit?.newText ?? expectedFlag;
+      assert.equal(inserted, expectedFlag, `${dialect} flag insertion must not turn a completion separator into a literal space`);
+      report.nativeFlags[dialect] = { label: typeof candidate.label === 'string' ? candidate.label : candidate.label.label, detail: candidate.detail, inserted };
+      check(`${dialect} bundled provider supplies git checkout flags without terminal configuration`);
+    }
     await vscode.window.showTextDocument(document);
     await vscode.workspace.getConfiguration('shucked').update('history.files', true, vscode.ConfigurationTarget.Global);
     const before = new Set(vscode.window.terminals);
@@ -79,6 +100,8 @@ exports.run = async function run() {
     assert.ok(await vscode.workspace.applyEdit(historyEdit));
     const editor = await vscode.window.showTextDocument(document); editor.selection = new vscode.Selection(0, historyPrefix.length, 0, historyPrefix.length);
     await eventually('custom history inline acceptance', async () => {
+      await vscode.commands.executeCommand('workbench.action.focusActiveEditorGroup');
+      await vscode.commands.executeCommand('hideSuggestWidget');
       await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger'); await delay(150);
       await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
       return document.getText() === 'printf shucked_history_fixture';
