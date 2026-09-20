@@ -86,6 +86,11 @@
         {
           "type": "toml",
           "path": "Cargo.toml",
+          "jsonpath": "$.workspace.dependencies['shucked-command'].version"
+        },
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
           "jsonpath": "$.workspace.dependencies['shucked-config'].version"
         },
         {
