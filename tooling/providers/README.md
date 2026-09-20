@@ -29,14 +29,14 @@
 | Platform | Current evidence | Release gate |
 |---|---|---|
 | macOS arm64 | Relocated private Zsh/Bash/Fish and 115 helper names pass hostile-startup tests with restricted PATH | Passed locally |
-| Linux GNU arm64 | Source-built engines/helpers in Podman; ELF closure and relocated worker tests pass | Passed locally |
-| Linux musl arm64 | Source-built engines/helpers in Alpine Podman; musl closure and relocated worker tests pass | Passed locally |
-| Linux GNU/musl x64 | Digest-pinned container recipes; x64 Alpine executes under local Podman emulation | Full build and worker execution required |
+| Linux GNU arm64 | Prior source-built engines/helpers and relocated worker tests passed in Podman | Revalidate latest worker revision |
+| Linux musl arm64 | Prior source-built engines/helpers and relocated worker tests passed in Alpine Podman | Revalidate latest worker revision |
+| Linux GNU/musl x64 | Source-built engines/helpers in native Docker on Arch x64; relocated workers and strict inventories pass | Passed on native x64 host |
 | macOS x64 | Native target-host source recipe; no matching local execution host | Target execution required |
 | Windows x64 | Pinned MSYS engine/helper packages; 363 x64 PE images checked for DLL availability; full binary/source closure staged | Windows worker/containment validation required |
 | Windows ARM64 | Same x64 MSYS package closure; Windows 11 x64 emulation required | ARM64-host worker/containment validation required |
 
-Windows staging does not enable runtime dispatch or prove DLL search behavior. Both Windows targets remain blocked from release.
+Windows runtime dispatch, path conversion, and process containment are implemented. Native worker, DLL search, and containment execution remain unverified. Both Windows targets remain blocked from release.
 
 | Build input | Value |
 |---|---|
@@ -46,7 +46,7 @@ Windows staging does not enable runtime dispatch or prove DLL search behavior. B
 | Build directory | `SHUCKED_PROVIDER_BUILD`; target-specific directory required |
 | Parallel jobs | `SHUCKED_BUILD_JOBS`; use 1 in small VMs |
 | Execution receipt | `SHUCKED_PROVIDER_EXECUTION`: native, container, or emulated |
-| Optional Fish cross build | `SHUCKED_FISH_PREBUILT`: local prefix with `source.json`, binary/share files, vendored Rust sources; source SHA and target checked |
+| Optional Fish cross build | `SHUCKED_FISH_PREBUILT`: prefix visible to builder with `source.json`, binary/share files, vendored Rust sources; source, binary, vendor SHA and target checked |
 | Root-only containers | Explicit `FORCE_UNSAFE_CONFIGURE=1` for GNU configure; ordinary builds use an unprivileged account |
 | Source changes | Archive hashes and patches verified before build |
 | Build reproducibility | Pinned inputs and fixed source epoch; byte-identical output across toolchains is not asserted |
