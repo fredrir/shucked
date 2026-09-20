@@ -93,6 +93,7 @@ pub(crate) fn variable(
         text.push_str("\n\nIncludes possible assignments and reads from conditional execution.");
     }
     if details.incomplete {
+        text.push_str("\n\nReferences may include reads across unresolved source effects.");
         text.push_str(&format!(
             "\n\n**Incomplete results:** {}.",
             index
@@ -122,6 +123,24 @@ pub(crate) fn source(details: &WorkspaceSourceDetails, index: &WorkspaceFunction
             "Source file found, but its contents could not be read."
         }
     });
+    if let Some(sequence) = &details.sequence {
+        text.push_str("\n\nFiles matched by the source loop (in load order):\n");
+        for path in sequence.iter().take(MAX_LINKS) {
+            if let Ok(uri) = types::Url::from_file_path(path) {
+                let uri = index.file(path).map_or(&uri, |file| file.editor_uri());
+                text.push_str(&format!("\n- {}", link(uri, None)));
+            }
+        }
+        if sequence.len() > MAX_LINKS {
+            text.push_str(&format!(
+                "\n- … and {} more files",
+                sequence.len() - MAX_LINKS
+            ));
+        }
+        if sequence.is_empty() {
+            text.push_str("\nNo files matched.");
+        }
+    }
     if let Some(path) = &details.target
         && let Ok(uri) = types::Url::from_file_path(path)
     {

@@ -6,8 +6,8 @@ use shucked_indexer::Indexer;
 use shucked_linter::{Rule, ShellDialect};
 use shucked_parser::parser::Parser;
 use shucked_semantic::{
-    CallFactSourceEdge, FileCallFacts, SemanticBuildOptions, SemanticModel, WorkspaceVariableIndex,
-    WorkspaceVariableUsage,
+    CallFactSourceEdge, FileCallFacts, FileVariableFacts, SemanticBuildOptions, SemanticModel,
+    WorkspaceVariableIndex, WorkspaceVariableUsage,
 };
 
 use super::settings::ResolvedCheckSettings;
@@ -62,36 +62,62 @@ pub(super) fn variable_usage(
         let edges = model
             .source_refs()
             .iter()
-            .filter_map(|source_ref| {
-                let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
-                    candidate.map(PathBuf::from).into_iter().collect()
-                } else {
-                    source_ref_candidate_paths(&path, source_ref, resolver)
-                };
-                if resolved_paths.candidate(source_ref).is_none()
-                    && candidates.is_empty()
-                    && let Some(candidate) = model.current_file_source_candidate(source_ref, &path)
-                {
-                    candidates.push(candidate);
+            .flat_map(|source_ref| {
+                if let Some(sequence) = resolved_paths.sequence(source_ref) {
+                    return sequence
+                        .iter()
+                        .map(|target| {
+                            let target = target.canonicalize().unwrap_or_else(|_| target.clone());
+                            pending.push(target.clone());
+                            CallFactSourceEdge {
+                                path: target,
+                                span: source_ref.span,
+                                conditional: true,
+                                completion_visible: false,
+                            }
+                        })
+                        .collect::<Vec<_>>();
                 }
-                let target = candidates
-                    .into_iter()
-                    .inspect(|candidate| {
-                        dependencies.insert(candidate.clone());
+                let edge = (|| {
+                    let mut candidates =
+                        if let Some(candidate) = resolved_paths.candidate(source_ref) {
+                            candidate.map(PathBuf::from).into_iter().collect()
+                        } else {
+                            source_ref_candidate_paths(&path, source_ref, resolver)
+                        };
+                    if resolved_paths.candidate(source_ref).is_none()
+                        && candidates.is_empty()
+                        && let Some(candidate) =
+                            model.current_file_source_candidate(source_ref, &path)
+                    {
+                        candidates.push(candidate);
+                    }
+                    let target = candidates
+                        .into_iter()
+                        .inspect(|candidate| {
+                            dependencies.insert(candidate.clone());
+                        })
+                        .find(|candidate| candidate.is_file())?;
+                    let target = target.canonicalize().unwrap_or(target);
+                    pending.push(target.clone());
+                    Some(CallFactSourceEdge {
+                        path: target,
+                        span: source_ref.span,
+                        conditional: source_ref.conditionally_executed,
+                        completion_visible: false,
                     })
-                    .find(|candidate| candidate.is_file())?;
-                let target = target.canonicalize().unwrap_or(target);
-                pending.push(target.clone());
-                Some(CallFactSourceEdge {
-                    path: target,
-                    span: source_ref.span,
-                    conditional: source_ref.conditionally_executed,
-                    completion_visible: false,
-                })
+                })();
+                edge.into_iter().collect()
             })
             .collect();
         let calls = FileCallFacts::project_with_source_edges(&model, edges);
-        index.insert(path, &model, &calls.source_effects);
+        index.insert_facts(
+            path,
+            FileVariableFacts::project(
+                &model,
+                &resolved_paths.variable_effects(&calls.source_effects),
+            ),
+        );
     }
     (
         Arc::new(index.usage(&|| false).unwrap_or_default()),

@@ -12,6 +12,7 @@ categories = ["development-tools"]
 readme = "README.md"
 
 [dependencies]
+globset = { workspace = true }
 bitflags = "2"
 compact_str = { workspace = true }
 rustc-hash = "2"

@@ -128,7 +128,7 @@ fn called_loader_provides_origin_but_function_locals_do_not_consume_it() {
 }
 
 #[test]
-fn unknown_source_keeps_provable_reads_and_marks_partial_results() {
+fn unknown_source_keeps_possible_reads_and_marks_partial_results() {
     let files = [
         ("helper.sh", "VALUE=shared\n"),
         (
@@ -137,7 +137,7 @@ fn unknown_source_keeps_provable_reads_and_marks_partial_results() {
         ),
     ];
     let details = explain(&files, 0, 1);
-    assert_eq!(details.references.len(), 1);
+    assert_eq!(details.references.len(), 2);
     assert!(details.incomplete);
 }
 

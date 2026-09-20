@@ -230,7 +230,7 @@ fn unresolved_source_notifies_that_references_are_partial() {
     );
     assert_eq!(
         references(&session, &client, position(&uri, 0, 2), false).len(),
-        1
+        2
     );
     assert!(messages.try_iter().any(|message| matches!(message, lsp_server::Message::Notification(notification)
         if notification.method == "window/showMessage" && notification.params["message"].as_str().is_some_and(|text| text.contains("source effects could not be followed")))));
@@ -396,4 +396,159 @@ fn cancelled_reference_requests_return_no_locations_or_partial_result_warning() 
     );
     assert!(!messages.try_iter().any(|message| matches!(message, lsp_server::Message::Notification(notification)
         if notification.method == "window/showMessage" && notification.params["message"].as_str().is_some_and(|text| text.contains("Workspace references are incomplete")))));
+}
+
+#[test]
+fn zsh_startup_glob_connects_numbered_modules_in_load_order() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("modules");
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::write(
+        root.path().join(".zshenv"),
+        format!("export ZCONF=\"{}\"\n", directory.display()),
+    )
+    .unwrap();
+    let loader = "if [[ -n $AGENT_SHELL ]]; then\n source \"$ZCONF/02-utils.zsh\"\n return 0\nfi\nfor module in \"$ZCONF\"/{0[2-9],[1-9][0-9]}-*.zsh(N); do\n source \"$module\"\ndone\n";
+    std::fs::write(root.path().join(".zshrc"), loader).unwrap();
+    let utility = directory.join("02-utils.zsh");
+    let utility_source = "[[ $OSTYPE == linux* ]] && LINUX=1\nUNUSED=1\n";
+    std::fs::write(&utility, utility_source).unwrap();
+    std::fs::write(
+        directory.join("05-plugins.zsh"),
+        "source \"$UNKNOWN_PLUGIN\"\n",
+    )
+    .unwrap();
+    let aliases = directory.join("30-aliases.zsh");
+    std::fs::write(
+        &aliases,
+        "if [[ -n $LINUX ]]; then alias tool='linux-tool'; fi\n",
+    )
+    .unwrap();
+    // Matching names in another directory must not join this source environment.
+    std::fs::write(root.path().join("unrelated.zsh"), "echo $UNUSED\n").unwrap();
+    let (mut session, client, _messages) = session(root.path());
+    let uri = open(&mut session, &utility, utility_source);
+    let details = hover(&session, &client, position(&uri, 0, 28));
+    assert!(
+        markdown(&details).contains("30-aliases.zsh:1"),
+        "{}",
+        markdown(&details)
+    );
+    let uses = references(&session, &client, position(&uri, 0, 28), false);
+    assert_eq!(uses.len(), 1, "{uses:?}");
+    assert_eq!(
+        uses[0].uri,
+        types::Url::from_file_path(std::fs::canonicalize(&aliases).unwrap()).unwrap()
+    );
+    let diagnostics = crate::generate_diagnostics(&session.take_snapshot(uri.clone()).unwrap());
+    assert!(
+        !diagnostics.iter().any(|diagnostic| diagnostic.code
+            == Some(types::NumberOrString::String("C001".into()))
+            && diagnostic.range.start.line == 0),
+        "{diagnostics:?}"
+    );
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code
+        == Some(types::NumberOrString::String("C001".into()))
+        && diagnostic.range.start.line == 1));
+    let loader_uri = open(&mut session, &root.path().join(".zshrc"), loader);
+    let details = hover(&session, &client, position(&loader_uri, 5, 11));
+    assert!(
+        markdown(&details).contains("Files matched by the source loop"),
+        "{}",
+        markdown(&details)
+    );
+}
+
+#[test]
+fn module_globs_refresh_for_unsaved_created_deleted_and_renamed_consumers() {
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("02-utils.zsh");
+    std::fs::write(&helper, "LINUX=1\n").unwrap();
+    let loader = format!(
+        "ROOT=\"{}\"\nfor module in \"$ROOT\"/[0-9][0-9]-*.zsh(N); do source \"$module\"; done\n",
+        root.path().display()
+    );
+    std::fs::write(root.path().join("init.zsh"), loader).unwrap();
+    let (mut session, client, _messages) = session(root.path());
+    let helper_uri = open(&mut session, &helper, "LINUX=1\n");
+    let selected = position(&helper_uri, 0, 2);
+    assert!(references(&session, &client, selected.clone(), false).is_empty());
+    let consumer = root.path().join("30-aliases.zsh");
+    let consumer_uri = open(&mut session, &consumer, "echo $LINUX\n");
+    let uses = references(&session, &client, selected.clone(), false);
+    assert_eq!(uses.len(), 1);
+    assert_eq!(uses[0].uri, consumer_uri);
+    // A renamed module outside the glob must no longer consume the binding.
+    let key = session.key_from_url(consumer_uri);
+    session.close_document(&key).unwrap();
+    std::fs::write(&consumer, "echo $LINUX\n").unwrap();
+    let event = |path: &Path, typ| types::FileEvent {
+        uri: types::Url::from_file_path(path).unwrap(),
+        typ,
+    };
+    session.reload_settings(&[event(&consumer, types::FileChangeType::CREATED)], &client);
+    assert_eq!(
+        references(&session, &client, selected.clone(), false).len(),
+        1
+    );
+    let renamed = root.path().join("aliases.zsh");
+    std::fs::rename(&consumer, &renamed).unwrap();
+    session.reload_settings(
+        &[
+            event(&consumer, types::FileChangeType::DELETED),
+            event(&renamed, types::FileChangeType::CREATED),
+        ],
+        &client,
+    );
+    assert!(references(&session, &client, selected.clone(), false).is_empty());
+    std::fs::rename(&renamed, &consumer).unwrap();
+    session.reload_settings(&[event(&consumer, types::FileChangeType::CREATED)], &client);
+    assert_eq!(
+        references(&session, &client, selected.clone(), false).len(),
+        1
+    );
+    std::fs::remove_file(&consumer).unwrap();
+    session.reload_settings(&[event(&consumer, types::FileChangeType::DELETED)], &client);
+    assert!(references(&session, &client, selected, false).is_empty());
+}
+
+#[test]
+fn unsaved_startup_path_changes_retarget_module_consumers() {
+    let root = tempfile::tempdir().unwrap();
+    for name in ["one", "two"] {
+        let directory = root.path().join(name);
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("02-utils.zsh"), "LINUX=1\n").unwrap();
+        std::fs::write(directory.join("30-aliases.zsh"), "echo $LINUX\n").unwrap();
+    }
+    let globals = root.path().join(".zshenv");
+    let source = |name| format!("export ZCONF='{}'\n", root.path().join(name).display());
+    std::fs::write(&globals, source("one")).unwrap();
+    std::fs::write(
+        root.path().join(".zshrc"),
+        "for module in \"$ZCONF\"/[0-9][0-9]-*.zsh(N); do source \"$module\"; done\n",
+    )
+    .unwrap();
+    let (mut session, client, _messages) = session(root.path());
+    let first = open(
+        &mut session,
+        &root.path().join("one/02-utils.zsh"),
+        "LINUX=1\n",
+    );
+    let second = open(
+        &mut session,
+        &root.path().join("two/02-utils.zsh"),
+        "LINUX=1\n",
+    );
+    assert_eq!(
+        references(&session, &client, position(&first, 0, 2), false).len(),
+        1
+    );
+    assert!(references(&session, &client, position(&second, 0, 2), false).is_empty());
+    open(&mut session, &globals, &source("two"));
+    assert!(references(&session, &client, position(&first, 0, 2), false).is_empty());
+    assert_eq!(
+        references(&session, &client, position(&second, 0, 2), false).len(),
+        1
+    );
 }

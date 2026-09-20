@@ -70,7 +70,8 @@ History suggestions are separately opt-in for accepted session commands and hist
 |---|---|
 | Hover a variable | Assignment locations and consuming files, including unsaved edits |
 | Go to References | Reads of the selected assignment; includes possible reads through known conditional imports and called loaders |
-| Hover a source path or `source=` directive | Resolved file, searched paths, or reason resolution stopped |
+| Hover a source path or `source=` directive | Resolved file, source-loop matches in load order, searched paths, or reason resolution stopped |
+| Zsh module loaders | Bounded literal-directory globs, brace lists, and `(N)`; `.zshenv` path values for `.zshrc`, including installed startup symlinks |
 | Incomplete analysis | Hover labels partial results; References reports incomplete results when requested |
 | Analysis limits | Workspace index defaults to `5000` files; source analysis also bounds depth, file count, bytes, and work |
 

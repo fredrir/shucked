@@ -387,6 +387,7 @@ impl WorkspaceVariableUsage {
 
 #[derive(Default)]
 struct ReachingDefinitions {
+    incomplete: bool,
     bindings: BTreeSet<(PathBuf, WorkspaceConsumedBinding)>,
     inherits: bool,
 }
@@ -442,7 +443,7 @@ impl WorkspaceVariableIndex {
         self.files.insert(path, facts);
     }
 
-    /// Resolve cross-file reads in source order. Unknown source effects do not prove usage.
+    /// Resolve possible cross-file reads in source order.
     pub fn usage(&self, is_cancelled: &dyn Fn() -> bool) -> Option<WorkspaceVariableUsage> {
         let mut usage = WorkspaceVariableUsage::default();
         for (path, facts) in &self.files {
@@ -513,6 +514,7 @@ impl WorkspaceVariableIndex {
                     )?;
                     result.bindings.extend(returned.bindings);
                     result.inherits |= returned.inherits;
+                    result.incomplete |= returned.incomplete;
                 }
             }
             Some(result)
@@ -590,8 +592,12 @@ impl WorkspaceVariableIndex {
                     {
                         continue;
                     }
+                    let Some(path) = effect.path.as_deref() else {
+                        result.incomplete = true;
+                        continue;
+                    };
                     let provided = self.reaching_variable_paths(
-                        effect.path.as_deref()?,
+                        path,
                         name,
                         usize::MAX,
                         None,
@@ -599,6 +605,7 @@ impl WorkspaceVariableIndex {
                         active,
                         is_cancelled,
                     )?;
+                    result.incomplete |= provided.incomplete;
                     result.bindings.extend(provided.bindings);
                     if !effect.conditional && !provided.inherits {
                         return Some(result);
@@ -624,7 +631,10 @@ impl WorkspaceVariableIndex {
                     active,
                     is_cancelled,
                 ) {
+                    result.incomplete |= inherited.incomplete;
                     result.bindings.extend(inherited.bindings);
+                } else {
+                    result.incomplete = true;
                 }
             }
         }
@@ -667,7 +677,10 @@ impl WorkspaceVariableIndex {
                 &mut BTreeSet::new(),
                 is_cancelled,
             ) {
-                Some(definitions) => definitions.bindings,
+                Some(definitions) => {
+                    incomplete |= definitions.incomplete;
+                    definitions.bindings
+                }
                 None => {
                     incomplete = true;
                     BTreeSet::new()
@@ -731,14 +744,16 @@ impl WorkspaceVariableIndex {
                     &mut BTreeSet::new(),
                     is_cancelled,
                 ) {
-                    Some(reaching) if !seeds.is_disjoint(&reaching.bindings) => {
-                        references.push(WorkspaceVariableOccurrence {
-                            path: path.clone(),
-                            span: reference.occurrence_span,
-                        })
+                    Some(reaching) => {
+                        incomplete |= reaching.incomplete;
+                        if !seeds.is_disjoint(&reaching.bindings) {
+                            references.push(WorkspaceVariableOccurrence {
+                                path: path.clone(),
+                                span: reference.occurrence_span,
+                            });
+                        }
                     }
                     None => incomplete = true,
-                    _ => {}
                 }
             }
         }

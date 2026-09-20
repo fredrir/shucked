@@ -1,3 +1,5 @@
+pub(crate) mod loops;
+
 use super::*;
 use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange};
 use crate::{BindingKind, SourceRef};
@@ -23,6 +25,29 @@ pub trait SourcePathFileProvider {
         path.is_file()
     }
 
+    /// Directory members, bounded to avoid unbounded glob expansion.
+    fn directory_entries(&self, path: &Path) -> Option<Vec<PathBuf>> {
+        let mut entries = if path.exists() {
+            loops::directory_entries(path)?
+        } else {
+            Vec::new()
+        };
+        entries.extend(self.open_paths_in(path));
+        entries.sort();
+        entries.dedup();
+        (entries.len() <= loops::MAX_DIRECTORY_ENTRIES).then_some(entries)
+    }
+
+    /// Unsaved files whose parent is the requested directory.
+    fn open_paths_in(&self, _path: &Path) -> Vec<PathBuf> {
+        Vec::new()
+    }
+
+    /// Home directory used only to recognize an installed Zsh startup symlink.
+    fn home_dir(&self) -> Option<PathBuf> {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+
     /// Whether the current request was cancelled.
     fn is_cancelled(&self) -> bool {
         false
@@ -33,6 +58,8 @@ pub trait SourcePathFileProvider {
 #[derive(Default)]
 pub struct ResolvedSourcePaths {
     candidates: FxHashMap<SpanKey, Option<PathBuf>>,
+    sequences: FxHashMap<SpanKey, Vec<PathBuf>>,
+    uncertain_sequences: FxHashSet<SpanKey>,
     dependencies: FxHashSet<PathBuf>,
     incomplete: bool,
 }
@@ -50,6 +77,37 @@ impl ResolvedSourcePaths {
             .map(|path| path.as_deref())
     }
 
+    /// Ordered files loaded by a bounded source loop at this site.
+    pub fn sequence(&self, reference: &SourceRef) -> Option<&[PathBuf]> {
+        self.sequences
+            .get(&SpanKey::new(reference.span))
+            .map(Vec::as_slice)
+    }
+
+    /// Expand loop effects for variable usage without relaxing function rename checks.
+    pub fn variable_effects(
+        &self,
+        effects: &[crate::CallFactSourceEffect],
+    ) -> Vec<crate::CallFactSourceEffect> {
+        effects
+            .iter()
+            .flat_map(|effect| {
+                if let Some(paths) = self.sequences.get(&SpanKey::new(effect.span)) {
+                    paths
+                        .iter()
+                        .map(|path| {
+                            let mut effect = effect.clone();
+                            effect.path = Some(crate::canonical_workspace_path(path));
+                            effect
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![effect.clone()]
+                }
+            })
+            .collect()
+    }
+
     /// Files and missing candidates consulted during resolution.
     pub fn dependency_paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.dependencies.iter()
@@ -65,6 +123,7 @@ enum PathEvent {
         bool,
         Box<[Option<compact_str::CompactString>]>,
     ),
+    SourceLoop(SourceRef, Vec<loops::LoopWord>),
     InvalidateArguments,
     Invalidate,
     DefineFunction(Name, Arc<PathFile>),
@@ -260,6 +319,26 @@ impl PathFile {
                 }
                 events.push(PathEvent::Branch(branches));
             }
+            RecordedCommandKind::For { body } => {
+                let words = program.source_loop_words.get(&SpanKey::new(command.span));
+                let body_events = Self::sequence(model, body);
+                if let Some((name, words)) = words
+                    && let [
+                        PathEvent::Source(
+                            reference,
+                            Some(SourcePathTemplate::Interpolated(parts)),
+                            false,
+                            args,
+                        ),
+                    ] = body_events.as_slice()
+                    && args.is_empty()
+                    && matches!(parts.as_slice(), [TemplatePart::Variable(variable)] if variable == name)
+                {
+                    events.push(PathEvent::SourceLoop(reference.clone(), words.clone()));
+                } else {
+                    events.push(PathEvent::Invalidate);
+                }
+            }
             RecordedCommandKind::BraceGroup { body } => events.extend(Self::sequence(model, body)),
             RecordedCommandKind::Always { body, always_body } => {
                 events.extend(Self::sequence(model, body));
@@ -283,6 +362,7 @@ struct PathEnvironment {
     unknown_functions: FxHashSet<Name>,
     unknown_dispatch: bool,
     returned: bool,
+    early_return: bool,
     unknown_arguments: bool,
 }
 
@@ -331,6 +411,7 @@ impl PathEnvironment {
             .retain(|name| !self.functions.contains_key(name));
         self.unknown_dispatch |= other.unknown_dispatch;
         self.returned |= other.returned;
+        self.early_return |= other.early_return;
         self.unknown_arguments |= other.unknown_arguments;
         self.imported |= other.imported;
     }
@@ -365,12 +446,22 @@ impl SourcePathAnalyzer {
         self.halted = false;
         self.incomplete = false;
         let mut remaining = MAX_EVENTS;
+        let mut environment = PathEnvironment::default();
+        if model.shell_profile().dialect == ParseShellDialect::Zsh {
+            self.zsh_startup_environment(
+                path,
+                provider,
+                &mut environment,
+                &mut remaining,
+                &mut result,
+            );
+        }
         self.evaluate(
             &PathFile::project(model),
             path,
             path,
             provider,
-            &mut PathEnvironment::default(),
+            &mut environment,
             &[],
             &mut FxHashSet::default(),
             &mut remaining,
@@ -390,8 +481,66 @@ impl SourcePathAnalyzer {
                 }
             }
         }
-        result.incomplete = self.incomplete;
+        result.incomplete |= self.incomplete;
         result
+    }
+
+    fn zsh_startup_environment(
+        &mut self,
+        path: &Path,
+        provider: &dyn SourcePathFileProvider,
+        environment: &mut PathEnvironment,
+        remaining: &mut usize,
+        result: &mut ResolvedSourcePaths,
+    ) {
+        let home = provider.home_dir();
+        let installed = home.as_ref().map(|home| home.join(".zshrc"));
+        if let Some(installed) = &installed {
+            result.dependencies.insert(installed.clone());
+        }
+        let startup = if path.file_name().is_some_and(|name| name == ".zshrc") {
+            path.parent().map(|parent| parent.join(".zshenv"))
+        } else if installed.as_ref().is_some_and(|installed| {
+            provider.is_file(installed)
+                && crate::canonical_workspace_path(installed)
+                    == crate::canonical_workspace_path(path)
+        }) {
+            home.as_ref().map(|home| home.join(".zshenv"))
+        } else {
+            None
+        };
+        let Some(startup) = startup else {
+            return;
+        };
+        result.dependencies.insert(startup.clone());
+        if let Some(home) = home {
+            environment
+                .values
+                .insert(Name::from("HOME"), home.to_string_lossy().into_owned());
+        }
+        if provider.is_file(&startup)
+            && let Some(file) = self.load(
+                &startup,
+                &ShellProfile::native(ParseShellDialect::Zsh),
+                provider,
+            )
+        {
+            self.evaluate(
+                &file,
+                &startup,
+                path,
+                provider,
+                environment,
+                &[],
+                &mut FxHashSet::default(),
+                remaining,
+                0,
+                result,
+            );
+            environment.imported = true;
+            environment.returned = false;
+            environment.early_return = false;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -428,7 +577,7 @@ impl SourcePathAnalyzer {
             depth,
             result,
         );
-        if environment.returned {
+        if environment.returned || environment.early_return {
             environment.values.clear();
         }
         active.remove(&canonical);
@@ -481,6 +630,44 @@ impl SourcePathAnalyzer {
                         environment.values.insert(name.clone(), value);
                     }
                 }
+                PathEvent::SourceLoop(reference, words) => {
+                    if path == root {
+                        let paths = words
+                            .iter()
+                            .map(|word| {
+                                word.expand(path, &environment.values, args, provider, result)
+                            })
+                            .collect::<Option<Vec<_>>>()
+                            .map(|paths| paths.into_iter().flatten().collect::<Vec<_>>());
+                        let key = SpanKey::new(reference.span);
+                        if paths.as_ref().is_some_and(|paths| paths.len() > MAX_FILES) {
+                            result.incomplete = true;
+                        }
+                        if let Some(paths) = paths.filter(|paths| paths.len() <= MAX_FILES) {
+                            result.dependencies.extend(paths.iter().cloned());
+                            if result
+                                .sequences
+                                .get(&key)
+                                .is_some_and(|previous| *previous != paths)
+                            {
+                                result.uncertain_sequences.insert(key);
+                            }
+                            if !result.uncertain_sequences.contains(&key) {
+                                result.sequences.insert(key, paths);
+                            }
+                        } else {
+                            result.uncertain_sequences.insert(key);
+                        }
+                        if result.uncertain_sequences.contains(&key) {
+                            result.sequences.remove(&key);
+                        }
+                        result.candidates.insert(key, None);
+                    }
+                    environment.values.clear();
+                    environment.functions.clear();
+                    environment.imported = true;
+                    environment.unknown_dispatch = true;
+                }
                 PathEvent::InvalidateArguments => {
                     environment.unknown_arguments = true;
                     environment.imported = true;
@@ -508,7 +695,9 @@ impl SourcePathAnalyzer {
                         let caller_arguments_unknown = environment.unknown_arguments;
                         environment.unknown_arguments = false;
                         let caller_returned = environment.returned;
+                        let caller_early_return = environment.early_return;
                         environment.returned = false;
+                        environment.early_return = false;
                         environment.locals.push(FxHashMap::default());
                         self.events(
                             &body.events,
@@ -523,10 +712,11 @@ impl SourcePathAnalyzer {
                             depth + 1,
                             result,
                         );
-                        if environment.returned {
+                        if environment.returned || environment.early_return {
                             environment.values.clear();
                         }
                         environment.returned = caller_returned;
+                        environment.early_return = caller_early_return;
                         environment.unknown_arguments = caller_arguments_unknown;
                         for (name, value) in environment.locals.pop().unwrap_or_default() {
                             environment.values.remove(&name);
@@ -545,6 +735,7 @@ impl SourcePathAnalyzer {
                 PathEvent::Branch(branches) => {
                     let before = environment.clone();
                     let mut joined: Option<PathEnvironment> = None;
+                    let mut early_return = false;
                     for branch in branches {
                         let mut branch_environment = before.clone();
                         self.events(
@@ -560,6 +751,10 @@ impl SourcePathAnalyzer {
                             depth + 1,
                             result,
                         );
+                        if branch_environment.returned {
+                            early_return = true;
+                            continue;
+                        }
                         if let Some(joined) = &mut joined {
                             joined.join(&branch_environment);
                         } else {
@@ -568,6 +763,11 @@ impl SourcePathAnalyzer {
                     }
                     if let Some(joined) = joined {
                         *environment = joined;
+                        environment.early_return |= early_return;
+                    } else {
+                        environment.returned = true;
+                        environment.values.clear();
+                        break;
                     }
                 }
                 PathEvent::Source(reference, expression, unknown_environment, source_args) => {
@@ -647,6 +847,10 @@ impl SourcePathAnalyzer {
                         if !source_args.is_empty() {
                             environment.unknown_arguments = false;
                         }
+                        let caller_returned = environment.returned;
+                        let caller_early_return = environment.early_return;
+                        environment.returned = false;
+                        environment.early_return = false;
                         self.evaluate(
                             &helper,
                             &target,
@@ -663,6 +867,8 @@ impl SourcePathAnalyzer {
                             depth + 1,
                             result,
                         );
+                        environment.returned = caller_returned;
+                        environment.early_return = caller_early_return;
                         if !source_args.is_empty() {
                             environment.unknown_arguments = caller_arguments_unknown;
                         }

@@ -35,6 +35,13 @@ pub(crate) struct RecordedProgram {
     list_items: Vec<RecordedListItem>,
     elif_branches: Vec<RecordedElifBranch>,
     command_info_records: Vec<RecordedCommandInfo>,
+    pub(crate) source_loop_words: FxHashMap<
+        SpanKey,
+        (
+            shucked_ast::Name,
+            Vec<crate::source_closure::paths::loops::LoopWord>,
+        ),
+    >,
     pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfoId>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
     pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,

@@ -141,7 +141,6 @@ fn workspace_usage_does_not_guess_unknown_source_options_or_targets() {
     for source in [
         "source \"$(dirname -z -- \"${BASH_SOURCE[0]}\")/_common.sh\"\necho \"$ADMIN_DIR\"\n",
         "source \"$dynamic\"\necho \"$ADMIN_DIR\"\n",
-        "source ./_common.sh\nsource \"$dynamic\"\necho \"$ADMIN_DIR\"\n",
     ] {
         let root = tempfile::tempdir().unwrap();
         fs::write(root.path().join("_common.sh"), "ADMIN_DIR=/srv/admin\n").unwrap();
@@ -535,5 +534,80 @@ fn loader_exports_are_available_only_after_persistent_calls() {
                     .any(|diagnostic| diagnostic["code"] == "C006")
             );
         }
+    }
+}
+
+#[test]
+fn unknown_sources_keep_possible_reads_of_a_known_import() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("_common.sh"), "ADMIN_DIR=/srv/admin\n").unwrap();
+    fs::write(
+        root.path().join("consumer.sh"),
+        "source ./_common.sh\nsource \"$dynamic\"\necho \"$ADMIN_DIR\"\n",
+    )
+    .unwrap();
+    assert!(check(root.path(), &[]).is_empty());
+    fs::write(
+        root.path().join("consumer.sh"),
+        "source ./_common.sh\nsource \"$dynamic\"\nADMIN_DIR=other\necho \"$ADMIN_DIR\"\n",
+    )
+    .unwrap();
+    assert_eq!(check(root.path(), &[]).len(), 1);
+}
+
+#[test]
+fn zsh_module_globs_keep_conditional_assignments_live_and_refresh_cached_usage() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".zshenv"),
+        format!("export ZCONF='{}'\n", root.path().display()),
+    )
+    .unwrap();
+    fs::write(
+        root.path().join(".zshrc"),
+        "for module in \"$ZCONF\"/{0[2-9],[1-9][0-9]}-*.zsh(N); do source \"$module\"; done\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("02-utils.zsh"),
+        "[[ $OSTYPE == linux* ]] && LINUX=1\n",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("05-plugins.zsh"),
+        "source \"$DYNAMIC_PLUGIN\"\n",
+    )
+    .unwrap();
+    assert_eq!(check(root.path(), &[]).len(), 1);
+    let aliases = root.path().join("30-aliases.zsh");
+    fs::write(
+        &aliases,
+        "if [[ -n $LINUX ]]; then alias tool=linux-tool; fi\n",
+    )
+    .unwrap();
+    assert!(check(root.path(), &[]).is_empty());
+    assert!(check(root.path(), &[]).is_empty());
+    let outside = root.path().join("other.zsh");
+    fs::rename(&aliases, &outside).unwrap();
+    assert_eq!(check(root.path(), &[]).len(), 1);
+    fs::rename(&outside, &aliases).unwrap();
+    assert!(check(root.path(), &[]).is_empty());
+    fs::remove_file(&aliases).unwrap();
+    assert_eq!(check(root.path(), &[]).len(), 1);
+}
+
+#[test]
+fn module_reads_before_the_assignment_do_not_consume_it() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("02-utils.zsh"), "LINUX=1\n").unwrap();
+    fs::write(root.path().join("30-aliases.zsh"), "echo $LINUX\n").unwrap();
+    let loader = root.path().join("init.zsh");
+    for (order, unused) in [("30,02", true), ("02,30", false)] {
+        fs::write(&loader, format!("ROOT='{}'\nfor module in \"$ROOT\"/{{{order}}}-*.zsh(N); do source \"$module\"; done\n", root.path().display())).unwrap();
+        assert_eq!(
+            check(root.path(), &[]).len(),
+            usize::from(unused),
+            "{order}"
+        );
     }
 }

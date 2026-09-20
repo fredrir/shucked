@@ -21,8 +21,8 @@ use shucked_indexer::LineIndex;
 use shucked_linter::ShellDialect;
 use shucked_semantic::{
     CallFactSourceEdge, CallNodeKind, CrossFileCall, ExactFunctionRename, ExactFunctionRenameError,
-    FileCallFacts, FileVariableFacts, SemanticModel, SourceRefKind, VisibleSourcedFunction,
-    WorkspaceCallIndex, source_ref_candidate_paths,
+    FileCallFacts, FileVariableFacts, SemanticModel, SourcePathFileProvider, SourceRefKind,
+    VisibleSourcedFunction, WorkspaceCallIndex, source_ref_candidate_paths,
 };
 
 use crate::PositionEncoding;
@@ -212,6 +212,7 @@ pub(crate) struct WorkspaceSourceDetails {
     pub(crate) directive_span: Option<Span>,
     pub(crate) target: Option<PathBuf>,
     pub(crate) candidates: Vec<PathBuf>,
+    pub(crate) sequence: Option<Vec<PathBuf>>,
     pub(crate) reason: SourceResolutionReason,
     pub(crate) conditional: bool,
     pub(crate) in_function: bool,
@@ -876,6 +877,7 @@ struct DependencyFingerprint {
     canonical_path: PathBuf,
     is_file: bool,
     content_hash: Option<[u8; 32]>,
+    directory_entries: Option<Vec<PathBuf>>,
     source_paths: SourcePathResolution,
 }
 
@@ -956,6 +958,9 @@ impl<'a> WorkspacePathProvider<'a> {
             canonical_path: snapshot.canonical_path.clone(),
             is_file: snapshot.is_file,
             content_hash: snapshot.content_hash,
+            directory_entries: (!snapshot.is_file)
+                .then(|| self.directory_entries(path))
+                .flatten(),
             source_paths: self.source_paths.borrow_mut().resolve(path, self.context),
         }
     }
@@ -998,6 +1003,15 @@ impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
 
     fn is_file(&self, path: &Path) -> bool {
         self.snapshot(path).is_file
+    }
+
+    fn open_paths_in(&self, path: &Path) -> Vec<PathBuf> {
+        let directory = canonical_path(path);
+        self.open_sources
+            .keys()
+            .filter(|path| path.parent() == Some(directory.as_path()))
+            .filter_map(|open| open.file_name().map(|name| path.join(name)))
+            .collect()
     }
 
     fn is_cancelled(&self) -> bool {
@@ -1107,8 +1121,34 @@ fn project_file(
     let edges = model
         .source_refs()
         .iter()
-        .filter_map(|source_ref| {
+        .flat_map(|source_ref| {
             let scope = model.scope_at(source_ref.span.start.offset());
+            if let Some(sequence) = resolved_paths.sequence(source_ref) {
+                let sequence = sequence
+                    .iter()
+                    .map(|path| canonical_path(path))
+                    .collect::<Vec<_>>();
+                sources.push(WorkspaceSourceDetails {
+                    span: source_ref.span,
+                    path_span: source_ref.path_span,
+                    directive_span: source_ref.directive_path_span,
+                    target: None,
+                    candidates: Vec::new(),
+                    sequence: Some(sequence.clone()),
+                    reason: SourceResolutionReason::Resolved,
+                    conditional: true,
+                    in_function: model.enclosing_function_scope(scope).is_some(),
+                });
+                return sequence
+                    .into_iter()
+                    .map(|path| CallFactSourceEdge {
+                        path,
+                        span: source_ref.span,
+                        conditional: true,
+                        completion_visible: false,
+                    })
+                    .collect::<Vec<_>>();
+            }
             let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
                 candidate.map(PathBuf::from).into_iter().collect()
             } else {
@@ -1165,24 +1205,31 @@ fn project_file(
                 directive_span: source_ref.directive_path_span,
                 target: target.clone(),
                 candidates: checked,
+                sequence: None,
                 reason,
                 conditional: source_ref.conditionally_executed,
                 in_function: model.enclosing_function_scope(scope).is_some(),
             });
-            target.map(|target| CallFactSourceEdge {
-                path: target,
-                span: source_ref.span,
-                conditional: source_ref.conditionally_executed,
-                completion_visible: !source_ref.conditionally_executed
-                    && model.enclosing_function_scope(scope).is_none()
-                    && model
-                        .innermost_transient_scope_within_function(scope)
-                        .is_none(),
-            })
+            target
+                .into_iter()
+                .map(|target| CallFactSourceEdge {
+                    path: target,
+                    span: source_ref.span,
+                    conditional: source_ref.conditionally_executed,
+                    completion_visible: !source_ref.conditionally_executed
+                        && model.enclosing_function_scope(scope).is_none()
+                        && model
+                            .innermost_transient_scope_within_function(scope)
+                            .is_none(),
+                })
+                .collect()
         })
         .collect::<Vec<_>>();
     let call_facts = FileCallFacts::project_with_source_edges(model, edges);
-    let variables = FileVariableFacts::project(model, &call_facts.source_effects);
+    let variables = FileVariableFacts::project(
+        model,
+        &resolved_paths.variable_effects(&call_facts.source_effects),
+    );
     WorkspaceFileProjection {
         source_paths: source_paths.clone(),
         dependencies: dependencies

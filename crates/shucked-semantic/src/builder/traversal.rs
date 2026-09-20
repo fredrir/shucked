@@ -622,6 +622,25 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                 )
             }
             CompoundCommand::For(command) => {
+                if let [target] = command.targets.as_slice()
+                    && let Some(name) = &target.name
+                    && let Some(words) = &command.words
+                    && let Some(words) = words
+                        .iter()
+                        .map(|word| {
+                            crate::source_closure::paths::loops::LoopWord::project(
+                                word,
+                                self.source,
+                                self.runtime.bash_enabled(),
+                                self.shell_profile.dialect == ShellDialect::Zsh,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                {
+                    self.recorded_program
+                        .source_loop_words
+                        .insert(SpanKey::new(command.span), (name.clone(), words));
+                }
                 let nested_regions = command
                     .words
                     .as_deref()
