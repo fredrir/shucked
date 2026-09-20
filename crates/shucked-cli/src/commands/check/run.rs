@@ -123,11 +123,11 @@ pub(super) fn run_check_with_cwd(
         let pending = run.take_pending_files_with_validator(
             |file, cached| {
                 Ok(cached.dependencies_match()
-                    && cached.workspace_consumed_names
+                    && cached.workspace_consumed_bindings
                         == workspace_usage
-                            .consumed_names(&file.absolute_path)
+                            .consumed_bindings(&file.absolute_path)
                             .into_iter()
-                            .map(|name| name.to_string())
+                            .map(|binding| (binding.name.to_string(), binding.start, binding.end))
                             .collect::<Vec<_>>())
             },
             |file, cached| {

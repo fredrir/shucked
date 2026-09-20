@@ -152,3 +152,48 @@ echo "$ADMIN_DIR"
     assert_eq!(unused(&session, &first_uri).len(), 1);
     assert!(unused(&session, &second_uri).is_empty());
 }
+
+#[test]
+fn unsaved_workspace_reads_follow_individual_assignments() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".shucked.toml"),
+        "[lint]\nselect = ['C001']\n",
+    )
+    .unwrap();
+    let helper = root.path().join("values.sh");
+    let reader = root.path().join("reader.sh");
+    let consumer = root.path().join("consumer.sh");
+    let source = "ADMIN_DIR=first\nsource ./reader.sh\nADMIN_DIR=last\n";
+    fs::write(&helper, source).unwrap();
+    fs::write(&reader, "# no read\n").unwrap();
+    fs::write(&consumer, "source ./values.sh\necho \"$ADMIN_DIR\"\n").unwrap();
+    let mut session = session(root.path());
+    let uri = open(&mut session, &helper, source, 1);
+    let diagnostics = unused(&session, &uri);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start.line, 0);
+    open(&mut session, &consumer, "source ./values.sh\n", 1);
+    open(&mut session, &reader, "echo \"$ADMIN_DIR\"\n", 1);
+    let diagnostics = unused(&session, &uri);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start.line, 2);
+    open(
+        &mut session,
+        &reader,
+        "unset ADMIN_DIR\necho \"$ADMIN_DIR\"\n",
+        2,
+    );
+    let diagnostics = unused(&session, &uri);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start.line, 2);
+    open(
+        &mut session,
+        &consumer,
+        "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+        2,
+    );
+    let diagnostics = unused(&session, &uri);
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].range.start.line, 0);
+}

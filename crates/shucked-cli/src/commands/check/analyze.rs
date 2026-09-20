@@ -92,7 +92,7 @@ fn analyze_shell_file(
         .unwrap_or_else(|| ShellDialect::infer(&source, Some(&pending.file.absolute_path)));
     let parse_dialect = inferred_shell.parser_dialect();
 
-    let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
+    let mut linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
     let mut parse_result = Parser::with_dialect(&source, parse_dialect).parse();
     let mut analysis = collect_lint_diagnostics(
         &source,
@@ -114,6 +114,11 @@ fn analyze_shell_file(
             .collect::<Vec<_>>();
         let applied = shucked_linter::apply_fixes(&source, &fixable_diagnostics, applicability);
         if applied.fixes_applied > 0 {
+            if let Some(usage) = &mut linter_settings.workspace_variable_usage {
+                Arc::make_mut(usage).remap_file_bindings(&pending.file.absolute_path, |range| {
+                    applied.map_range(range)
+                });
+            }
             source = Arc::<str>::from(applied.code);
             fs::write(&pending.file.absolute_path, &*source)?;
             parse_result = Parser::with_dialect(&source, parse_dialect).parse();
@@ -172,14 +177,14 @@ fn analyze_shell_file(
         &followed_paths,
     );
 
-    cache_data.workspace_consumed_names = linter_settings
+    cache_data.workspace_consumed_bindings = linter_settings
         .workspace_variable_usage
         .as_ref()
         .map(|usage| {
             usage
-                .consumed_names(&pending.file.absolute_path)
+                .consumed_bindings(&pending.file.absolute_path)
                 .into_iter()
-                .map(|name| name.to_string())
+                .map(|binding| (binding.name.to_string(), binding.start, binding.end))
                 .collect()
         })
         .unwrap_or_default();

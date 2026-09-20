@@ -42,8 +42,8 @@ mod unused;
 mod value_flow;
 mod workspace_variables;
 pub use workspace_variables::{
-    WorkspaceVariableIndex, WorkspaceVariableOccurrence, WorkspaceVariableTarget,
-    WorkspaceVariableUsage, variable_target,
+    WorkspaceConsumedBinding, WorkspaceVariableIndex, WorkspaceVariableOccurrence,
+    WorkspaceVariableTarget, WorkspaceVariableUsage, variable_target,
 };
 mod zsh_options;
 mod zsh_plugin_framework;
@@ -2435,6 +2435,7 @@ pub fn build_with_observer_at_path_with_resolver<'a>(
             source_path_resolver,
             plugin_resolver: None,
             file_entry_contract: None,
+            workspace_variable_usage: None,
             file_entry_contract_collector: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
@@ -2456,6 +2457,7 @@ fn build_semantic_model<'a>(
         source_path_resolver,
         plugin_resolver,
         file_entry_contract,
+        workspace_variable_usage,
         mut file_entry_contract_collector,
         file_entry_contract_collector_factory,
         analyzed_paths,
@@ -2511,6 +2513,9 @@ fn build_semantic_model<'a>(
             )
         };
         model.apply_source_contracts(contracts);
+        if let Some(usage) = workspace_variable_usage {
+            usage.apply(source_path, &mut model);
+        }
     }
     model
 }

@@ -122,7 +122,7 @@ struct StableCli {
 
 #[derive(Debug, Clone, ClapArgs)]
 struct GlobalArgs {
-    /// Path to shucked.toml or a TOML
+    /// Path to shucked.toml
     #[arg(
         long,
         action = clap::ArgAction::Append,
@@ -132,7 +132,7 @@ struct GlobalArgs {
         help_heading = "Global options"
     )]
     config: Vec<SingleConfigArgument>,
-    /// Ignore all configuration files.
+    /// Ignore all configuration files
     #[arg(long, global = true, help_heading = "Global options")]
     isolated: bool,
     #[arg(
@@ -143,7 +143,7 @@ struct GlobalArgs {
         help_heading = "Global options"
     )]
     color: Option<TerminalColor>,
-    /// Path to the cache directory.
+    /// Path to the cache directory
     #[arg(
         long,
         env = "SHUCKED_CACHE_DIR",
@@ -156,17 +156,16 @@ struct GlobalArgs {
 
 #[derive(Debug, Subcommand)]
 enum StableCommand {
-    /// Lint shell files and supported embedded shell scripts.
+    /// Lint shell files and supported embedded shell scripts
     Check(Box<CheckCommand>),
-    /// Start the language server over stdio.
+    /// Start the language server over stdio
     Server(ServerCommand),
-    /// Capture, inspect and compare execution targets without running script commands.
-    /// Work with captured execution targets.
+    /// Capture, inspect and compare execution targets without running script commands
     #[command(subcommand)]
     Target(TargetCommand),
-    /// Format shell files.
+    /// Format shell files
     Format(FormatCommand),
-    /// Remove shucked cache entries for the provided paths' projects.
+    /// Remove shucked cache entries
     Clean(CleanCommand),
 }
 

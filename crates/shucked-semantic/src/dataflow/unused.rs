@@ -65,9 +65,9 @@ pub(super) fn analyze_unused_assignments_exact(
             || binding
                 .attributes
                 .contains(BindingAttributes::SELF_REFERENTIAL_READ)
-            || binding
-                .attributes
-                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+            || binding.attributes.intersects(
+                BindingAttributes::EXTERNALLY_CONSUMED | BindingAttributes::WORKSPACE_CONSUMED,
+            )
             || always_used_bindings.contains(binding.id.index())
         {
             used_bindings.insert(binding.id.index());

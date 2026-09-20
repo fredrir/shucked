@@ -234,5 +234,7 @@ bitflags! {
         const IMPORTED_FILE_ENTRY_INITIALIZED = 0b1000_0000_0000_0000;
         /// The binding is consumed by runtime behavior outside direct syntax reads.
         const EXTERNALLY_CONSUMED    = 0b0001_0000_0000_0000_0000;
+        /// This exact binding is read by another workspace file.
+        const WORKSPACE_CONSUMED     = 0b0010_0000_0000_0000_0000;
     }
 }

@@ -247,3 +247,161 @@ echo "$ADMIN_DIR"
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert_eq!(diagnostics[0]["filename"], "elsewhere/common.sh");
 }
+
+#[test]
+fn workspace_reads_keep_only_the_reaching_assignment_used() {
+    for source in [
+        "ADMIN_DIR=old\nADMIN_DIR=current\n",
+        "ADMIN_DIR=old\ndeclare ADMIN_DIR=current\n",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("values.sh");
+        fs::write(&helper, source).unwrap();
+        fs::write(
+            root.path().join("consumer.sh"),
+            "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+        )
+        .unwrap();
+        for extra in [&[][..], &[][..], &["--no-cache"][..]] {
+            let diagnostics = check(root.path(), extra);
+            assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+            assert_eq!(diagnostics[0]["filename"], "values.sh");
+            assert_eq!(diagnostics[0]["location"]["row"], 1);
+        }
+        assert!(check(root.path(), &["--fix", "--unsafe-fixes"]).is_empty());
+        assert!(
+            fs::read_to_string(helper)
+                .unwrap()
+                .contains("ADMIN_DIR=current")
+        );
+    }
+}
+
+#[test]
+fn workspace_cache_tracks_assignment_identity_when_the_name_stays_used() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("values.sh"),
+        "ADMIN_DIR=first\nsource ./reader.sh\nADMIN_DIR=last\n",
+    )
+    .unwrap();
+    let reader = root.path().join("reader.sh");
+    let consumer = root.path().join("consumer.sh");
+    for (reader_text, consumer_text, unused_line) in [
+        ("echo \"$ADMIN_DIR\"\n", "source ./values.sh\n", 3),
+        (
+            "# no read\n",
+            "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+            1,
+        ),
+        ("echo \"$ADMIN_DIR\"\n", "source ./values.sh\n", 3),
+    ] {
+        fs::write(&reader, reader_text).unwrap();
+        fs::write(&consumer, consumer_text).unwrap();
+        let diagnostics = check(root.path(), &[]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0]["filename"], "values.sh");
+        assert_eq!(diagnostics[0]["location"]["row"], unused_line);
+    }
+}
+
+#[test]
+fn workspace_unset_blocks_previous_values_across_source_boundaries() {
+    for (helper, reset, consumer, expected_line) in [
+        (
+            "ADMIN_DIR=value\n",
+            "unset ADMIN_DIR\n",
+            "source ./values.sh\nsource ./reset.sh\necho \"$ADMIN_DIR\"\n",
+            1,
+        ),
+        (
+            "ADMIN_DIR=value\nunset ADMIN_DIR\n",
+            "",
+            "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+            1,
+        ),
+        (
+            "ADMIN_DIR=old\nunset ADMIN_DIR\nADMIN_DIR=new\n",
+            "",
+            "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+            1,
+        ),
+        (
+            "ADMIN_DIR=value\n",
+            "",
+            "source ./values.sh\nunset -v ADMIN_DIR\necho \"$ADMIN_DIR\"\n",
+            1,
+        ),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("values.sh"), helper).unwrap();
+        fs::write(root.path().join("reset.sh"), reset).unwrap();
+        fs::write(root.path().join("consumer.sh"), consumer).unwrap();
+        let diagnostics = check(root.path(), &[]);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "{helper}\n{reset}\n{consumer}: {diagnostics:?}"
+        );
+        assert_eq!(diagnostics[0]["filename"], "values.sh");
+        assert_eq!(diagnostics[0]["location"]["row"], expected_line);
+    }
+}
+
+#[test]
+fn conditional_writes_and_nonpersistent_unsets_preserve_possible_uses() {
+    for (helper, consumer) in [
+        (
+            "ADMIN_DIR=default\nif enabled; then ADMIN_DIR=other; fi\n",
+            "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+        ),
+        (
+            "ADMIN_DIR=value\n",
+            "source ./values.sh\n(unset ADMIN_DIR)\necho \"$ADMIN_DIR\"\n",
+        ),
+        (
+            "ADMIN_DIR=value\n",
+            "source ./values.sh\nunset -f ADMIN_DIR\necho \"$ADMIN_DIR\"\n",
+        ),
+        (
+            "ADMIN_DIR=value\n",
+            "source ./values.sh\nif enabled; then unset ADMIN_DIR; fi\necho \"$ADMIN_DIR\"\n",
+        ),
+        (
+            "ADMIN_DIR=value\n",
+            "source ./values.sh\nf() { local ADMIN_DIR=local; unset ADMIN_DIR; }; echo \"$ADMIN_DIR\"\n",
+        ),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("values.sh"), helper).unwrap();
+        fs::write(root.path().join("consumer.sh"), consumer).unwrap();
+        assert!(
+            check(root.path(), &[])
+                .iter()
+                .all(|d| d["filename"] != "values.sh"),
+            "{helper}\n{consumer}"
+        );
+    }
+}
+
+#[test]
+fn adding_an_ignore_keeps_later_workspace_assignment_locations_current() {
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("values.sh");
+    fs::write(&helper, "ADMIN_DIR=old\nADMIN_DIR=current\n").unwrap();
+    fs::write(
+        root.path().join("consumer.sh"),
+        "source ./values.sh\necho \"$ADMIN_DIR\"\n",
+    )
+    .unwrap();
+    Command::cargo_bin("shucked")
+        .unwrap()
+        .current_dir(root.path())
+        .args(["check", ".", "--select", "C001", "--add-ignore"])
+        .assert()
+        .success();
+    let source = fs::read_to_string(&helper).unwrap();
+    assert_eq!(source.matches("ignore=C001").count(), 1, "{source}");
+    assert!(source.contains("ADMIN_DIR=current\n"));
+    assert!(check(root.path(), &[]).is_empty());
+}

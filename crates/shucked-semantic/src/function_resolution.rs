@@ -130,84 +130,59 @@ pub(crate) fn collect_unconditional_function_bindings(
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     bindings: &[Binding],
 ) -> FxHashSet<BindingId> {
+    collect_unconditional_bindings(program, command_bindings)
+        .into_iter()
+        .filter(|id| matches!(bindings[id.index()].kind, BindingKind::FunctionDefinition))
+        .collect()
+}
+
+pub(crate) fn collect_unconditional_bindings(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+) -> FxHashSet<BindingId> {
     let mut unconditional = FxHashSet::default();
-    collect_sequence_function_bindings(
+    collect_sequence_bindings(
         program,
         program.file_commands(),
         command_bindings,
-        bindings,
         &mut unconditional,
     );
     for commands in program.function_bodies().values().copied() {
-        collect_sequence_function_bindings(
-            program,
-            commands,
-            command_bindings,
-            bindings,
-            &mut unconditional,
-        );
+        collect_sequence_bindings(program, commands, command_bindings, &mut unconditional);
     }
     unconditional
 }
 
-fn collect_sequence_function_bindings(
+fn collect_sequence_bindings(
     program: &RecordedProgram,
     commands: RecordedCommandRange,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
-    bindings: &[Binding],
     unconditional: &mut FxHashSet<BindingId>,
 ) {
     for &command_id in program.commands_in(commands) {
-        collect_command_function_bindings(
-            program,
-            command_id,
-            command_bindings,
-            bindings,
-            unconditional,
-        );
+        collect_command_bindings(program, command_id, command_bindings, unconditional);
     }
 }
 
-fn collect_command_function_bindings(
+fn collect_command_bindings(
     program: &RecordedProgram,
     command_id: CommandId,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
-    bindings: &[Binding],
     unconditional: &mut FxHashSet<BindingId>,
 ) {
     let command = program.command(command_id);
-    collect_direct_function_bindings(command.span, command_bindings, bindings, unconditional);
+    collect_direct_bindings(command.span, command_bindings, unconditional);
 
     match command.kind {
-        RecordedCommandKind::List { first, .. } => collect_command_function_bindings(
-            program,
-            first,
-            command_bindings,
-            bindings,
-            unconditional,
-        ),
-        RecordedCommandKind::BraceGroup { body } => collect_sequence_function_bindings(
-            program,
-            body,
-            command_bindings,
-            bindings,
-            unconditional,
-        ),
+        RecordedCommandKind::List { first, .. } => {
+            collect_command_bindings(program, first, command_bindings, unconditional)
+        }
+        RecordedCommandKind::BraceGroup { body } => {
+            collect_sequence_bindings(program, body, command_bindings, unconditional)
+        }
         RecordedCommandKind::Always { body, always_body } => {
-            collect_sequence_function_bindings(
-                program,
-                body,
-                command_bindings,
-                bindings,
-                unconditional,
-            );
-            collect_sequence_function_bindings(
-                program,
-                always_body,
-                command_bindings,
-                bindings,
-                unconditional,
-            );
+            collect_sequence_bindings(program, body, command_bindings, unconditional);
+            collect_sequence_bindings(program, always_body, command_bindings, unconditional);
         }
         RecordedCommandKind::Linear
         | RecordedCommandKind::Break { .. }
@@ -226,22 +201,16 @@ fn collect_command_function_bindings(
     }
 }
 
-fn collect_direct_function_bindings(
+fn collect_direct_bindings(
     span: Span,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
-    bindings: &[Binding],
     unconditional: &mut FxHashSet<BindingId>,
 ) {
     let key = SpanKey::new(span);
     let Some(command_bindings) = command_bindings.get(&key) else {
         return;
     };
-    unconditional.extend(command_bindings.iter().copied().filter(|binding| {
-        matches!(
-            bindings[binding.index()].kind,
-            BindingKind::FunctionDefinition
-        )
-    }));
+    unconditional.extend(command_bindings.iter().copied());
 }
 
 struct FunctionCallResolver<'a> {

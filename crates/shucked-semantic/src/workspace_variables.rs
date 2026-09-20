@@ -36,6 +36,7 @@ struct VariableDefinition {
     name: Name,
     definition_span: Span,
     occurrence_span: Span,
+    definite_write: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -57,10 +58,16 @@ struct FileVariableFacts {
     definitions: Vec<VariableDefinition>,
     references: Vec<VariableReference>,
     source_effects: Vec<CallFactSourceEffect>,
+    clears: BTreeMap<Name, Vec<usize>>,
+    return_offsets: Vec<usize>,
 }
 
 impl FileVariableFacts {
     fn project(model: &SemanticModel, source_effects: &[CallFactSourceEffect]) -> Self {
+        let unconditional = crate::function_resolution::collect_unconditional_bindings(
+            &model.recorded_program,
+            &model.command_bindings,
+        );
         let definitions = model
             .bindings()
             .iter()
@@ -69,6 +76,15 @@ impl FileVariableFacts {
                 name: binding.name.clone(),
                 definition_span: binding_definition_span(binding),
                 occurrence_span: binding_occurrence_span(binding),
+                definite_write: unconditional.contains(&binding.id)
+                    && (matches!(binding.kind, BindingKind::Assignment)
+                        || (matches!(binding.kind, BindingKind::Declaration(_))
+                            && binding
+                                .attributes
+                                .contains(BindingAttributes::DECLARATION_INITIALIZED)))
+                    && !binding
+                        .attributes
+                        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC),
             })
             .collect();
         let references = model
@@ -116,7 +132,36 @@ impl FileVariableFacts {
             })
             .collect();
 
+        let mut clears = BTreeMap::<Name, Vec<usize>>::new();
+        for ((scope, name), offsets) in &model.cleared_variables {
+            if model.enclosing_function_scope(*scope).is_none()
+                && model
+                    .innermost_transient_scope_within_function(*scope)
+                    .is_none()
+            {
+                clears.entry(name.clone()).or_default().extend(offsets);
+            }
+        }
+        let return_offsets = model
+            .commands()
+            .iter()
+            .filter_map(|command| {
+                if model.command_kind(*command)
+                    != crate::CommandKind::Builtin(crate::BuiltinCommandKind::Return)
+                {
+                    return None;
+                }
+                let context = model.command_context(*command)?;
+                (model.enclosing_function_scope(context.scope()).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(context.scope())
+                        .is_none())
+                .then_some(model.command_span(*command).start.offset())
+            })
+            .collect();
         Self {
+            return_offsets,
+            clears,
             definitions,
             references,
             source_effects: source_effects.to_vec(),
@@ -181,29 +226,101 @@ pub struct WorkspaceVariableIndex {
     incoming: BTreeMap<PathBuf, BTreeSet<IncomingVariableSource>>,
 }
 
-/// Cross-file reads of persistent variable families, keyed by canonical path.
+/// A source-backed binding consumed by another workspace file.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WorkspaceConsumedBinding {
+    /// Variable name.
+    pub name: Name,
+    /// Start of the binding's name span, in bytes.
+    pub start: usize,
+    /// End of the binding's name span, in bytes.
+    pub end: usize,
+}
+
+impl WorkspaceConsumedBinding {
+    fn new(name: Name, span: Span) -> Self {
+        Self {
+            name,
+            start: span.start.offset(),
+            end: span.end.offset(),
+        }
+    }
+}
+
+/// Cross-file reads of individual bindings, keyed by canonical path.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkspaceVariableUsage {
-    consumed: BTreeMap<PathBuf, BTreeSet<Name>>,
+    consumed: BTreeMap<PathBuf, BTreeSet<WorkspaceConsumedBinding>>,
 }
 
 impl WorkspaceVariableUsage {
-    /// Names read by another file in the same source environment.
-    pub fn consumed_names(&self, path: &Path) -> Vec<Name> {
+    /// Bindings read by another file in the same source environment.
+    pub fn consumed_bindings(&self, path: &Path) -> Vec<WorkspaceConsumedBinding> {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         self.consumed
             .get(&path)
-            .map(|names| names.iter().cloned().collect())
+            .map(|bindings| bindings.iter().cloned().collect())
             .unwrap_or_default()
     }
 
-    /// Entry contract for bindings consumed by workspace callers.
-    pub fn file_contract(&self, path: &Path) -> crate::FileContract {
-        crate::FileContract {
-            externally_consumed_binding_names: self.consumed_names(path),
-            ..crate::FileContract::default()
+    /// Names read by another file in the same source environment.
+    pub fn consumed_names(&self, path: &Path) -> Vec<Name> {
+        self.consumed_bindings(path)
+            .into_iter()
+            .map(|binding| binding.name)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
+    /// Update binding locations after edits; discard replaced bindings.
+    pub fn remap_file_bindings(
+        &mut self,
+        path: &Path,
+        map_range: impl Fn(std::ops::Range<usize>) -> Option<std::ops::Range<usize>>,
+    ) {
+        let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        if let Some(bindings) = self.consumed.get_mut(&path) {
+            *bindings = bindings
+                .iter()
+                .filter_map(|binding| {
+                    let range = map_range(binding.start..binding.end)?;
+                    Some(WorkspaceConsumedBinding {
+                        name: binding.name.clone(),
+                        start: range.start,
+                        end: range.end,
+                    })
+                })
+                .collect();
         }
     }
+
+    pub(crate) fn apply(&self, path: &Path, model: &mut SemanticModel) {
+        let consumed = self
+            .consumed_bindings(path)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        for binding in &mut model.bindings {
+            if consumed.contains(&WorkspaceConsumedBinding::new(
+                binding.name.clone(),
+                binding.span,
+            )) {
+                binding.attributes |= BindingAttributes::WORKSPACE_CONSUMED;
+            }
+        }
+        model.heuristic_unused_assignments.retain(|id| {
+            !model.bindings[id.index()]
+                .attributes
+                .contains(BindingAttributes::WORKSPACE_CONSUMED)
+        });
+        model.invalidate_semantic_caches();
+    }
+}
+
+#[derive(Default)]
+struct ReachingDefinitions {
+    bindings: BTreeSet<(PathBuf, WorkspaceConsumedBinding)>,
+    inherits: bool,
 }
 
 impl WorkspaceVariableIndex {
@@ -258,13 +375,13 @@ impl WorkspaceVariableIndex {
                 ) else {
                     continue;
                 };
-                for definition in definitions {
+                for (definition, binding) in definitions.bindings {
                     if definition != *path {
                         usage
                             .consumed
                             .entry(definition)
                             .or_default()
-                            .insert(reference.name.clone());
+                            .insert(binding);
                     }
                 }
             }
@@ -281,12 +398,36 @@ impl WorkspaceVariableIndex {
         inherit: bool,
         active: &mut BTreeSet<PathBuf>,
         is_cancelled: &dyn Fn() -> bool,
-    ) -> Option<BTreeSet<PathBuf>> {
+    ) -> Option<ReachingDefinitions> {
         if is_cancelled() || !active.insert(path.to_path_buf()) {
             return None;
         }
-        let result =
-            self.reaching_variable_paths_inner(path, name, cutoff, inherit, active, is_cancelled);
+        let result = (|| {
+            let mut result = self.reaching_variable_paths_inner(
+                path,
+                name,
+                cutoff,
+                inherit,
+                active,
+                is_cancelled,
+            )?;
+            if cutoff == usize::MAX {
+                // Sourced files also export values at top-level return sites.
+                for offset in &self.files.get(path)?.return_offsets {
+                    let returned = self.reaching_variable_paths_inner(
+                        path,
+                        name,
+                        *offset,
+                        inherit,
+                        active,
+                        is_cancelled,
+                    )?;
+                    result.bindings.extend(returned.bindings);
+                    result.inherits |= returned.inherits;
+                }
+            }
+            Some(result)
+        })();
         active.remove(path);
         result
     }
@@ -300,43 +441,75 @@ impl WorkspaceVariableIndex {
         inherit: bool,
         active: &mut BTreeSet<PathBuf>,
         is_cancelled: &dyn Fn() -> bool,
-    ) -> Option<BTreeSet<PathBuf>> {
+    ) -> Option<ReachingDefinitions> {
+        enum Effect<'a> {
+            Write(&'a VariableDefinition),
+            Source(&'a CallFactSourceEffect),
+            Clear,
+        }
         let facts = self.files.get(path)?;
-        let last_definition = facts
-            .definitions
-            .iter()
-            .filter(|definition| {
-                definition.name == *name && definition.definition_span.end.offset() <= cutoff
-            })
-            .map(|definition| definition.definition_span.start.offset())
-            .max();
-        // Later assignments replace sourced values; later sources may replace assignments.
-        for effect in facts.source_effects.iter().rev().filter(|effect| {
-            effect.persistent
+        let mut effects = Vec::new();
+        for definition in &facts.definitions {
+            if definition.name == *name && definition.definition_span.end.offset() <= cutoff {
+                effects.push((
+                    definition.definition_span.end.offset(),
+                    Effect::Write(definition),
+                ));
+            }
+        }
+        for effect in &facts.source_effects {
+            if effect.persistent
                 && effect.enclosing_function.is_none()
                 && effect.span.end.offset() <= cutoff
-                && last_definition.is_none_or(|offset| effect.span.start.offset() > offset)
-        }) {
-            if is_cancelled() || effect.conditional {
+            {
+                effects.push((effect.span.end.offset(), Effect::Source(effect)));
+            }
+        }
+        if let Some(offsets) = facts.clears.get(name) {
+            effects.extend(
+                offsets
+                    .iter()
+                    .filter(|offset| **offset < cutoff)
+                    .map(|offset| (*offset, Effect::Clear)),
+            );
+        }
+        effects.sort_by_key(|(offset, _)| *offset);
+        let mut result = ReachingDefinitions::default();
+        for (_, effect) in effects.into_iter().rev() {
+            if is_cancelled() {
                 return None;
             }
-            let target = effect.path.as_deref()?;
-            let definitions = self.reaching_variable_paths(
-                target,
-                name,
-                usize::MAX,
-                false,
-                active,
-                is_cancelled,
-            )?;
-            if !definitions.is_empty() {
-                return Some(definitions);
+            match effect {
+                Effect::Write(definition) => {
+                    result.bindings.insert((
+                        path.to_path_buf(),
+                        WorkspaceConsumedBinding::new(name.clone(), definition.occurrence_span),
+                    ));
+                    if definition.definite_write {
+                        return Some(result);
+                    }
+                }
+                Effect::Clear => return Some(result),
+                Effect::Source(effect) => {
+                    if effect.conditional {
+                        return None;
+                    }
+                    let provided = self.reaching_variable_paths(
+                        effect.path.as_deref()?,
+                        name,
+                        usize::MAX,
+                        false,
+                        active,
+                        is_cancelled,
+                    )?;
+                    result.bindings.extend(provided.bindings);
+                    if !provided.inherits {
+                        return Some(result);
+                    }
+                }
             }
         }
-        if last_definition.is_some() {
-            return Some(BTreeSet::from([path.to_path_buf()]));
-        }
-        let mut definitions = BTreeSet::new();
+        result.inherits = true;
         if inherit && let Some(incoming) = self.incoming.get(path) {
             for source in incoming {
                 if is_cancelled() {
@@ -350,11 +523,11 @@ impl WorkspaceVariableIndex {
                     active,
                     is_cancelled,
                 ) {
-                    definitions.extend(inherited);
+                    result.bindings.extend(inherited.bindings);
                 }
             }
         }
-        Some(definitions)
+        Some(result)
     }
 
     /// Returns `None` when source effects are ambiguous or the query is cancelled.
@@ -854,6 +1027,7 @@ mod tests {
             name: Name::from(name),
             definition_span: span(offset),
             occurrence_span: span(offset),
+            definite_write: true,
         }
     }
 

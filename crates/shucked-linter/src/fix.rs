@@ -151,6 +151,36 @@ pub struct AppliedFixes {
     pub code: String,
     /// Number of diagnostic fixes applied.
     pub fixes_applied: usize,
+    edits: Vec<Edit>,
+}
+
+impl AppliedFixes {
+    /// Map an unchanged source range through the applied edits.
+    pub fn map_range(&self, range: std::ops::Range<usize>) -> Option<std::ops::Range<usize>> {
+        map_range_through_edits(range, &self.edits)
+    }
+}
+
+pub(crate) fn map_range_through_edits(
+    range: std::ops::Range<usize>,
+    edits: &[Edit],
+) -> Option<std::ops::Range<usize>> {
+    let mut start = range.start;
+    let mut end = range.end;
+    for edit in edits {
+        if edit.end_offset() <= range.start {
+            let removed = edit.end_offset() - edit.start_offset();
+            start = start
+                .checked_sub(removed)?
+                .checked_add(edit.content().len())?;
+            end = end
+                .checked_sub(removed)?
+                .checked_add(edit.content().len())?;
+        } else if edit.start_offset() < range.end {
+            return None;
+        }
+    }
+    Some(start..end)
 }
 
 #[derive(Debug, Clone)]
@@ -196,13 +226,14 @@ pub fn apply_fixes(
         return AppliedFixes {
             code: source.to_owned(),
             fixes_applied: 0,
+            edits: Vec::new(),
         };
     }
 
     applied_edits.sort_by(compare_edits);
     let mut output = String::with_capacity(source.len());
     let mut cursor = 0;
-    for edit in applied_edits {
+    for edit in &applied_edits {
         let start = edit.start_offset();
         let end = edit.end_offset();
         debug_assert!(start <= end);
@@ -219,6 +250,7 @@ pub fn apply_fixes(
     AppliedFixes {
         code: output,
         fixes_applied: applied_fixes,
+        edits: applied_edits,
     }
 }
 

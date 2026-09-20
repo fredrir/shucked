@@ -44,9 +44,9 @@ pub fn unused_assignment(checker: &mut Checker) {
     for binding in semantic.bindings() {
         if matches!(binding.kind, BindingKind::ReadTarget)
             && binding.references.is_empty()
-            && !binding
-                .attributes
-                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+            && !binding.attributes.intersects(
+                BindingAttributes::EXTERNALLY_CONSUMED | BindingAttributes::WORKSPACE_CONSUMED,
+            )
             && !semantic.is_runtime_consumed_binding(binding.id)
             && !unused_bindings.contains(&binding.id)
         {
@@ -491,6 +491,17 @@ fn binding_counts_as_used_family_member(
     binding: &Binding,
     unused_binding_ids: &HashSet<BindingId>,
 ) -> bool {
+    if binding
+        .attributes
+        .contains(BindingAttributes::WORKSPACE_CONSUMED)
+        && !binding
+            .attributes
+            .contains(BindingAttributes::EXTERNALLY_CONSUMED)
+        && binding.references.is_empty()
+    {
+        return false;
+    }
+
     if matches!(binding.kind, BindingKind::AppendAssignment) {
         return true;
     }

@@ -49,12 +49,13 @@ pub fn add_ignores_to_path_with_resolvers(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
     plugin_resolver: Option<&(dyn PluginResolver + Send + Sync)>,
 ) -> Result<AddIgnoreResult> {
+    let mut settings = settings.clone();
     let shellcheck_map = ShellCheckCodeMap::default();
     let mut source =
         fs::read_to_string(path).with_context(|| format!("read source from {}", path.display()))?;
     let mut analysis = analyze_source(
         &source,
-        settings,
+        &settings,
         &shellcheck_map,
         Some(path),
         source_path_resolver,
@@ -71,7 +72,7 @@ pub fn add_ignores_to_path_with_resolvers(
     for line in target_lines {
         analysis = analyze_source(
             &source,
-            settings,
+            &settings,
             &shellcheck_map,
             Some(path),
             source_path_resolver,
@@ -99,9 +100,10 @@ pub fn add_ignores_to_path_with_resolvers(
         };
 
         let candidate_source = apply_edit(&source, &edit);
+        let candidate_settings = settings_after_ignore(&settings, Some(path), &edit);
         let candidate_analysis = analyze_source(
             &candidate_source,
-            settings,
+            &candidate_settings,
             &shellcheck_map,
             Some(path),
             source_path_resolver,
@@ -111,6 +113,7 @@ pub fn add_ignores_to_path_with_resolvers(
             continue;
         }
 
+        settings = candidate_settings;
         source = candidate_source;
         analysis = candidate_analysis;
         directives_added += 1;
@@ -156,9 +159,10 @@ pub fn build_ignore_edit_for_line(
         &shellcheck_map,
     )?;
     let candidate_source = apply_edit(source, &edit);
+    let candidate_settings = settings_after_ignore(settings, source_path, &edit);
     let candidate_analysis = analyze_source(
         &candidate_source,
-        settings,
+        &candidate_settings,
         &shellcheck_map,
         source_path,
         None,
@@ -171,6 +175,27 @@ pub fn build_ignore_edit_for_line(
             edit.replacement,
         ),
     )
+}
+
+fn settings_after_ignore(
+    settings: &LinterSettings,
+    path: Option<&Path>,
+    edit: &IgnoreEdit,
+) -> LinterSettings {
+    let mut settings = settings.clone();
+    if let Some(path) = path
+        && let Some(usage) = &mut settings.workspace_variable_usage
+    {
+        let edit = crate::Edit::replacement_at(
+            usize::from(edit.range.start()),
+            usize::from(edit.range.end()),
+            edit.replacement.clone(),
+        );
+        std::sync::Arc::make_mut(usage).remap_file_bindings(path, |range| {
+            crate::fix::map_range_through_edits(range, std::slice::from_ref(&edit))
+        });
+    }
+    settings
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

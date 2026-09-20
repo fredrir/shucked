@@ -378,6 +378,8 @@ pub struct SemanticBuildOptions<'a> {
     pub plugin_resolver: Option<&'a (dyn PluginResolver + Send + Sync)>,
     /// Precomputed file-entry contract to apply before analysis.
     pub file_entry_contract: Option<FileContract>,
+    /// Assignment-specific reads from other workspace files.
+    pub workspace_variable_usage: Option<&'a crate::WorkspaceVariableUsage>,
     /// Optional observer that can derive a file-entry contract during traversal.
     pub file_entry_contract_collector: Option<&'a mut dyn FileEntryContractCollector>,
     /// Optional factory for deriving file-entry contracts while summarizing helpers.
@@ -398,6 +400,7 @@ impl Default for SemanticBuildOptions<'_> {
             source_path_resolver: None,
             plugin_resolver: None,
             file_entry_contract: None,
+            workspace_variable_usage: None,
             file_entry_contract_collector: None,
             file_entry_contract_collector_factory: None,
             analyzed_paths: None,
