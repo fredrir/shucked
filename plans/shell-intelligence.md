@@ -7,16 +7,16 @@ Status: implementation in progress. The original acceptance gates below remain b
 | Area                   | Implemented                                                                                                                                          | Remaining gate                                                                                  |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | Shared resolution      | `shucked-command`, source-backed semantic facts, exact PATH evidence, tri-state results; independent review and regression tests                     | WAN and cold filesystem-cache measurements                                                           |
-| Editor feedback        | Command tokens, resolution hover, parser/environment workers, snapshot-checked corrections; development and installed VSIX smoke pass on macOS arm64 | Other platform/editor acceptance                                                                |
+| Editor feedback        | Command tokens, resolution hover, parser/environment workers, snapshot-checked corrections; installed release VSIX18 checks pass on macOS arm64 and native Linux x64 | Other platform/editor acceptance                                                                |
 | Context                | Workspace/Portable, captured targets, terminal selection, explicit cwd, untitled association                                                                               | Real WSL and remote VS Code UI; SSH/container protocol checks pass                                 |
 | Validators             | Brew/Git inventories; exact-version eza/rg/fd/bat/GNU/BSD ls/Pacman/curl/SSH/Docker/kubectl grammar                                                                   | Uncovered versions/extensions remain Unknown; finite coverage recorded in validator manifests |
-| Providers              | Vendored definitions; managed Zsh/Bash/Fish adapters; private macOS arm64 engines                                                                    | All advertised native runtime targets and private Unix helper closure                           |
+| Providers              | Vendored definitions; managed Zsh/Bash/Fish adapters; private engines/helpers validated on macOS arm64 and native Linux GNU/musl x64                                                                    | Intel macOS, ARMHF and Windows execution; ARM64 final receipts explicitly emulated                           |
 | Fish                   | Dedicated command/syntax frontend and completion routing                                                                                             | Broader Fish grammar fixtures; full existing lint-rule parity is not claimed                    |
 | Refresh/dependencies   | Host filesystem watches, relative PATH/cwd contexts, coalesced refresh, scoped declarations and guards                                                                                  | Unsupported filesystems use bounded polling fallback                               |
 | Live sessions          | Authenticated Bash/Zsh/Fish prompt hooks and transient custom completers; real shell/editor fixtures                                   | Unix signal channel only; Windows custom-completer channel unavailable        |
 | Inventories/comparison | Versioned bounded capture/import, audited capability evidence, target-labelled argument comparison                                                                                      | Uncovered capabilities remain Unknown                         |
-| History                | Separate opt-ins, actual custom history paths, bounded memory, authenticated accepted-command confirmation                                                                        | Real editor insertion/revocation pass on macOS arm64                  |
-| Distribution           | Pinned hashes, licenses/source archives, exact runtime target checks; macOS arm64 installed VSIX passes; Linux build recipes                         | Linux/macOS x64/Windows runtime artifacts and installed-package matrix                          |
+| History                | Separate opt-ins, actual custom history paths, bounded memory, authenticated accepted-command confirmation                                                                        | Real editor insertion/revocation pass on macOS arm64 and Linux x64                  |
+| Distribution           | Pinned hashes, licenses/source archives, exact runtime architecture checks; Windows dispatch cross-checks; native Linux GNU/musl x64 runtime artifacts                         | Release VSIX18/18 on macOS arm64/Linux x64; Intel macOS, ARMHF and Windows execution remain gated                          |
 
 Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
 
@@ -49,13 +49,31 @@ Linux ARM64 debug server in a local VM; 10 fresh processes, 10 warmups and 100 w
 |---|---|
 | Real host | Arch Linux x86_64 over SSH from macOS arm64 |
 | Absolute and relative PATH | Host inventory, paths, install refresh and reconnect passed; 1.038 s each |
-| Native package/flag completion | Real pacman repository packages and bundled Git flags through Bash/Zsh/Fish LSP; exact insertion; hostile personal startup files ignored; 0.698 s |
+| Native package/flag completion | Real pacman repository packages and bundled Git flags through Bash/Zsh/Fish LSP; exact insertion; hostile personal startup files ignored; debug and release pass |
 | Startup through first completion | Debug p50 56.381 ms; p95 57.649 ms |
 | Warm command completion | Debug p50 14.611 ms; p95 18.432 ms |
 | Warm native arguments | Debug p50 3.586 ms; p95 3.977 ms |
 | Edit through completion | Debug p50 21.881 ms; p95 23.057 ms |
 | Measurement scope | Same fixture and sample counts as remote benchmark above; actual SSH, warm filesystem caches |
 | Unavailable hosts | User confirmed no Windows/WSL or Intel macOS host |
+
+## Final integrated validation
+
+| Layer | Result |
+|---|---|
+| Shared command resolver/processes | 47 tests passed |
+| LSP Rust | 252 unit and 33 integration tests passed; one manual latency probe ignored |
+| LSP protocol | 52 tests passed against freshly rebuilt binaries |
+| Extension | 37 tests passed, including real Bash/Zsh/Fish callbacks |
+| Static checks | Formatting and three-crate all-target Clippy passed |
+| Windows cross-check | x64 GNU target tests compile and Clippy passed; no Windows execution claim |
+| Installed macOS arm64 | Release VSIX18/18, VS Code1.138.0; isolated secret storage/profile |
+| Installed Linux x64 | Release and debug VSIX18/18 on native Arch hardware, VS Code1.138.0 in isolated Docker; release built against Debian/glibc2.36 |
+| Runtime artifacts | macOS arm64 and GNU/musl Linux x64 relocation and strict inventory checks passed natively; latest GNU/musl ARM64 receipts passed under isolated QEMU/proot |
+| Provider tooling | 8 JavaScript and 11 Python tests passed; GNU managed-runtime minimum glibc2.36 |
+| Review | Independent review completed; insertion, ownership, PE architecture and source-hint test findings fixed |
+
+Local artifact receipts under `target/acceptance/` record binary/VSIX hashes and actual host reports. These files are build outputs, not committed fixtures. Windows live custom-completer transport remains unavailable; Windows/WSL, Intel macOS and ARMHF execution gates remain open.
 
 ## Confirmed scope
 
