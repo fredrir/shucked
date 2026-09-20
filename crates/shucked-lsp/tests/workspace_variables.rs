@@ -113,3 +113,42 @@ fn unsaved_helper_definitions_participate_in_workspace_usage() {
     let uri = open(&mut session, &helper, "ADMIN_DIR=/srv/admin\n", 1);
     assert!(unused(&session, &uri).is_empty());
 }
+
+#[test]
+fn derived_source_directories_follow_unsaved_consumer_changes() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join(".shucked.toml"),
+        "[lint]\nselect = ['C001']\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join("scripts")).unwrap();
+    fs::create_dir_all(root.path().join("lib one")).unwrap();
+    fs::create_dir_all(root.path().join("lib two")).unwrap();
+    let first = root.path().join("lib one/common.sh");
+    let second = root.path().join("lib two/common.sh");
+    let helper_source = "ADMIN_DIR=/srv/admin\n";
+    fs::write(&first, helper_source).unwrap();
+    fs::write(&second, helper_source).unwrap();
+    let consumer = root.path().join("scripts/backup-sanity");
+    let source = r#"#!/usr/bin/env bash
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+source "${ROOT_DIR}/lib one/common.sh"
+echo "$ADMIN_DIR"
+"#;
+    fs::write(&consumer, source).unwrap();
+    let mut session = session(root.path());
+    let first_uri = open(&mut session, &first, helper_source, 1);
+    let second_uri = open(&mut session, &second, helper_source, 1);
+    assert!(unused(&session, &first_uri).is_empty());
+    assert_eq!(unused(&session, &second_uri).len(), 1);
+    open(
+        &mut session,
+        &consumer,
+        &source.replace("lib one", "lib two"),
+        1,
+    );
+    assert_eq!(unused(&session, &first_uri).len(), 1);
+    assert!(unused(&session, &second_uri).is_empty());
+}

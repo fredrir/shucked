@@ -481,7 +481,7 @@ fn render_source_path_template(
                 rendered.push_str(&path_to_template_string(source_path.parent()?))
             }
             TemplatePart::SourceFile => rendered.push_str(&path_to_template_string(source_path)),
-            TemplatePart::Arg(_) => return None,
+            TemplatePart::Arg(_) | TemplatePart::LogicalDirectory(_) => return None,
         }
     }
     let trimmed = rendered.trim();

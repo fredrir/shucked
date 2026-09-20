@@ -166,3 +166,84 @@ fn workspace_usage_terminates_on_source_cycles() {
     // A recursive source cannot prove a completed import of ADMIN_DIR.
     assert_eq!(check(root.path(), &[]).len(), 1);
 }
+
+#[test]
+fn workspace_sources_follow_derived_directories_and_cached_target_changes() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("scripts")).unwrap();
+    fs::create_dir_all(root.path().join("lib one")).unwrap();
+    fs::create_dir_all(root.path().join("lib two")).unwrap();
+    for directory in ["lib one", "lib two"] {
+        fs::write(
+            root.path().join(directory).join("common.sh"),
+            "ADMIN_DIR=/srv/admin\n",
+        )
+        .unwrap();
+    }
+    let consumer = root.path().join("scripts/backup-sanity");
+    let source = r#"#!/usr/bin/env bash
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+LIB_DIR="${ROOT_DIR}/lib one"
+source "$LIB_DIR/common.sh"
+echo "$ADMIN_DIR"
+"#;
+    fs::write(&consumer, source).unwrap();
+    for (content, unused_directory) in [
+        (source.to_owned(), "lib two"),
+        (source.replace("lib one", "lib two"), "lib one"),
+    ] {
+        fs::write(&consumer, content).unwrap();
+        let diagnostics = check(root.path(), &[]);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(
+            diagnostics[0]["filename"],
+            format!("{unused_directory}/common.sh")
+        );
+    }
+    Command::cargo_bin("shucked")
+        .unwrap()
+        .current_dir(root.path())
+        .args([
+            "check",
+            "scripts/backup-sanity",
+            "--select",
+            "C006",
+            "--no-cache",
+        ])
+        .assert()
+        .success();
+}
+
+#[cfg(unix)]
+#[test]
+fn derived_directories_preserve_logical_parent_paths_across_symlinks() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("scripts")).unwrap();
+    fs::create_dir_all(root.path().join("elsewhere/child")).unwrap();
+    std::os::unix::fs::symlink(
+        root.path().join("elsewhere/child"),
+        root.path().join("scripts/link"),
+    )
+    .unwrap();
+    for directory in ["scripts", "elsewhere"] {
+        fs::write(
+            root.path().join(directory).join("common.sh"),
+            "ADMIN_DIR=/srv/admin\n",
+        )
+        .unwrap();
+    }
+    fs::write(
+        root.path().join("scripts/consumer.sh"),
+        r#"#!/usr/bin/env bash
+SCRIPT_DIR="$(dirname -- "${BASH_SOURCE[0]}")"
+LIB_DIR="$(cd -L -- "$SCRIPT_DIR/link/.." && pwd -L)"
+source "$LIB_DIR/common.sh"
+echo "$ADMIN_DIR"
+"#,
+    )
+    .unwrap();
+    let diagnostics = check(root.path(), &[]);
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0]["filename"], "elsewhere/common.sh");
+}

@@ -196,6 +196,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                     self.source,
                     self.runtime.bash_enabled(),
                     self.shell_profile.dialect == ShellDialect::Zsh,
+                    |name, span| self.resolve_source_path_variable(name, span),
                 )
             }
             _ => recorded_command_info(

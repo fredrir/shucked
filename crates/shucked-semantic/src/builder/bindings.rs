@@ -1,6 +1,27 @@
 use super::*;
 
 impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
+    pub(super) fn resolve_source_path_variable(
+        &self,
+        name: &Name,
+        span: Span,
+    ) -> Option<SourcePathTemplate> {
+        let id = self.resolve_reference(name, self.current_scope(), span.start.offset())?;
+        let binding = &self.bindings[id.index()];
+        if self
+            .cleared_variables
+            .get(&(binding.scope, name.clone()))
+            .is_some_and(|offsets| {
+                offsets.iter().any(|offset| {
+                    *offset > binding.span.start.offset() && *offset < span.start.offset()
+                })
+            })
+        {
+            return None;
+        }
+        self.source_path_templates_by_binding.get(&id).cloned()
+    }
+
     pub(super) fn visit_assignment_reads_into(
         &mut self,
         assignment: &'a Assignment,
@@ -90,7 +111,13 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             flow,
         );
 
-        let source_path_template = assignment_source_path_template_for_binding(self, assignment);
+        let source_path_template = (!flow.conditionally_executed
+            && matches!(kind, BindingKind::Assignment | BindingKind::Declaration(_))
+            && !attributes.intersects(
+                BindingAttributes::ARRAY | BindingAttributes::ASSOC | BindingAttributes::NAMEREF,
+            ))
+        .then(|| assignment_source_path_template_for_binding(self, assignment))
+        .flatten();
         let binding = self.add_binding(
             &assignment.target.name,
             kind,
@@ -338,15 +365,6 @@ fn assignment_source_path_template_for_binding(
         builder.source,
         builder.runtime.bash_enabled(),
         zsh_runtime_vars_enabled,
-        |name, span| {
-            builder
-                .resolve_reference(name, builder.current_scope(), span.start.offset())
-                .and_then(|binding_id| {
-                    builder
-                        .source_path_templates_by_binding
-                        .get(&binding_id)
-                        .cloned()
-                })
-        },
+        |name, span| builder.resolve_source_path_variable(name, span),
     )
 }

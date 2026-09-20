@@ -62,6 +62,7 @@ pub(super) fn recorded_simple_command_info(
         source,
         bash_runtime_vars_enabled,
         zsh_runtime_vars_enabled,
+        |_, _| None,
     )
 }
 
@@ -71,6 +72,7 @@ pub(super) fn recorded_simple_command_info_with(
     source: &str,
     bash_runtime_vars_enabled: bool,
     zsh_runtime_vars_enabled: bool,
+    resolve_variable_template: impl FnMut(&Name, Span) -> Option<SourcePathTemplate>,
 ) -> RecordedCommandInfo {
     let static_callee = recorded_static_callee(normalized).map(Into::into);
     let dynamic_name_span = static_callee
@@ -84,12 +86,18 @@ pub(super) fn recorded_simple_command_info_with(
         .filter(|name| matches!(*name, "source" | "."))
         .and_then(|_| command.args.first())
         .and_then(|word| {
-            source_path_template(
+            if static_word_text(word, source).is_some() {
+                return None;
+            }
+            crate::source_closure::source_path_template_with_resolver(
                 word,
                 source,
                 bash_runtime_vars_enabled,
                 zsh_runtime_vars_enabled,
+                resolve_variable_template,
             )
+            // Unanchored variables retain their existing source diagnostic policy.
+            .filter(|resolved| resolved.ignored_root || !resolved.template.is_literal())
         });
     let source_path_template_ignored_root = resolved_source_path_template
         .as_ref()

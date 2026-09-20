@@ -35,9 +35,7 @@ use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
 use crate::scope::ancestor_scopes;
-use crate::source_closure::{
-    SourcePathTemplate, assignment_source_path_template, source_path_template,
-};
+use crate::source_closure::{SourcePathTemplate, assignment_source_path_template};
 use crate::source_ref::{
     SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
     SourceRefResolution, default_diagnostic_class,

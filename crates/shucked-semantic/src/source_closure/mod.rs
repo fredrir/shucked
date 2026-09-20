@@ -567,10 +567,16 @@ fn source_ref_can_import_provided_bindings(
 
 fn template_has_current_source_anchor(template: &SourcePathTemplate) -> bool {
     match template {
-        SourcePathTemplate::Interpolated(parts) => parts
-            .iter()
-            .any(|part| matches!(part, TemplatePart::SourceDir | TemplatePart::SourceFile)),
+        SourcePathTemplate::Interpolated(parts) => parts_have_current_source_anchor(parts),
     }
+}
+
+fn parts_have_current_source_anchor(parts: &[TemplatePart]) -> bool {
+    parts.iter().any(|part| match part {
+        TemplatePart::SourceDir | TemplatePart::SourceFile => true,
+        TemplatePart::LogicalDirectory(parts) => parts_have_current_source_anchor(parts),
+        _ => false,
+    })
 }
 
 fn classify_source_ref_diagnostic_class(
@@ -798,12 +804,22 @@ pub(crate) enum SourcePathTemplate {
     Interpolated(Vec<TemplatePart>),
 }
 
+impl SourcePathTemplate {
+    pub(crate) fn is_literal(&self) -> bool {
+        let Self::Interpolated(parts) = self;
+        parts
+            .iter()
+            .all(|part| matches!(part, TemplatePart::Literal(_)))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum TemplatePart {
     Literal(String),
     Arg(usize),
     SourceDir,
     SourceFile,
+    LogicalDirectory(Vec<TemplatePart>),
 }
 
 fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
@@ -853,25 +869,6 @@ fn source_template_uses_positional_args(template: &SourcePathTemplate) -> bool {
     }
 }
 
-pub(crate) fn source_path_template(
-    word: &Word,
-    source: &str,
-    bash_runtime_vars_enabled: bool,
-    zsh_runtime_vars_enabled: bool,
-) -> Option<ResolvedSourcePathTemplate> {
-    if static_word_text(word, source).is_some() {
-        return None;
-    }
-
-    source_path_template_with_resolver(
-        word,
-        source,
-        bash_runtime_vars_enabled,
-        zsh_runtime_vars_enabled,
-        |_, _| None,
-    )
-}
-
 pub(crate) fn assignment_source_path_template(
     word: &Word,
     source: &str,
@@ -886,6 +883,7 @@ pub(crate) fn assignment_source_path_template(
         zsh_runtime_vars_enabled,
         resolve_variable_template,
     )
+    .filter(|resolved| !resolved.ignored_root)
     .map(|resolved| resolved.template)
 }
 
@@ -894,7 +892,7 @@ pub(crate) struct ResolvedSourcePathTemplate {
     pub(crate) ignored_root: bool,
 }
 
-fn source_path_template_with_resolver(
+pub(crate) fn source_path_template_with_resolver(
     word: &Word,
     source: &str,
     bash_runtime_vars_enabled: bool,
@@ -935,6 +933,9 @@ fn source_path_template_with_resolver(
         ignored_root,
     })
 }
+
+const MAX_SOURCE_PATH_TEMPLATE_PARTS: usize = 256;
+const MAX_SOURCE_PATH_TEMPLATE_LITERAL_BYTES: usize = 16 * 1024;
 
 struct SourceTemplateContext<'a, F> {
     source: &'a str,
@@ -1004,6 +1005,22 @@ where
             {
                 *saw_dynamic = true;
             }
+            WordPart::Parameter(parameter) => {
+                let Some(BourneParameterExpansion::Access { reference }) = parameter.bourne()
+                else {
+                    return false;
+                };
+                if reference.subscript.is_some() {
+                    return false;
+                }
+                let Some(template) =
+                    (context.resolve_variable_template)(&reference.name, part.span)
+                else {
+                    return false;
+                };
+                *saw_dynamic = true;
+                append_template_parts(parts, &template);
+            }
             WordPart::ArrayAccess(reference)
                 if context.bash_runtime_vars_enabled
                     && is_bash_source_index_ref(reference, context.source) =>
@@ -1017,14 +1034,49 @@ where
                 {
                     *saw_dynamic = true;
                     parts.push(template_part);
+                } else if context.bash_runtime_vars_enabled
+                    && let Some(directory) = logical_directory_template(body, context)
+                {
+                    *saw_dynamic = true;
+                    parts.push(TemplatePart::LogicalDirectory(directory));
                 } else {
                     return false;
                 }
             }
             _ => return false,
         }
+        let mut remaining = MAX_SOURCE_PATH_TEMPLATE_PARTS;
+        let mut literal_bytes = MAX_SOURCE_PATH_TEMPLATE_LITERAL_BYTES;
+        if !template_parts_within_budget(parts, &mut remaining, &mut literal_bytes) {
+            return false;
+        }
     }
 
+    true
+}
+
+fn template_parts_within_budget(
+    parts: &[TemplatePart],
+    remaining: &mut usize,
+    literal_bytes: &mut usize,
+) -> bool {
+    for part in parts {
+        let Some(next) = remaining.checked_sub(1) else {
+            return false;
+        };
+        *remaining = next;
+        if let TemplatePart::Literal(text) = part {
+            let Some(next) = literal_bytes.checked_sub(text.len()) else {
+                return false;
+            };
+            *literal_bytes = next;
+        }
+        if let TemplatePart::LogicalDirectory(parts) = part
+            && !template_parts_within_budget(parts, remaining, literal_bytes)
+        {
+            return false;
+        }
+    }
     true
 }
 
@@ -1045,6 +1097,9 @@ fn append_template_parts(parts: &mut Vec<TemplatePart>, template: &SourcePathTem
                     TemplatePart::Arg(index) => parts.push(TemplatePart::Arg(*index)),
                     TemplatePart::SourceDir => parts.push(TemplatePart::SourceDir),
                     TemplatePart::SourceFile => parts.push(TemplatePart::SourceFile),
+                    TemplatePart::LogicalDirectory(directory) => {
+                        parts.push(TemplatePart::LogicalDirectory(directory.clone()))
+                    }
                 }
             }
         }
@@ -1308,6 +1363,96 @@ fn shell_zero_literal(text: &str) -> bool {
     !digits.is_empty() && digits.chars().all(|ch| ch == '0')
 }
 
+fn logical_directory_template<F>(
+    commands: &StmtSeq,
+    context: &mut SourceTemplateContext<'_, F>,
+) -> Option<Vec<TemplatePart>>
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
+    let [statement] = commands.as_slice() else {
+        return None;
+    };
+    if !plain_path_statement(statement) {
+        return None;
+    }
+    let Command::Binary(binary) = &statement.command else {
+        return None;
+    };
+    if binary.op != shucked_ast::BinaryOp::And
+        || !plain_path_statement(&binary.left)
+        || !plain_path_statement(&binary.right)
+    {
+        return None;
+    }
+    let (Command::Simple(cd), Command::Simple(pwd)) = (&binary.left.command, &binary.right.command)
+    else {
+        return None;
+    };
+    if !cd.assignments.is_empty()
+        || !pwd.assignments.is_empty()
+        || static_word_text(&cd.name, context.source).as_deref() != Some("cd")
+        || static_word_text(&pwd.name, context.source).as_deref() != Some("pwd")
+        || !matches!(pwd.args.as_slice(), [] | [_])
+        || pwd
+            .args
+            .first()
+            .is_some_and(|option| static_word_text(option, context.source).as_deref() != Some("-L"))
+    {
+        return None;
+    }
+    let directory = match cd.args.as_slice() {
+        [directory] => directory,
+        [option, directory]
+            if matches!(
+                static_word_text(option, context.source).as_deref(),
+                Some("--" | "-L")
+            ) =>
+        {
+            directory
+        }
+        [logical, separator, directory]
+            if static_word_text(logical, context.source).as_deref() == Some("-L")
+                && static_word_text(separator, context.source).as_deref() == Some("--") =>
+        {
+            directory
+        }
+        _ => return None,
+    };
+    if directory.parts.iter().any(|part| {
+        !matches!(
+            part.kind,
+            WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
+        )
+    }) {
+        return None;
+    }
+    let mut parts = Vec::new();
+    let mut ignored_root = false;
+    let mut saw_dynamic = false;
+    if !collect_source_template_parts(
+        &directory.parts,
+        context,
+        &mut parts,
+        &mut ignored_root,
+        &mut saw_dynamic,
+    ) || ignored_root
+        || !parts_have_current_source_anchor(&parts)
+    {
+        return None;
+    }
+    Some(parts)
+}
+
+fn plain_path_statement(statement: &shucked_ast::Stmt) -> bool {
+    !statement.negated
+        && statement.redirects.is_empty()
+        && !matches!(
+            statement.terminator,
+            Some(shucked_ast::StmtTerminator::Background(_))
+        )
+}
+
 fn dirname_source_template_part(commands: &StmtSeq, source: &str) -> Option<TemplatePart> {
     let [stmt] = commands.as_slice() else {
         return None;
@@ -1505,12 +1650,14 @@ fn looks_like_zsh_runtime_path(path: &Path) -> bool {
 }
 
 fn uses_positional_args(parts: &[TemplatePart]) -> bool {
-    parts
-        .iter()
-        .any(|part| matches!(part, TemplatePart::Arg(_)))
+    parts.iter().any(|part| match part {
+        TemplatePart::Arg(_) => true,
+        TemplatePart::LogicalDirectory(parts) => uses_positional_args(parts),
+        _ => false,
+    })
 }
 
-fn render_template_candidate(
+fn render_template_parts(
     parts: &[TemplatePart],
     args: &[Option<compact_str::CompactString>],
     source_path: &Path,
@@ -1531,17 +1678,43 @@ fn render_template_candidate(
                 let value = path_to_template_string(source_path);
                 rendered.push_str(&value);
             }
+            TemplatePart::LogicalDirectory(parts) => {
+                let value = render_template_parts(parts, args, source_path)?;
+                let path = Path::new(&value);
+                if !path.is_absolute() {
+                    return None;
+                }
+                // Logical cd removes parent components before filesystem symlink resolution.
+                let mut directory = PathBuf::new();
+                for component in path.components() {
+                    match component {
+                        Component::CurDir => {}
+                        Component::ParentDir => {
+                            directory.pop();
+                        }
+                        _ => directory.push(component.as_os_str()),
+                    }
+                }
+                rendered.push_str(&path_to_template_string(&directory));
+            }
         }
     }
 
+    Some(rendered)
+}
+
+fn render_template_candidate(
+    parts: &[TemplatePart],
+    args: &[Option<compact_str::CompactString>],
+    source_path: &Path,
+) -> Option<String> {
+    let rendered = render_template_parts(parts, args, source_path)?;
     let trimmed = rendered.trim();
     if trimmed.is_empty() {
         return None;
     }
 
-    let source_derived = parts
-        .iter()
-        .any(|part| matches!(part, TemplatePart::SourceDir | TemplatePart::SourceFile));
+    let source_derived = parts_have_current_source_anchor(parts);
     if source_derived && Path::new(trimmed).is_absolute() {
         return Some(trimmed.to_owned());
     }
