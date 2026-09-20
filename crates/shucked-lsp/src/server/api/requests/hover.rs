@@ -104,13 +104,6 @@ fn hover(
             |span: shucked_ast::Span| span.start.offset() <= offset && offset < span.end.offset();
         contains(source.span) || source.directive_path_span.is_some_and(contains)
     });
-    if variable.is_none()
-        && !source_hover
-        && (!matches!(target, Some(EditorSymbolTarget::FunctionCall(_)))
-            || analysis.semantic().source_refs().is_empty())
-    {
-        return resolve::hover(snapshot, client, params);
-    }
     let Some(path) = snapshot
         .query()
         .file_url()
@@ -181,32 +174,35 @@ fn hover(
         }
         return Ok(existing);
     }
-    let Some(EditorSymbolTarget::FunctionCall(call)) = target else {
-        return resolve::hover(snapshot, client, params);
+    let (resolution, span) = match target {
+        Some(EditorSymbolTarget::FunctionCall(call)) => (
+            index.function_resolution(&path, call.name_span),
+            call.name_span,
+        ),
+        _ => {
+            let definitions = index.function_definitions(&path, offset);
+            let Some(definition) = definitions.first() else {
+                return resolve::hover(snapshot, client, params);
+            };
+            let span = definition.definition.selection_span;
+            (
+                shucked_semantic::WorkspaceFunctionResolution {
+                    definitions,
+                    ..Default::default()
+                },
+                span,
+            )
+        }
     };
-    let Some(target) =
-        index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
-    else {
-        return Ok(None);
-    };
-    if target.path == path {
+    if resolution.definitions.is_empty() {
         return resolve::hover(snapshot, client, params);
     }
-    let Some(definition_span) = target.selection_span.or(target.def_span) else {
-        return Ok(None);
-    };
-    let Some(file) = index.file(&target.path) else {
-        return Ok(None);
-    };
-    Ok(Some(resolve::render_sourced_function_hover(
-        &snapshot,
-        analysis.source(),
-        analysis.line_index(),
-        resolve::SourcedFunctionHover {
-            name: call.name.as_str(),
-            target_span: call.name_span,
-            definition_uri: file.editor_uri(),
-            definition_span,
-        },
-    )))
+    let text = crate::handlers::workspace_explain::function(&resolution, &index);
+    Ok(Some(types::Hover {
+        contents: types::HoverContents::Markup(types::MarkupContent {
+            kind: types::MarkupKind::Markdown,
+            value: text,
+        }),
+        range: index.range_of(&path, span),
+    }))
 }

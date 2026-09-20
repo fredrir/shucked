@@ -81,31 +81,22 @@ fn definition(
     let workspace_variable = variable_target(analysis.semantic(), &target);
     match target {
         EditorSymbolTarget::FunctionCall(call) => {
-            // Without a source operation, the document-local semantic answer is
-            // exact. Avoid letting unrelated dynamic command dispatch make the
-            // more conservative workspace call graph discard that answer.
-            if analysis.semantic().source_refs().is_empty() {
-                return editor_features::definition(snapshot, client, params);
-            }
             let Some(index) = workspace_function_index(&workspace) else {
-                return Ok(None);
+                return editor_features::definition(snapshot, client, params);
             };
-            if let Some(target) =
-                index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
-                && let Some(definition_span) = target.def_span
-                && let Some(range) = index.range_of(&target.path, definition_span)
-            {
-                let uri = if target.path == path {
-                    snapshot.query().file_url().clone()
+            let resolution = index.function_resolution(&path, call.name_span);
+            let mut locations = index.function_locations(&resolution.definitions);
+            for (location, target) in locations.iter_mut().zip(&resolution.definitions) {
+                if let Some(range) = index.range_of(&target.path, target.definition.def_span) {
+                    location.range = range;
+                }
+            }
+            if !locations.is_empty() {
+                return Ok(Some(if locations.len() == 1 {
+                    types::GotoDefinitionResponse::Scalar(locations[0].clone())
                 } else {
-                    let Some(file) = index.file(&target.path) else {
-                        return Ok(None);
-                    };
-                    file.editor_uri().clone()
-                };
-                return Ok(Some(types::GotoDefinitionResponse::Scalar(
-                    types::Location { uri, range },
-                )));
+                    types::GotoDefinitionResponse::Array(locations)
+                }));
             }
 
             // A partial workspace index may omit an otherwise proven local binding.

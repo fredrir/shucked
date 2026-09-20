@@ -552,3 +552,6 @@ fn unsaved_startup_path_changes_retarget_module_consumers() {
         1
     );
 }
+
+#[path = "workspace_functions.rs"]
+mod functions;

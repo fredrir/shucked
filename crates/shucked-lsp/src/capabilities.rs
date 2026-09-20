@@ -69,7 +69,7 @@ pub fn server_capabilities(
         diagnostic_provider: Some(types::DiagnosticServerCapabilities::Options(
             DiagnosticOptions {
                 identifier: Some(crate::DIAGNOSTIC_NAME.into()),
-                inter_file_dependencies: false,
+                inter_file_dependencies: true,
                 workspace_diagnostics: workspace_diagnostics_enabled,
                 work_done_progress_options: WorkDoneProgressOptions {
                     work_done_progress: Some(true),

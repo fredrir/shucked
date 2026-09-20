@@ -70,10 +70,16 @@ History suggestions are separately opt-in for accepted session commands and hist
 |---|---|
 | Hover a variable | Assignment locations and consuming files, including unsaved edits |
 | Go to References | Reads of the selected assignment; includes possible reads through known conditional imports and called loaders |
+| Function hover | Definition links, loader files, workspace call sites, and incomplete-resolution details |
+| Function definition / references / call hierarchy | Shared ordered source contexts; possible bindings retained across conditional or unresolved sources |
+| Function completion | Inherited functions from earlier modules, including files without their own `source` statement |
+| Function rename | Exact binding checks; ambiguous workspace bindings remain ineligible |
+| Unsaved helper edits | Refresh dependent command resolution and navigation; retain host executable inventory |
 | Hover a source path or `source=` directive | Resolved file, source-loop matches in load order, searched paths, or reason resolution stopped |
 | Zsh module loaders | Bounded literal-directory globs, brace lists, and `(N)`; `.zshenv` path values for `.zshrc`, including installed startup symlinks |
 | Incomplete analysis | Hover labels partial results; References reports incomplete results when requested |
 | Analysis limits | Workspace index defaults to `5000` files; source analysis also bounds depth, file count, bytes, and work |
+| Function analysis limits | 200,000 events, 64 nested calls/sources, 8 loop passes, 1,000,000 bindings across checkpoints; partial results remain visible |
 
 ## Project dependencies
 
@@ -159,3 +165,12 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Package host VSIX | `npm run vsix` |
 | Real editor smoke | `npm run test:extension-host` |
 | Installed package smoke | `SHUCKED_TEST_VSIX=/absolute/path/package.vsix npm run test:extension-host` |
+
+## Language server selection
+
+| Setting / action | Behavior |
+| --- | --- |
+| `shucked.server.path` | Optional custom server or CLI executable; `shucked.path` is not read |
+| Default | Bundled server, bundled CLI, workspace build, then `PATH` |
+| **Shucked: Show Language Server Logs** | Shows the selected executable |
+| **Shucked: Restart Language Server** | Restarts the selected executable; rebuilding the CLI does not replace a bundled server |

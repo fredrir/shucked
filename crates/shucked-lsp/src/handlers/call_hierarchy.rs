@@ -51,8 +51,27 @@ pub(crate) fn prepare_call_hierarchy(
     let Some(built) = workspace_function_index(&context) else {
         return Ok(None);
     };
-    if let Some(target) = built.resolve_call_site(&path, call.name_span) {
-        return Ok(item_for(&built, &target).map(|item| vec![item]));
+    let resolution = built.function_resolution(&path, call.name_span);
+    let items = resolution
+        .definitions
+        .iter()
+        .filter_map(|target| {
+            let target = CrossFileCall {
+                path: target.path.clone(),
+                node: CallNodeKind::Function(target.definition.identity()),
+                def_span: Some(target.definition.def_span),
+                selection_span: Some(target.definition.selection_span),
+                call_spans: vec![call.name_span],
+            };
+            let mut item = item_for(&built, &target)?;
+            if resolution.exact().is_none() {
+                item.detail = Some("Possible workspace binding".into());
+            }
+            Some(item)
+        })
+        .collect::<Vec<_>>();
+    if !items.is_empty() {
+        return Ok(Some(items));
     }
 
     // An indexed active document should resolve every proven local function

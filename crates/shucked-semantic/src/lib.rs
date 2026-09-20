@@ -42,6 +42,11 @@ pub use source_resolve::candidate_paths as source_candidate_paths;
 mod uninitialized;
 mod unused;
 mod value_flow;
+mod workspace_functions;
+pub use workspace_functions::{
+    FileFunctionEffects, WorkspaceFunctionCall, WorkspaceFunctionDefinition,
+    WorkspaceFunctionIndex, WorkspaceFunctionResolution,
+};
 mod workspace_variables;
 pub use workspace_variables::{
     FileVariableFacts, WorkspaceConsumedBinding, WorkspaceVariableExplanation,

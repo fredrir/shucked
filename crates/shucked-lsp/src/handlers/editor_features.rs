@@ -48,6 +48,8 @@ enum CompletionData {
         column: usize,
     },
     SourcedFunction {
+        #[serde(default)]
+        possible: bool,
         path: String,
         line: usize,
         column: usize,
@@ -227,6 +229,7 @@ where
             let sourced = sourced_by_name.get(completion.name.as_str());
             let data = if let Some(sourced) = sourced {
                 Some(CompletionData::SourcedFunction {
+                    possible: sourced.possible,
                     path: sourced.path.display().to_string(),
                     line: sourced.selection_span.start.line(),
                     column: sourced.selection_span.start.column(),
@@ -316,7 +319,9 @@ where
             };
 
             let detail = custom_detail.or_else(|| {
-                Some(if sourced.is_some() {
+                Some(if sourced.is_some_and(|s| s.possible) {
+                    "Function (possible workspace binding)".to_owned()
+                } else if sourced.is_some() {
                     "Function (sourced)".to_owned()
                 } else {
                     completion_kind_label(completion.kind).to_owned()
@@ -422,8 +427,18 @@ pub(crate) fn resolve_completion_item(
             line,
             column,
         } => format!("{symbol_kind} defined at line {line}, column {column}."),
-        CompletionData::SourcedFunction { path, line, column } => {
-            format!("Function sourced from `{path}` at line {line}, column {column}.")
+        CompletionData::SourcedFunction {
+            path,
+            line,
+            column,
+            possible,
+        } => {
+            let prefix = if possible {
+                "Possible function definition"
+            } else {
+                "Function definition"
+            };
+            format!("{prefix} in `{path}` at line {line}, column {column}.")
         }
         CompletionData::RuntimeName => {
             if let Some(doc) = zsh::special_parameter_doc(&item.label) {
@@ -1073,6 +1088,7 @@ mod tests {
             },
             |_, _| {
                 vec![VisibleSourcedFunction {
+                    possible: false,
                     name: shucked_ast::Name::from("dup"),
                     path: std::path::PathBuf::from("/workspace/lib.sh"),
                     def_span: shucked_ast::Span::new(),

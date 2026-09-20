@@ -363,45 +363,6 @@ fn is_command_position(source: &str, word_start: usize) -> bool {
     matches!(previous, Some("then" | "do" | "else" | "elif"))
 }
 
-pub(crate) struct SourcedFunctionHover<'a> {
-    pub(crate) name: &'a str,
-    pub(crate) target_span: shucked_ast::Span,
-    pub(crate) definition_uri: &'a types::Url,
-    pub(crate) definition_span: shucked_ast::Span,
-}
-
-pub(crate) fn render_sourced_function_hover(
-    snapshot: &DocumentSnapshot,
-    source: &str,
-    line_index: &shucked_indexer::LineIndex,
-    hover: SourcedFunctionHover<'_>,
-) -> types::Hover {
-    let definition_file = hover
-        .definition_uri
-        .to_file_path()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| hover.definition_uri.as_str().to_owned());
-    let markdown = format!(
-        "### {}\n\nFunction\n\nDefined in {} at line {}, column {}.\n\nScope: top-level.",
-        markdown_code(hover.name),
-        markdown_code(&definition_file),
-        hover.definition_span.start.line(),
-        hover.definition_span.start.column(),
-    );
-    types::Hover {
-        contents: types::HoverContents::Markup(types::MarkupContent {
-            kind: types::MarkupKind::Markdown,
-            value: markdown,
-        }),
-        range: Some(crate::edit::to_lsp_range(
-            hover.target_span.to_range(),
-            source,
-            line_index,
-            snapshot.encoding(),
-        )),
-    }
-}
-
 fn markdown_code(text: &str) -> String {
     format!("`{}`", text.replace('`', "\\`"))
 }

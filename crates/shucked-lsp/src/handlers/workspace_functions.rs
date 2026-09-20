@@ -170,6 +170,7 @@ struct WorkspaceFileProjection {
     source_paths: SourcePathResolution,
     dependencies: BTreeMap<PathBuf, DependencyFingerprint>,
     calls: FileCallFacts,
+    functions: Arc<shucked_semantic::FileFunctionEffects>,
     sources: Vec<WorkspaceSourceDetails>,
     variables: FileVariableFacts,
     complete: bool,
@@ -248,6 +249,7 @@ enum WorkspaceIssue {
 /// Shared index queried by cross-file editor features.
 pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
+    functions: shucked_semantic::WorkspaceFunctionIndex,
     variables: WorkspaceVariableIndex,
     variable_usage: OnceLock<Arc<shucked_semantic::WorkspaceVariableUsage>>,
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
@@ -491,7 +493,15 @@ impl WorkspaceFunctionIndex {
         if files.values().any(|file| !file.projection.complete) {
             issues.insert(WorkspaceIssue::SourceLimit);
         }
+        let functions = shucked_semantic::WorkspaceFunctionIndex::build(
+            files
+                .iter()
+                .map(|(path, file)| (path.clone(), file.projection.functions.clone()))
+                .collect(),
+            &|| context.cancellation.is_cancelled(),
+        )?;
         Some(Self {
+            functions,
             issues,
             file_limit: max_files,
             variable_usage: OnceLock::new(),
@@ -503,12 +513,112 @@ impl WorkspaceFunctionIndex {
         })
     }
 
-    pub(crate) fn resolve_call_site(
+    pub(crate) fn function_resolution(
         &self,
-        from_path: &Path,
-        name_span: Span,
-    ) -> Option<CrossFileCall> {
-        self.graph.resolve_call_site(from_path, name_span)
+        path: &Path,
+        span: Span,
+    ) -> shucked_semantic::WorkspaceFunctionResolution {
+        let mut result = self.functions.resolve(path, span);
+        result.incomplete |=
+            !self.complete && result.exact().is_none_or(|target| target.path != path);
+        result
+    }
+
+    pub(crate) fn function_definitions(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Vec<shucked_semantic::WorkspaceFunctionDefinition> {
+        self.files
+            .get(path)
+            .map(|file| {
+                file.projection
+                    .calls
+                    .definitions
+                    .iter()
+                    .filter(|definition| {
+                        definition.selection_span.start.offset() <= offset
+                            && offset < definition.selection_span.end.offset()
+                    })
+                    .map(|definition| shucked_semantic::WorkspaceFunctionDefinition {
+                        path: path.to_path_buf(),
+                        definition: definition.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn function_locations(
+        &self,
+        definitions: &[shucked_semantic::WorkspaceFunctionDefinition],
+    ) -> Vec<types::Location> {
+        definitions
+            .iter()
+            .filter_map(|target| {
+                Some(types::Location {
+                    uri: self.file(&target.path)?.editor_uri().clone(),
+                    range: self.range_of(&target.path, target.definition.selection_span)?,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn function_references(
+        &self,
+        definitions: &[shucked_semantic::WorkspaceFunctionDefinition],
+    ) -> (Vec<types::Location>, bool) {
+        let mut incomplete = !self.complete || self.functions.incomplete;
+        let locations = self
+            .functions
+            .calls()
+            .filter(|call| {
+                call.resolution
+                    .definitions
+                    .iter()
+                    .any(|target| definitions.contains(target))
+            })
+            .filter_map(|call| {
+                incomplete |= call.resolution.incomplete
+                    || call.resolution.may_be_absent
+                    || call.resolution.definitions.len() > 1;
+                Some(types::Location {
+                    uri: self.file(&call.path)?.editor_uri().clone(),
+                    range: self.range_of(&call.path, call.span)?,
+                })
+            })
+            .collect();
+        (locations, incomplete)
+    }
+
+    pub(crate) fn function_completions(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Vec<VisibleSourcedFunction> {
+        self.functions
+            .visible(path, offset)
+            .into_iter()
+            .flat_map(|(_, resolution)| {
+                let possible =
+                    resolution.exact().is_none() || !self.complete || self.functions.incomplete;
+                resolution
+                    .definitions
+                    .into_iter()
+                    .filter(move |target| possible || target.path != path)
+                    .map(move |target| VisibleSourcedFunction {
+                        possible,
+                        name: target.definition.name,
+                        path: target.path,
+                        def_span: target.definition.def_span,
+                        selection_span: target.definition.selection_span,
+                        import_span: Span {
+                            start: shucked_ast::Position::at(1, 1, offset),
+                            end: shucked_ast::Position::at(1, 1, offset),
+                        },
+                    })
+            })
+            .collect()
     }
 
     pub(crate) fn resolve_call_site_exact(
@@ -521,37 +631,6 @@ impl WorkspaceFunctionIndex {
             .resolve_call_site_exact_cancellable(from_path, name_span, || {
                 cancellation.is_cancelled()
             })
-    }
-
-    pub(crate) fn exact_function_reference_locations(
-        &self,
-        target_path: &Path,
-        target_node: &CallNodeKind,
-        cancellation: &RequestCancellationToken,
-    ) -> Option<Vec<types::Location>> {
-        if !self.complete || cancellation.is_cancelled() {
-            return None;
-        }
-        let references = self
-            .graph
-            .exact_function_references(target_path, target_node, || cancellation.is_cancelled())?;
-        let mut locations = Vec::with_capacity(references.len());
-        for reference in references {
-            if cancellation.is_cancelled() {
-                return None;
-            }
-            let file = self.file(&reference.path)?;
-            locations.push(types::Location {
-                uri: file.editor_uri().clone(),
-                range: crate::edit::to_lsp_range(
-                    reference.span.to_range(),
-                    file.source(),
-                    file.line_index(),
-                    self.encoding,
-                ),
-            });
-        }
-        Some(locations)
     }
 
     pub(crate) fn variable_definition_locations(
@@ -606,7 +685,7 @@ impl WorkspaceFunctionIndex {
     }
 
     pub(crate) fn incomplete_reason(&self) -> Option<String> {
-        if self.complete {
+        if self.complete && !self.functions.incomplete {
             return None;
         }
         let mut reasons = self
@@ -627,6 +706,9 @@ impl WorkspaceFunctionIndex {
                 }
             })
             .collect::<Vec<_>>();
+        if self.functions.incomplete {
+            reasons.push("workspace function analysis limit reached".into());
+        }
         if reasons.is_empty() {
             reasons.push("workspace discovery did not finish".into());
         }
@@ -670,21 +752,41 @@ impl WorkspaceFunctionIndex {
             .exact_function_rename(target_path, target_node, || cancellation.is_cancelled())
     }
 
-    pub(crate) fn visible_sourced_functions(
-        &self,
-        from_path: &Path,
-        source_spans: &[Span],
-    ) -> Vec<VisibleSourcedFunction> {
-        self.graph
-            .visible_sourced_functions_from_source_spans(from_path, source_spans)
-    }
-
     pub(crate) fn incoming(
         &self,
         target_path: &Path,
         target_node: &CallNodeKind,
     ) -> Vec<CrossFileCall> {
-        self.graph.incoming(target_path, target_node)
+        let mut result: Vec<CrossFileCall> = Vec::new();
+        for call in self.functions.calls().filter(|call| {
+            call.resolution.definitions.iter().any(|target| {
+                target.path == target_path
+                    && CallNodeKind::Function(target.definition.identity()) == *target_node
+            })
+        }) {
+            if let Some(existing) = result
+                .iter_mut()
+                .find(|entry| entry.path == call.path && entry.node == call.enclosing)
+            {
+                existing.call_spans.push(call.span);
+            } else {
+                let definition = self.files.get(&call.path).and_then(|f| {
+                    f.projection
+                        .calls
+                        .definitions
+                        .iter()
+                        .find(|d| CallNodeKind::Function(d.identity()) == call.enclosing)
+                });
+                result.push(CrossFileCall {
+                    path: call.path.clone(),
+                    node: call.enclosing.clone(),
+                    def_span: definition.map(|d| d.def_span),
+                    selection_span: definition.map(|d| d.selection_span),
+                    call_spans: vec![call.span],
+                });
+            }
+        }
+        result
     }
 
     pub(crate) fn outgoing(
@@ -692,7 +794,31 @@ impl WorkspaceFunctionIndex {
         from_path: &Path,
         from_node: &CallNodeKind,
     ) -> Vec<CrossFileCall> {
-        self.graph.outgoing(from_path, from_node)
+        let mut result: Vec<CrossFileCall> = Vec::new();
+        for call in self
+            .functions
+            .calls()
+            .filter(|call| call.path == from_path && call.enclosing == *from_node)
+        {
+            for target in &call.resolution.definitions {
+                let node = CallNodeKind::Function(target.definition.identity());
+                if let Some(existing) = result
+                    .iter_mut()
+                    .find(|entry| entry.path == target.path && entry.node == node)
+                {
+                    existing.call_spans.push(call.span);
+                } else {
+                    result.push(CrossFileCall {
+                        path: target.path.clone(),
+                        node,
+                        def_span: Some(target.definition.def_span),
+                        selection_span: Some(target.definition.selection_span),
+                        call_spans: vec![call.span],
+                    });
+                }
+            }
+        }
+        result
     }
 
     pub(crate) fn file(&self, path: &Path) -> Option<&IndexedWorkspaceFile> {
@@ -1239,6 +1365,11 @@ fn project_file(
                 (path, fingerprint)
             })
             .collect(),
+        functions: Arc::new(shucked_semantic::FileFunctionEffects::project(
+            model,
+            &call_facts,
+            &resolved_paths,
+        )),
         calls: call_facts,
         sources,
         variables,
@@ -1481,7 +1612,8 @@ mod tests {
             .find(|call| call.callee.as_str() == "from_buffer")
             .unwrap();
         let call_span = call.name_span;
-        let resolved = built.resolve_call_site(&caller_path, call_span).unwrap();
+        let resolution = built.function_resolution(&caller_path, call_span);
+        let resolved = resolution.exact().unwrap();
         assert_eq!(resolved.path, target_path);
     }
 
@@ -1543,7 +1675,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             built
-                .resolve_call_site(&canonical_caller, call.name_span)
+                .function_resolution(&canonical_caller, call.name_span)
+                .exact()
                 .unwrap()
                 .path,
             canonical_target
@@ -1692,7 +1825,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             built
-                .resolve_call_site(&caller, call.name_span)
+                .function_resolution(&caller, call.name_span)
+                .exact()
                 .unwrap()
                 .path,
             target

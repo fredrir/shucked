@@ -271,12 +271,17 @@ fn analysis_key(snapshot: &DocumentSnapshot) -> String {
     let mut hash = std::collections::hash_map::DefaultHasher::new();
     snapshot.query().document().contents().hash(&mut hash);
     format!(
-        "{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}",
         snapshot.query().file_url(),
         snapshot.query().document().version(),
         snapshot.analysis_settings_epoch(),
         snapshot.environment_generation(),
-        hash.finish()
+        hash.finish(),
+        snapshot
+            .workspace_functions
+            .as_ref()
+            .map(|context| context.epoch)
+            .unwrap_or_default()
     )
 }
 
@@ -604,12 +609,8 @@ fn build(
         );
     }
     let source_analysis = snapshot.analysis();
-    let has_source_refs = source_analysis
-        .as_ref()
-        .is_some_and(|analysis| !analysis.semantic().source_refs().is_empty());
     let source_index = source_analysis
         .as_ref()
-        .filter(|_| has_source_refs)
         .and(snapshot.workspace_functions.as_ref())
         .and_then(crate::workspace_functions::workspace_function_index);
     let source_path = snapshot
@@ -627,17 +628,11 @@ fn build(
                         .source_ref_visible_at_offset(source, facts.name_span().start.offset())
                 })
             });
-            let sourced_function =
-                source_index
-                    .as_ref()
-                    .zip(source_path.as_ref())
-                    .and_then(|(index, path)| {
-                        index.resolve_call_site_exact(
-                            path,
-                            facts.name_span(),
-                            snapshot.analysis_cancellation(),
-                        )
-                    });
+            let workspace_resolution = source_index
+                .as_ref()
+                .zip(source_path.as_ref())
+                .map(|(index, path)| index.function_resolution(path, facts.name_span()));
+            let sourced_function = workspace_resolution.as_ref().and_then(|r| r.exact());
             let site = CommandSite {
                 name: name.clone(),
                 arguments: facts
@@ -655,7 +650,9 @@ fn build(
                     CommandNamespace::External => shucked_command::LookupMode::ExternalOnly,
                 },
                 functions: if sourced_function.is_some()
-                    || (!has_visible_source && facts.visible_function.is_some())
+                    || (workspace_resolution.is_none()
+                        && !has_visible_source
+                        && facts.visible_function.is_some())
                     || fish_functions.contains(&facts.name_span().start.offset())
                 {
                     name.iter().cloned().collect()
@@ -667,11 +664,36 @@ fn build(
                 } else {
                     BTreeSet::new()
                 },
-                environment_uncertain: facts.environment_uncertain.is_some(),
+                environment_uncertain: facts.environment_uncertain.is_some()
+                    || (facts.namespace == CommandNamespace::Shell
+                        && workspace_resolution.as_ref().is_some_and(|r| {
+                            r.incomplete || !r.definitions.is_empty() && r.exact().is_none()
+                        })),
                 declared: declared.clone(),
                 ..Default::default()
             };
             let mut resolution = shucked_command::resolve(&context, &environment, &site);
+            if facts.namespace == CommandNamespace::Shell
+                && let Some(binding) = &workspace_resolution
+                && (binding.incomplete
+                    || (!binding.definitions.is_empty() && binding.exact().is_none()))
+                && let CommandResolution::Unknown(unknown) = &mut resolution
+            {
+                unknown.detail =
+                    "Workspace function binding depends on source or execution context".into();
+            }
+            if facts.namespace == CommandNamespace::Shell
+                && workspace_resolution.as_ref().is_some_and(|binding| {
+                    !binding.definitions.is_empty() && binding.exact().is_none()
+                })
+            {
+                resolution = CommandResolution::Unknown(shucked_command::UnknownCommand {
+                    name: name.clone(),
+                    reason: shucked_command::UnknownReason::DynamicEnvironment,
+                    detail: "Workspace function binding depends on source or execution context"
+                        .into(),
+                });
+            }
             if let Some(function) = sourced_function
                 && source_path
                     .as_ref()

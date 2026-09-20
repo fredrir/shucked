@@ -1,7 +1,5 @@
 use lsp_types::{self as types, request as req};
-use shucked_semantic::{
-    CallFunctionId, CallNodeKind, EditorCallHierarchyTarget, EditorSymbolTarget,
-};
+use shucked_semantic::{EditorCallHierarchyTarget, EditorSymbolTarget};
 
 use crate::edit::PositionExt;
 use crate::editor_features;
@@ -123,72 +121,32 @@ fn references(
         }
         return Ok((!locations.is_empty()).then_some(locations));
     }
-    let (index, target_path, target_node, declaration) = match target {
-        EditorSymbolTarget::FunctionCall(call) => {
-            let Some(index) = workspace_function_index(&workspace) else {
-                return Ok(None);
-            };
-            let Some(target) =
-                index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)
-            else {
-                return Ok(None);
-            };
-            let Some(declaration_span) = target.selection_span.or(target.def_span) else {
-                return Ok(None);
-            };
-            let Some(file) = index.file(&target.path) else {
-                return Ok(None);
-            };
-            let declaration = types::Location {
-                uri: file.editor_uri().clone(),
-                range: crate::edit::to_lsp_range(
-                    declaration_span.to_range(),
-                    file.source(),
-                    file.line_index(),
-                    snapshot.encoding(),
-                ),
-            };
-            (index, target.path, target.node, declaration)
-        }
-        EditorSymbolTarget::Binding(_)
-        | EditorSymbolTarget::Reference(_)
-        | EditorSymbolTarget::RuntimeName(_) => {
-            let Some(item) = function_item else {
-                return editor_features::references(snapshot, client, params);
-            };
-            let Some(definition_span) = item.full_span else {
-                return Ok(None);
-            };
-            let Some(index) = workspace_function_index(&workspace) else {
-                return Ok(None);
-            };
-            let declaration_span = item.selection_span.unwrap_or(definition_span);
-            let node = CallNodeKind::Function(CallFunctionId::new(item.name, definition_span));
-            let declaration = types::Location {
-                uri: snapshot.query().file_url().clone(),
-                range: crate::edit::to_lsp_range(
-                    declaration_span.to_range(),
-                    analysis.source(),
-                    analysis.line_index(),
-                    snapshot.encoding(),
-                ),
-            };
-            (index, path.clone(), node, declaration)
-        }
-    };
-
-    let Some(mut locations) = index.exact_function_reference_locations(
-        &target_path,
-        &target_node,
-        &workspace.cancellation,
-    ) else {
+    let Some(index) = workspace_function_index(&workspace) else {
         return Ok(None);
     };
-    if workspace.cancellation.is_cancelled() {
-        return Ok(None);
+    let resolution = match target {
+        EditorSymbolTarget::FunctionCall(call) => index.function_resolution(&path, call.name_span),
+        _ => shucked_semantic::WorkspaceFunctionResolution {
+            definitions: index.function_definitions(&path, offset),
+            ..Default::default()
+        },
+    };
+    if resolution.definitions.is_empty() {
+        return editor_features::references(snapshot, client, params);
     }
-    if params.context.include_declaration && !locations.contains(&declaration) {
-        locations.insert(0, declaration);
+    let (mut locations, incomplete) = index.function_references(&resolution.definitions);
+    if incomplete || resolution.incomplete || resolution.may_be_absent {
+        client.show_message(
+            "Workspace function references include possible calls; resolution is incomplete.",
+            types::MessageType::WARNING,
+        )?;
+    }
+    if params.context.include_declaration {
+        for declaration in index.function_locations(&resolution.definitions) {
+            if !locations.contains(&declaration) {
+                locations.push(declaration);
+            }
+        }
     }
     Ok((!locations.is_empty()).then_some(locations))
 }

@@ -174,3 +174,63 @@ pub(crate) fn source(details: &WorkspaceSourceDetails, index: &WorkspaceFunction
     }
     text
 }
+
+pub(crate) fn function(
+    resolution: &shucked_semantic::WorkspaceFunctionResolution,
+    index: &WorkspaceFunctionIndex,
+) -> String {
+    let name = resolution
+        .definitions
+        .first()
+        .map(|d| d.definition.name.as_str())
+        .unwrap_or_default();
+    let mut text = format!("**Workspace function {}**\n\nDefinitions:\n", escaped(name));
+    for location in index
+        .function_locations(&resolution.definitions)
+        .iter()
+        .take(MAX_LINKS)
+    {
+        text.push_str(&format!(
+            "\n- {}",
+            link(&location.uri, Some(location.range.start.line))
+        ));
+    }
+    if !resolution.loaders.is_empty() {
+        text.push_str("\n\nLoaded through:\n");
+        for path in resolution.loaders.iter().take(MAX_LINKS) {
+            if let Ok(uri) = types::Url::from_file_path(path) {
+                text.push_str(&format!("\n- {}", link(&uri, None)));
+            }
+        }
+    }
+    let (references, incomplete) = index.function_references(&resolution.definitions);
+    text.push_str(&format!(
+        "\n\nWorkspace call sites: {}.\n",
+        references.len()
+    ));
+    for location in references.iter().take(MAX_LINKS) {
+        text.push_str(&format!(
+            "\n- {}",
+            link(&location.uri, Some(location.range.start.line))
+        ));
+    }
+    if references.len() > MAX_LINKS {
+        text.push_str(&format!(
+            "\n- … and {} more calls",
+            references.len() - MAX_LINKS
+        ));
+    }
+    text.push_str("\n\nUse **Go to References** for individual locations.");
+    if resolution.may_be_absent || resolution.definitions.len() > 1 {
+        text.push_str("\n\nBinding depends on execution context.");
+    }
+    if incomplete || resolution.incomplete {
+        text.push_str(&format!(
+            "\n\n**Incomplete results:** {}. Known definitions and possible calls are shown.",
+            index.incomplete_reason().unwrap_or_else(|| {
+                "dynamic source or function effects could not be followed".into()
+            })
+        ));
+    }
+    text
+}

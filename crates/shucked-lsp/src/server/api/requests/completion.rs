@@ -57,28 +57,14 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
             client,
             params,
             Some((&snapshot.environment, &snapshot.cancellation)),
-            move |analysis, offset| {
+            move |_analysis, offset| {
                 let Some(path) = path.as_deref() else {
                     return Vec::new();
                 };
-                let source_spans = analysis
-                    .semantic()
-                    .source_refs()
-                    .iter()
-                    .filter(|source_ref| {
-                        analysis
-                            .semantic()
-                            .source_ref_visible_at_offset(source_ref, offset)
-                    })
-                    .map(|source_ref| source_ref.span)
-                    .collect::<Vec<_>>();
-                if source_spans.is_empty() {
-                    return Vec::new();
-                }
                 let Some(index) = workspace_function_index(&snapshot.workspace) else {
                     return Vec::new();
                 };
-                index.visible_sourced_functions(path, &source_spans)
+                index.function_completions(path, offset)
             },
         )
     }

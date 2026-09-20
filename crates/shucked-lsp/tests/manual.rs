@@ -1130,8 +1130,7 @@ fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
     let configured = recv_response(&client_connection, 4);
     assert_eq!(configured["uri"], serde_json::json!(configured_uri));
 
-    // A dynamic source may replace even a previously proven local function,
-    // so navigation fails closed instead of returning the stale binding.
+    // A dynamic source retains the prior definition as a navigation candidate.
     send_request(
         &client_connection,
         5,
@@ -1141,7 +1140,10 @@ fn cross_file_definition_uses_exact_workspace_binding_and_open_buffers() {
             "position": { "line": 10, "character": 0 },
         }),
     );
-    assert!(recv_response(&client_connection, 5).is_null());
+    assert_eq!(
+        recv_response(&client_connection, 5)["uri"],
+        serde_json::json!(caller_uri)
+    );
 
     send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
     let _ = recv_response(&client_connection, 99);
@@ -1435,14 +1437,14 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
     let imported_markdown = imported["contents"]["value"]
         .as_str()
         .unwrap_or_else(|| panic!("expected sourced function hover: {imported:#}"));
-    assert!(imported_markdown.contains("### `imported`"));
-    assert!(imported_markdown.contains("Function"));
+    assert!(imported_markdown.contains("Workspace function imported"));
+    assert!(imported_markdown.contains("Definitions:"));
     let rendered_imported_path = imported_uri
         .to_file_path()
         .expect("imported URI should round-trip to its display path");
     assert!(imported_markdown.contains(&rendered_imported_path.display().to_string()));
     assert!(
-        imported_markdown.contains("line 1, column 8"),
+        imported_markdown.contains("imported.sh:1"),
         "unexpected hover content: {imported_markdown}"
     );
     assert_eq!(
@@ -1464,7 +1466,7 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
     );
     let local = recv_response(&client_connection, 3);
     let local_markdown = local["contents"]["value"].as_str().unwrap();
-    assert!(local_markdown.contains("Defined at line 4"));
+    assert!(local_markdown.contains("caller.sh:4"));
     assert!(!local_markdown.contains(&imported_path.display().to_string()));
 
     send_request(
@@ -1498,7 +1500,8 @@ fn cross_file_hover_uses_exact_workspace_binding_and_open_buffers() {
     let uncertain = recv_response(&client_connection, 5);
     let details = uncertain["contents"]["value"].as_str().unwrap();
     assert!(details.contains("Unknown"), "{details}");
-    assert!(!details.contains("Defined at"));
+    assert!(details.contains("Incomplete results"));
+    assert!(details.contains("caller.sh:4"));
     assert!(!details.contains(&imported_path.display().to_string()));
 
     send_request(&client_connection, 99, "shutdown", serde_json::json!(null));
@@ -1599,7 +1602,7 @@ fn cross_file_references_preserve_binding_identity_and_open_buffers() {
     let locations = with_declaration
         .as_array()
         .unwrap_or_else(|| panic!("expected reference locations: {with_declaration:#}"));
-    assert_eq!(locations.len(), 4);
+    assert_eq!(locations.len(), 5);
     let target = locations
         .iter()
         .find(|location| location["uri"] == serde_json::json!(target_uri))
@@ -1617,10 +1620,16 @@ fn cross_file_references_preserve_binding_identity_and_open_buffers() {
     assert!(locations.iter().any(|location| {
         location["uri"] == serde_json::json!(hinted_uri) && location["range"]["start"]["line"] == 2
     }));
-    assert!(locations.iter().all(|location| {
-        location["uri"] != serde_json::json!(ambiguous_uri)
-            && location["uri"] != serde_json::json!(other_uri)
-    }));
+    assert!(
+        locations
+            .iter()
+            .any(|location| location["uri"] == serde_json::json!(ambiguous_uri))
+    );
+    assert!(
+        locations
+            .iter()
+            .all(|location| location["uri"] != serde_json::json!(other_uri))
+    );
 
     send_request(
         &client_connection,
@@ -1629,7 +1638,7 @@ fn cross_file_references_preserve_binding_identity_and_open_buffers() {
         reference_params(&child_uri, 0, 0, false),
     );
     let without_declaration = recv_response(&client_connection, 3);
-    assert_eq!(without_declaration.as_array().map(Vec::len), Some(3));
+    assert_eq!(without_declaration.as_array().map(Vec::len), Some(4));
     assert!(
         without_declaration
             .as_array()

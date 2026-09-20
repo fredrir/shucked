@@ -4,7 +4,7 @@
   "description": "Shucked: Industry-grade Shellscript & ZSH Language Server, Linter, and Formatter",
   "author": "fredrir",
   "license": "MIT",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "repository": {
     "type": "git",
     "url": "https://github.com/fredrir/shuck"

@@ -149,6 +149,8 @@ pub struct CallFactSourceEdge {
 /// One function imported by a source edge and visible at a completion point.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisibleSourcedFunction {
+    /// Whether this is a possible binding rather than a proven binding.
+    pub possible: bool,
     /// Visible function name.
     pub name: Name,
     /// File containing the winning definition.
@@ -990,6 +992,7 @@ impl WorkspaceCallIndex {
                     })?
                     .selection_span;
                 Some(VisibleSourcedFunction {
+                    possible: false,
                     name,
                     path: definition.path,
                     def_span: definition.def_span,

@@ -62,69 +62,13 @@ pub fn run_vscode_package() -> Result<()> {
         );
     }
 
-    // Build release binaries for shucked and shucked-server
-    print_step("Building shucked and shucked-server release binaries...");
-    let build_opts = RunOptions {
-        cwd: Some(&repo_root),
-        ..Default::default()
-    };
-    run_command(
-        "cargo",
-        &[
-            "build",
-            "--release",
-            "-p",
-            "shucked-cli",
-            "-p",
-            "shucked-server",
-        ],
-        &build_opts,
-    )?;
-
-    // Ensure bin directory in editors/vscode and copy the binaries
-    let bin_dir = vscode_dir.join("bin");
-    std::fs::create_dir_all(&bin_dir)?;
-
-    let (cli_bin, server_bin) = binary_names();
-
-    let target_dir = repo_root.join("target/release");
-    let cli_src = target_dir.join(cli_bin);
-    let server_src = target_dir.join(server_bin);
-
-    if !cli_src.is_file() {
-        bail!("Failed to find built CLI binary at {}", cli_src.display());
-    }
-    if !server_src.is_file() {
-        bail!(
-            "Failed to find built server binary at {}",
-            server_src.display()
-        );
-    }
-
-    let cli_dst = bin_dir.join(cli_bin);
-    let server_dst = bin_dir.join(server_bin);
-
-    print_step(&format!("Bundling binary: {cli_bin}"));
-    std::fs::copy(&cli_src, &cli_dst)?;
-    print_step(&format!("Bundling binary: {server_bin}"));
-    std::fs::copy(&server_src, &server_dst)?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(&cli_dst, perms.clone())?;
-        std::fs::set_permissions(&server_dst, perms)?;
-    }
-
     let runner = detect_node_runner();
     print_step(&format!("Packaging extension using {runner}..."));
     let opts = RunOptions {
         cwd: Some(&vscode_dir),
         ..Default::default()
     };
-    run_command(runner, &["run", "package"], &opts)?;
-
+    // vsce runs vscode:prepublish, which builds and bundles the binaries and extension.
     print_step("Creating platform VSIX artifact...");
     run_command(runner, &["run", "vsix"], &opts)?;
 
