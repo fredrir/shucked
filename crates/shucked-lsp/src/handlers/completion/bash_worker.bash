@@ -27,9 +27,46 @@ for ((shucked_i=0; shucked_i<${#shucked_spec[@]}; shucked_i++)); do
 done
 [[ $shucked_function =~ ^[a-zA-Z_][a-zA-Z_0-9:.-]*$ ]] || exit 1
 declare -F -- "$shucked_function" >/dev/null || exit 1
+# Readline quotes filename candidates itself. Other callbacks supply shell-word
+# insertion text, which can include an unquoted completion delimiter.
+shucked_filenames=0
+shucked_noquote=0
+for ((shucked_i=0; shucked_i<${#shucked_spec[@]}-1; shucked_i++)); do
+    if [[ ${shucked_spec[shucked_i]} == -o ]]; then
+        case ${shucked_spec[shucked_i+1]} in
+            filenames) shucked_filenames=1 ;;
+            noquote) shucked_noquote=1 ;;
+        esac
+    fi
+done
+compopt() {
+    local shucked_mode shucked_option
+    while (($#)); do
+        shucked_mode=$1; shift
+        case $shucked_mode in
+            -o|+o)
+                (($#)) || return 1
+                shucked_option=$1; shift
+                case $shucked_option in
+                    filenames) [[ $shucked_mode == -o ]] && shucked_filenames=1 || shucked_filenames=0 ;;
+                    noquote) [[ $shucked_mode == -o ]] && shucked_noquote=1 || shucked_noquote=0 ;;
+                    bashdefault|default|dirnames|nosort|nospace|plusdirs) ;;
+                    *) return 1 ;;
+                esac
+                ;;
+            -D|-E|-I) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
+}
 "$shucked_function" "${COMP_WORDS[0]}" "${COMP_WORDS[COMP_CWORD]}" "${COMP_WORDS[COMP_CWORD-1]}" >/dev/null 2>&1
 printf 'P\0000\000'
 for shucked_candidate in "${COMPREPLY[@]:0:2000}"; do
-    printf 'M\000%s\000\000' "$shucked_candidate"
+    if ((shucked_filenames && !shucked_noquote)); then
+        printf 'M\000%s\000\000' "$shucked_candidate"
+    else
+        printf 'B\000%s\000\000' "$shucked_candidate"
+    fi
 done
 printf 'E\000'

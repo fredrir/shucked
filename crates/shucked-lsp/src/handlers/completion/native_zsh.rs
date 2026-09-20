@@ -196,9 +196,20 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
     loop {
         match fields.next()? {
             b"E" => return Some(items),
-            b"M" => {
-                let text = std::str::from_utf8(fields.next()?).ok()?;
+            kind @ (b"M" | b"B") => {
+                let raw_text = std::str::from_utf8(fields.next()?).ok()?;
                 let display = std::str::from_utf8(fields.next()?).ok()?;
+                if raw_text.len() > 8192 {
+                    continue;
+                }
+                let text = if kind == b"B" {
+                    let Some(text) = decode_bash_candidate(raw_text) else {
+                        continue;
+                    };
+                    std::borrow::Cow::Owned(text)
+                } else {
+                    std::borrow::Cow::Borrowed(raw_text)
+                };
                 if text.is_empty()
                     || text.len() > 8192
                     || text.chars().any(char::is_control)
@@ -207,7 +218,7 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
                     continue;
                 }
                 let description = display
-                    .strip_prefix(text)
+                    .strip_prefix(text.as_ref())
                     .unwrap_or(display)
                     .trim()
                     .trim_start_matches("--")
@@ -223,7 +234,7 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
                     }
                 } else {
                     items.push(Candidate {
-                        text: text.to_owned(),
+                        text: text.into_owned(),
                         description,
                     });
                 }
@@ -231,6 +242,39 @@ pub(super) fn parse_output(output: &[u8]) -> Option<Vec<Candidate>> {
             _ => return None,
         }
     }
+}
+
+/// Decode a callback's single shell-word insertion without evaluating it.
+/// Filename-mode callbacks bypass this: Readline would quote those raw names.
+pub(crate) fn decode_bash_candidate(candidate: &str) -> Option<String> {
+    const PREFIX: &str = "__shucked_completion__ ";
+    let source = format!("{PREFIX}{candidate}");
+    let parsed = shucked_parser::parser::Parser::new(&source).parse();
+    if !parsed.diagnostics.is_empty() || parsed.file.body.len() != 1 {
+        return None;
+    }
+    let statement = parsed.file.body.first()?;
+    if statement.negated
+        || !statement.redirects.is_empty()
+        || statement.terminator.is_some()
+        || statement.inline_comment.is_some()
+    {
+        return None;
+    }
+    let shucked_ast::Command::Simple(command) = &statement.command else {
+        return None;
+    };
+    let [word] = command.args.as_slice() else {
+        return None;
+    };
+    if word.span.start.offset() != PREFIX.len()
+        || !source[word.span.end.offset()..]
+            .chars()
+            .all(|character| matches!(character, ' ' | '\t'))
+    {
+        return None;
+    }
+    shucked_ast::static_command_name_text(word, &source).map(|text| text.into_owned())
 }
 
 #[cfg(all(test, unix))]

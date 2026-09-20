@@ -135,3 +135,114 @@ fn invalidation_during_completion_cannot_repopulate_the_cache() {
     assert_eq!(result[0].text, "candidate");
     assert!(provider.cache.lock().unwrap().is_empty());
 }
+
+#[test]
+fn bash_git_flags_drop_completion_delimiters_but_tracked_filename_spaces_survive() {
+    let Some(provider) = ManagedShell::detect("bash") else {
+        return;
+    };
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(root.path().join("file "), "fixture\n").unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "--", "file "])
+            .current_dir(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Shucked Fixture",
+                "-c",
+                "user.email=fixture@invalid",
+                "-c",
+                "commit.gpgSign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture"
+            ])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .current_dir(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(root.path().join("file "), "modified fixture\n").unwrap();
+    let flags = provider
+        .complete(
+            &["git".into(), "checkout".into()],
+            "--",
+            root.path(),
+            &RequestCancellationToken::default(),
+            None,
+        )
+        .unwrap();
+    assert!(
+        flags.iter().any(|candidate| candidate.text == "--detach"),
+        "{flags:?}"
+    );
+    assert!(!flags.iter().any(|candidate| candidate.text == "--detach "));
+    let paths = provider
+        .complete(
+            &["git".into(), "add".into()],
+            "file",
+            root.path(),
+            &RequestCancellationToken::default(),
+            None,
+        )
+        .unwrap();
+    assert!(
+        paths.iter().any(|candidate| candidate.text == "file "),
+        "{paths:?}"
+    );
+}
+
+#[test]
+fn bash_callback_options_preserve_raw_names_and_decode_explicit_quoting() {
+    for (options, callback) in [
+        ("-o filenames", "COMPREPLY=('file ');"),
+        ("-o filenames -o noquote", "COMPREPLY=(\"'file '\");"),
+        ("", "compopt -o filenames +o nospace; COMPREPLY=('file ');"),
+        (
+            "-o filenames",
+            "compopt +o filenames; COMPREPLY=(\"'file '\");",
+        ),
+    ] {
+        let Some(mut provider) = ManagedShell::detect("bash") else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let pack = root.path().join("packs/bash-completion");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("bash_completion"), format!("_comp_load() {{ complete {options} -F fixture printf; }}\nfixture() {{ {callback} }}\n")).unwrap();
+        provider.root = root.path().to_owned();
+        let result = provider
+            .complete(
+                &["printf".into()],
+                "file",
+                root.path(),
+                &RequestCancellationToken::default(),
+                None,
+            )
+            .unwrap();
+        assert!(
+            result.iter().any(|candidate| candidate.text == "file "),
+            "{options}: {result:?}"
+        );
+    }
+}

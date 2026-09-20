@@ -97,3 +97,30 @@ compdef _shucked_listing shucked_listing
         "{personal:?}"
     );
 }
+
+#[test]
+fn bash_insertion_words_distinguish_delimiters_from_quoted_filename_spaces() {
+    for (candidate, expected) in [
+        ("--detach ", "--detach"),
+        ("for ", "for"),
+        ("file\\ ", "file "),
+        ("'file '", "file "),
+        ("\"file \" ", "file "),
+        ("'two words' ", "two words"),
+    ] {
+        assert_eq!(decode_bash_candidate(candidate).as_deref(), Some(expected));
+    }
+    for candidate in [
+        "$(touch marker)",
+        "${HOME}",
+        "one two",
+        "word;other",
+        "word > file",
+        "word # comment",
+    ] {
+        assert_eq!(decode_bash_candidate(candidate), None, "{candidate}");
+    }
+    let result = parse_output(b"P\0\x30\0B\0--detach \0\0M\0file \0\0E\0").unwrap();
+    assert_eq!(result[0].text, "--detach");
+    assert_eq!(result[1].text, "file ");
+}
