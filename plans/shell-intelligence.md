@@ -49,6 +49,7 @@ Linux ARM64 debug server in a local VM; 10 fresh processes, 10 warmups and 100 w
 |---|---|
 | Real host | Arch Linux x86_64 over SSH from macOS arm64 |
 | Absolute and relative PATH | Host inventory, paths, install refresh and reconnect passed; 1.038 s each |
+| Native package/flag completion | Real pacman repository packages and bundled Git flags through Bash/Zsh/Fish LSP; exact insertion; hostile personal startup files ignored; 0.698 s |
 | Startup through first completion | Debug p50 56.381 ms; p95 57.649 ms |
 | Warm command completion | Debug p50 14.611 ms; p95 18.432 ms |
 | Warm native arguments | Debug p50 3.586 ms; p95 3.977 ms |
