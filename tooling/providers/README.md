@@ -16,6 +16,7 @@
 | Delivery | `bin/providers/packs` and `bin/providers/runtime` in the VSIX |
 | Integrity | Schema 2; exact target, SHA-256 file inventory, corresponding sources, SPDX SBOM, passed worker receipt |
 | Startup | Managed engines bypass personal startup and completion files |
+| Linux GNU baseline | Managed runtime requires glibc 2.36; checked ELF symbol versions, including Bash |
 | History | Fish private mode; no history completion in these workers |
 | Editor input | Positional arguments or quoted buffer data; never evaluated as a command |
 | Native callbacks | Trusted completion code can run helpers; workspace trust and deadlines required |
@@ -29,13 +30,15 @@
 | Platform | Current evidence | Release gate |
 |---|---|---|
 | macOS arm64 | Relocated private Zsh/Bash/Fish and 115 helper names pass hostile-startup tests with restricted PATH | Passed locally |
-| Linux GNU arm64 | Prior source-built engines/helpers and relocated worker tests passed in Podman | Revalidate latest worker revision |
-| Linux musl arm64 | Prior source-built engines/helpers and relocated worker tests passed in Alpine Podman | Revalidate latest worker revision |
+| Linux GNU arm64 | Native Podman build; latest relocated workers verified through isolated QEMU/proot on Arch x64 | Passed under emulation |
+| Linux musl arm64 | Native Alpine Podman build; latest relocated workers verified through isolated QEMU/proot on Arch x64 | Passed under emulation |
 | Linux GNU/musl x64 | Source-built engines/helpers in native Docker on Arch x64; relocated workers and strict inventories pass | Passed on native x64 host |
 | Linux GNU armhf | Digest-pinned ARMv7 container recipe; target-native source build supports ARMHF | Full build and target execution required |
 | macOS x64 | Native target-host source recipe; no matching local execution host | Target execution required |
 | Windows x64 | Pinned MSYS engine/helper packages; 363 x64 PE images checked for DLL availability; full binary/source closure staged | Windows worker/containment validation required |
 | Windows ARM64 | Same x64 MSYS package closure; Windows 11 x64 emulation required | ARM64-host worker/containment validation required |
+
+ARM refresh receipts record QEMU 7.2.22, proot 5.1.0, and x64 execution host. GNU dependency inspection uses the ARM loader `--list` in an isolated rootfs; the full dependency allowlist remains enforced. Musl uses its own `ldd`.
 
 Windows runtime dispatch, path conversion, and process containment are implemented. Native worker, DLL search, and containment execution remain unverified. Both Windows targets remain blocked from release.
 
