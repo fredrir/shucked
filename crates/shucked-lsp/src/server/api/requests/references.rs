@@ -32,7 +32,9 @@ impl super::super::traits::BackgroundRequestHandler for References {
     ) -> crate::server::Result<Self::Snapshot> {
         let uri = params.text_document_position.text_document.uri.clone();
         Ok(ReferencesSnapshot {
-            document: session.take_snapshot(uri),
+            document: session
+                .take_snapshot(uri)
+                .map(|snapshot| snapshot.with_analysis_cancellation(cancellation.clone())),
             workspace: session.workspace_function_context(cancellation),
         })
     }
@@ -55,6 +57,9 @@ fn references(
     client: &Client,
     params: types::ReferenceParams,
 ) -> crate::server::Result<editor_features::ReferencesResponse> {
+    if workspace.cancellation.is_cancelled() {
+        return Ok(None);
+    }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
     };
@@ -90,14 +95,32 @@ fn references(
         let Some(index) = workspace_function_index(&workspace) else {
             return editor_features::references(snapshot, client, params);
         };
-        let Some(locations) = index.variable_reference_locations(
-            &path,
-            &variable,
-            params.context.include_declaration,
-            &workspace.cancellation,
-        ) else {
+        let Some(details) = index.variable_details(&path, &variable, &workspace.cancellation)
+        else {
             return Ok(None);
         };
+        if workspace.cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        if details.incomplete {
+            client.show_message(
+                format!(
+                    "Workspace references are incomplete: {}.",
+                    index
+                        .incomplete_reason()
+                        .unwrap_or_else(|| "some source effects could not be followed".into())
+                ),
+                types::MessageType::WARNING,
+            )?;
+        }
+        let mut locations = details.references;
+        if params.context.include_declaration {
+            for declaration in details.definitions {
+                if !locations.contains(&declaration) {
+                    locations.push(declaration);
+                }
+            }
+        }
         return Ok((!locations.is_empty()).then_some(locations));
     }
     let (index, target_path, target_node, declaration) = match target {

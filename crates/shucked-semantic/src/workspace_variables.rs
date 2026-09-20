@@ -57,9 +57,25 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 /// A variable target under the active editor cursor.
 pub struct WorkspaceVariableTarget {
+    selection: Option<Span>,
     name: Name,
     cutoff: usize,
     local_family: bool,
+}
+
+/// Known origins and consumers of a selected variable assignment or read.
+#[derive(Clone, Debug)]
+pub struct WorkspaceVariableExplanation {
+    /// Variable name.
+    pub name: Name,
+    /// Assignments that may reach the selected read.
+    pub definitions: Vec<WorkspaceVariableOccurrence>,
+    /// Reads reached by the selected assignments.
+    pub references: Vec<WorkspaceVariableOccurrence>,
+    /// Some source effects could not be followed.
+    pub incomplete: bool,
+    /// Conditional execution contributes possible uses.
+    pub conditional: bool,
 }
 
 /// One path/span pair returned by a workspace variable query.
@@ -615,6 +631,130 @@ impl WorkspaceVariableIndex {
         Some(result)
     }
 
+    /// Explain known uses without requiring a complete rename family.
+    pub fn explain(
+        &self,
+        from_path: &Path,
+        target: &WorkspaceVariableTarget,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Option<WorkspaceVariableExplanation> {
+        if is_cancelled() {
+            return None;
+        }
+        let mut incomplete = false;
+        let cutoff = self
+            .files
+            .get(from_path)
+            .and_then(|facts| {
+                facts.references.iter().find(|reference| {
+                    reference.name == target.name
+                        && reference.occurrence_span.start.offset() == target.cutoff
+                })
+            })
+            .map_or(target.cutoff, |reference| reference.cutoff);
+        let seeds = if let Some(span) = target.selection {
+            BTreeSet::from([(
+                from_path.to_path_buf(),
+                WorkspaceConsumedBinding::new(target.name.clone(), span),
+            )])
+        } else {
+            match self.reaching_variable_paths(
+                from_path,
+                &target.name,
+                cutoff,
+                None,
+                true,
+                &mut BTreeSet::new(),
+                is_cancelled,
+            ) {
+                Some(definitions) => definitions.bindings,
+                None => {
+                    incomplete = true;
+                    BTreeSet::new()
+                }
+            }
+        };
+        let definitions = seeds
+            .iter()
+            .filter_map(|(path, binding)| {
+                let definition = self
+                    .files
+                    .get(path)?
+                    .definitions
+                    .iter()
+                    .find(|definition| {
+                        definition.name == binding.name
+                            && definition.occurrence_span.start.offset() == binding.start
+                            && definition.occurrence_span.end.offset() == binding.end
+                    })?;
+                Some(WorkspaceVariableOccurrence {
+                    path: path.clone(),
+                    span: definition.occurrence_span,
+                })
+            })
+            .collect::<Vec<_>>();
+        let paths = seeds
+            .iter()
+            .map(|(path, _)| path.clone())
+            .chain(std::iter::once(from_path.to_path_buf()))
+            .collect();
+        let family = self.environment_paths_from(&paths, is_cancelled)?;
+        let mut references = Vec::new();
+        let mut conditional = seeds.len() > 1;
+        for path in family {
+            let Some(facts) = self.files.get(&path) else {
+                incomplete = true;
+                continue;
+            };
+            conditional |= facts.source_effects.iter().any(|effect| effect.conditional);
+            incomplete |= facts.source_effects.iter().any(|effect| {
+                effect.persistent
+                    && effect
+                        .path
+                        .as_ref()
+                        .is_none_or(|path| !self.files.contains_key(path))
+            });
+            for reference in facts
+                .references
+                .iter()
+                .filter(|reference| reference.name == target.name)
+            {
+                if is_cancelled() {
+                    return None;
+                }
+                match self.reaching_variable_paths(
+                    &path,
+                    &reference.name,
+                    reference.cutoff,
+                    None,
+                    true,
+                    &mut BTreeSet::new(),
+                    is_cancelled,
+                ) {
+                    Some(reaching) if !seeds.is_disjoint(&reaching.bindings) => {
+                        references.push(WorkspaceVariableOccurrence {
+                            path: path.clone(),
+                            span: reference.occurrence_span,
+                        })
+                    }
+                    None => incomplete = true,
+                    _ => {}
+                }
+            }
+        }
+        if is_cancelled() {
+            return None;
+        }
+        sort_dedup_occurrences(&mut references);
+        Some(WorkspaceVariableExplanation {
+            name: target.name.clone(),
+            definitions,
+            references,
+            incomplete,
+            conditional,
+        })
+    }
+
     /// Returns `None` when source effects are ambiguous or the query is cancelled.
     pub fn definitions(
         &self,
@@ -987,6 +1127,7 @@ pub fn variable_target(
         EditorSymbolTarget::Binding(binding_id) => {
             let binding = model.binding(*binding_id);
             persistent_file_variable_binding(model, binding).then(|| WorkspaceVariableTarget {
+                selection: Some(binding_occurrence_span(binding)),
                 name: binding.name.clone(),
                 cutoff: usize::MAX,
                 local_family: true,
@@ -1006,6 +1147,7 @@ pub fn variable_target(
                 None => false,
             };
             Some(WorkspaceVariableTarget {
+                selection: None,
                 name: reference.name.clone(),
                 cutoff: if model.enclosing_function_scope(reference.scope).is_some() {
                     usize::MAX
@@ -1137,6 +1279,7 @@ mod tests {
 
     fn target(name: &str, cutoff: usize, local_family: bool) -> WorkspaceVariableTarget {
         WorkspaceVariableTarget {
+            selection: None,
             name: Name::from(name),
             cutoff,
             local_family,

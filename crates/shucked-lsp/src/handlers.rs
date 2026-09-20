@@ -19,6 +19,7 @@ pub(crate) mod semantic_tokens;
 pub(crate) mod semantic_tokens_fish;
 pub(crate) mod symbols;
 pub(crate) mod workspace_diagnostics;
+pub(crate) mod workspace_explain;
 pub(crate) mod workspace_functions;
 pub(crate) mod workspace_variables;
 pub(crate) mod zsh;

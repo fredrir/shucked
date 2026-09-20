@@ -23,8 +23,24 @@ just build
 # Run tests
 just test
 
+
+# Run code style, clippy linting, and dependency checks
+just check
+
 # Run the CLI
-just run check .             # cargo run -p shucked-cli -- check .
+just run check .
+
+# Download large corpus fixtures
+just corpus download
+
+# Run large corpus compatibility tests against ShellCheck
+just corpus test
+
+# Generate large corpus HTML report
+just corpus report
+
+# Run fuzz testing smoke suite
+just fuzz smoke
 ```
 
 ## Shell completions

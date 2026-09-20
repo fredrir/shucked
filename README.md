@@ -15,7 +15,6 @@ Shucked parses, analyzes, formats, and powers editor feedback for shell scripts.
 - Embedded shell extraction for GitHub Actions workflows and composite actions
 - First-party Language Server Protocol server for editor diagnostics, code actions, navigation, symbols, hover, completion, and formatting
 - WebAssembly npm package for bundled Node.js extensions and browser-hosted editors
-- ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
 
 ## Installation
 
@@ -23,12 +22,10 @@ WiP
 
 ## Usage
 
-```sh
--- **Format** `shucked format`
--- **Check** `shucked check`
-- **Clean caches** `shucked clean`
-- ** Editor integration** ´shucked server`
-```
+- `shucked format`
+- `shucked check`
+- `shucked clean`
+- `shucked server`
 
 ## Rules
 
@@ -64,33 +61,6 @@ space-redirects = false    # add spaces around redirection operators
 keep-padding = false       # preserve safe horizontal padding
 function-next-line = false # put function opening braces on their own line
 never-split = false        # prefer compact layouts
-```
-## Development
-
-```sh
-# Build the project (fast iteration)
-just build
-
-# Run unit and integration tests
-just test
-
-# Run code style, clippy linting, and dependency checks
-just check
-
-# Run the CLI
-just run check .
-
-# Download large corpus fixtures
-just corpus download
-
-# Run large corpus compatibility tests against ShellCheck
-just corpus test
-
-# Generate large corpus HTML report
-just corpus report
-
-# Run fuzz testing smoke suite
-just fuzz smoke
 ```
 
 ## Contributing

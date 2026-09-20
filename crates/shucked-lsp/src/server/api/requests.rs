@@ -57,3 +57,7 @@ pub(super) use semantic_tokens::SemanticTokensFull;
 pub(super) use shutdown::ShutdownHandler;
 pub(super) use workspace_diagnostic::WorkspaceDiagnostic;
 pub(super) use workspace_symbol::WorkspaceSymbols;
+
+#[cfg(test)]
+#[path = "../../../tests/requests/workspace_explain.rs"]
+mod workspace_explain_tests;

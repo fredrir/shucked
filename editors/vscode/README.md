@@ -64,6 +64,16 @@ Managed completion workers bypass personal startup files. Creating a Shucked ter
 
 History suggestions are separately opt-in for accepted session commands and history files. Attached sessions report their actual history path only when file reads are enabled, including custom `HISTFILE` and Fish namespaces. Entries stay in bounded memory caches; disabling history or disconnecting clears cached and displayed suggestions. Session collection requires an authenticated prompt confirmation.
 
+## Workspace navigation
+
+| Action | Result |
+|---|---|
+| Hover a variable | Assignment locations and consuming files, including unsaved edits |
+| Go to References | Reads of the selected assignment; includes possible reads through known conditional imports and called loaders |
+| Hover a source path or `source=` directive | Resolved file, searched paths, or reason resolution stopped |
+| Incomplete analysis | Hover labels partial results; References reports incomplete results when requested |
+| Analysis limits | Workspace index defaults to `5000` files; source analysis also bounds depth, file count, bytes, and work |
+
 ## Project dependencies
 
 Declare expected commands in `.shucked.toml`:

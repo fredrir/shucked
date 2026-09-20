@@ -95,15 +95,20 @@ fn hover(
         analysis.line_index(),
         snapshot.encoding(),
     );
-    let Some(EditorSymbolTarget::FunctionCall(call)) =
-        analysis.semantic().editor_query().target_at_offset(offset)
-    else {
-        return resolve::hover(snapshot, client, params);
-    };
-
-    // Without a source operation, the document-local semantic answer is both
-    // exact and cheaper than materializing the workspace function index.
-    if analysis.semantic().source_refs().is_empty() {
+    let target = analysis.semantic().editor_query().target_at_offset(offset);
+    let variable = target.as_ref().and_then(|target| {
+        crate::workspace_variables::variable_target(analysis.semantic(), target)
+    });
+    let source_hover = analysis.semantic().source_refs().iter().any(|source| {
+        let contains =
+            |span: shucked_ast::Span| span.start.offset() <= offset && offset < span.end.offset();
+        contains(source.span) || source.directive_path_span.is_some_and(contains)
+    });
+    if variable.is_none()
+        && !source_hover
+        && (!matches!(target, Some(EditorSymbolTarget::FunctionCall(_)))
+            || analysis.semantic().source_refs().is_empty())
+    {
         return resolve::hover(snapshot, client, params);
     }
     let Some(path) = snapshot
@@ -117,6 +122,67 @@ fn hover(
     };
     let Some(index) = workspace_function_index(&workspace) else {
         return Ok(None);
+    };
+    if source_hover && let Some(details) = index.source_details(&path, offset) {
+        let span = details
+            .directive_span
+            .filter(|span| span.start.offset() <= offset && offset < span.end.offset())
+            .unwrap_or_else(|| {
+                if details.path_span.start.offset() <= offset
+                    && offset < details.path_span.end.offset()
+                {
+                    details.path_span
+                } else {
+                    details.span
+                }
+            });
+        return Ok(Some(types::Hover {
+            contents: types::HoverContents::Markup(types::MarkupContent {
+                kind: types::MarkupKind::Markdown,
+                value: crate::handlers::workspace_explain::source(details, &index),
+            }),
+            range: Some(crate::edit::to_lsp_range(
+                span.to_range(),
+                analysis.source(),
+                analysis.line_index(),
+                snapshot.encoding(),
+            )),
+        }));
+    }
+    if source_hover && let Some(reason) = index.incomplete_reason() {
+        return Ok(Some(types::Hover {
+            contents: types::HoverContents::Markup(types::MarkupContent {
+                kind: types::MarkupKind::Markdown,
+                value: format!("**Incomplete workspace discovery:** {reason}."),
+            }),
+            range: None,
+        }));
+    }
+    if let Some(variable) = variable {
+        let details = index.variable_details(&path, &variable, &workspace.cancellation);
+        let mut existing = resolve::hover(snapshot, client, params)?;
+        if let Some(details) = details {
+            let value = crate::handlers::workspace_explain::variable(&details, &index);
+            if let Some(types::Hover {
+                contents: types::HoverContents::Markup(content),
+                ..
+            }) = &mut existing
+            {
+                content.value.push_str(&format!("\n\n---\n\n{value}"));
+            } else {
+                existing = Some(types::Hover {
+                    contents: types::HoverContents::Markup(types::MarkupContent {
+                        kind: types::MarkupKind::Markdown,
+                        value,
+                    }),
+                    range: None,
+                });
+            }
+        }
+        return Ok(existing);
+    }
+    let Some(EditorSymbolTarget::FunctionCall(call)) = target else {
+        return resolve::hover(snapshot, client, params);
     };
     let Some(target) =
         index.resolve_call_site_exact(&path, call.name_span, &workspace.cancellation)

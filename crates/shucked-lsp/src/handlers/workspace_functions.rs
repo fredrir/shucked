@@ -21,8 +21,8 @@ use shucked_indexer::LineIndex;
 use shucked_linter::ShellDialect;
 use shucked_semantic::{
     CallFactSourceEdge, CallNodeKind, CrossFileCall, ExactFunctionRename, ExactFunctionRenameError,
-    FileCallFacts, FileVariableFacts, SemanticModel, VisibleSourcedFunction, WorkspaceCallIndex,
-    source_ref_candidate_paths,
+    FileCallFacts, FileVariableFacts, SemanticModel, SourceRefKind, VisibleSourcedFunction,
+    WorkspaceCallIndex, source_ref_candidate_paths,
 };
 
 use crate::PositionEncoding;
@@ -170,6 +170,7 @@ struct WorkspaceFileProjection {
     source_paths: SourcePathResolution,
     dependencies: BTreeMap<PathBuf, DependencyFingerprint>,
     calls: FileCallFacts,
+    sources: Vec<WorkspaceSourceDetails>,
     variables: FileVariableFacts,
     complete: bool,
 }
@@ -204,6 +205,45 @@ impl IndexedWorkspaceFile {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct WorkspaceSourceDetails {
+    pub(crate) span: Span,
+    pub(crate) path_span: Span,
+    pub(crate) directive_span: Option<Span>,
+    pub(crate) target: Option<PathBuf>,
+    pub(crate) candidates: Vec<PathBuf>,
+    pub(crate) reason: SourceResolutionReason,
+    pub(crate) conditional: bool,
+    pub(crate) in_function: bool,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum SourceResolutionReason {
+    Resolved,
+    Missing,
+    Dynamic,
+    UnknownValue,
+    AnalysisLimit,
+    Ignored,
+    Unreadable,
+}
+
+pub(crate) struct WorkspaceVariableDetails {
+    pub(crate) name: String,
+    pub(crate) definitions: Vec<types::Location>,
+    pub(crate) references: Vec<types::Location>,
+    pub(crate) incomplete: bool,
+    pub(crate) conditional: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum WorkspaceIssue {
+    FileLimit,
+    SourceLimit,
+    Configuration,
+    Discovery,
+}
+
 /// Shared index queried by cross-file editor features.
 pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
@@ -212,6 +252,8 @@ pub(crate) struct WorkspaceFunctionIndex {
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
     encoding: PositionEncoding,
     complete: bool,
+    issues: BTreeSet<WorkspaceIssue>,
+    file_limit: usize,
 }
 
 impl WorkspaceFunctionIndex {
@@ -236,6 +278,7 @@ impl WorkspaceFunctionIndex {
         let mut variables = WorkspaceVariableIndex::default();
         let mut files = BTreeMap::new();
         let mut complete = true;
+        let mut issues = BTreeSet::new();
         let max_files = context.max_files;
         let mut path_analyzer = shucked_semantic::SourcePathAnalyzer::default();
 
@@ -261,6 +304,7 @@ impl WorkspaceFunctionIndex {
             }
             if graph.file_count() >= max_files {
                 complete = false;
+                issues.insert(WorkspaceIssue::FileLimit);
                 tracing::warn!(
                     "workspace functions: open documents exceed the {max_files}-file limit; \
                      indexing only the first {max_files}"
@@ -272,6 +316,9 @@ impl WorkspaceFunctionIndex {
                 .borrow_mut()
                 .resolve(path, context);
             complete &= resolution.complete;
+            if !resolution.complete {
+                issues.insert(WorkspaceIssue::Configuration);
+            }
             complete &= insert_file(
                 &mut graph,
                 &mut variables,
@@ -300,16 +347,25 @@ impl WorkspaceFunctionIndex {
             &context.cancellation,
         )?;
         complete &= discovery.complete;
+        if !discovery.complete {
+            issues.insert(if discovery.limited {
+                WorkspaceIssue::FileLimit
+            } else {
+                WorkspaceIssue::Discovery
+            });
+        }
         for file in discovery.files {
             if context.cancellation.is_cancelled() {
                 return None;
             }
             let Some(source) = path_provider.source(&file) else {
                 complete = false;
+                issues.insert(WorkspaceIssue::Discovery);
                 continue;
             };
             let Ok(uri) = types::Url::from_file_path(&file) else {
                 complete = false;
+                issues.insert(WorkspaceIssue::Discovery);
                 continue;
             };
             let resolution = path_provider
@@ -317,6 +373,9 @@ impl WorkspaceFunctionIndex {
                 .borrow_mut()
                 .resolve(&file, context);
             complete &= resolution.complete;
+            if !resolution.complete {
+                issues.insert(WorkspaceIssue::Configuration);
+            }
             complete &= insert_file(
                 &mut graph,
                 &mut variables,
@@ -354,6 +413,7 @@ impl WorkspaceFunctionIndex {
                 }
                 if graph.file_count() >= max_files {
                     complete = false;
+                    issues.insert(WorkspaceIssue::FileLimit);
                     tracing::warn!(
                         "workspace functions: source-edge targets exceed the {max_files}-file \
                          limit; cross-file results may be incomplete"
@@ -366,11 +426,13 @@ impl WorkspaceFunctionIndex {
                 else {
                     let Some(source) = path_provider.source(&target) else {
                         complete = false;
+                        issues.insert(WorkspaceIssue::Discovery);
                         graph.insert(target.clone(), FileCallFacts::default());
                         continue;
                     };
                     let Ok(uri) = types::Url::from_file_path(&target) else {
                         complete = false;
+                        issues.insert(WorkspaceIssue::Discovery);
                         graph.insert(target.clone(), FileCallFacts::default());
                         continue;
                     };
@@ -379,6 +441,9 @@ impl WorkspaceFunctionIndex {
                         .borrow_mut()
                         .resolve(&target, context);
                     complete &= resolution.complete;
+                    if !resolution.complete {
+                        issues.insert(WorkspaceIssue::Configuration);
+                    }
                     complete &= insert_file(
                         &mut graph,
                         &mut variables,
@@ -401,6 +466,9 @@ impl WorkspaceFunctionIndex {
                     .borrow_mut()
                     .resolve(&target, context);
                 complete &= resolution.complete;
+                if !resolution.complete {
+                    issues.insert(WorkspaceIssue::Configuration);
+                }
                 complete &= insert_file(
                     &mut graph,
                     &mut variables,
@@ -419,7 +487,12 @@ impl WorkspaceFunctionIndex {
             }
         }
 
+        if files.values().any(|file| !file.projection.complete) {
+            issues.insert(WorkspaceIssue::SourceLimit);
+        }
         Some(Self {
+            issues,
+            file_limit: max_files,
             variable_usage: OnceLock::new(),
             graph,
             variables,
@@ -495,22 +568,68 @@ impl WorkspaceFunctionIndex {
         self.variable_locations(occurrences, cancellation)
     }
 
-    pub(crate) fn variable_reference_locations(
+    pub(crate) fn variable_details(
         &self,
         from_path: &Path,
         target: &WorkspaceVariableTarget,
-        include_declaration: bool,
         cancellation: &RequestCancellationToken,
-    ) -> Option<Vec<types::Location>> {
-        if !self.complete || cancellation.is_cancelled() {
+    ) -> Option<WorkspaceVariableDetails> {
+        let explanation = self
+            .variables
+            .explain(from_path, target, &|| cancellation.is_cancelled())?;
+        Some(WorkspaceVariableDetails {
+            name: explanation.name.to_string(),
+            definitions: self.variable_locations(explanation.definitions, cancellation)?,
+            references: self.variable_locations(explanation.references, cancellation)?,
+            incomplete: explanation.incomplete || !self.complete,
+            conditional: explanation.conditional,
+        })
+    }
+
+    pub(crate) fn source_details(
+        &self,
+        from_path: &Path,
+        offset: usize,
+    ) -> Option<&WorkspaceSourceDetails> {
+        self.files
+            .get(from_path)?
+            .projection
+            .sources
+            .iter()
+            .find(|source| {
+                (source.span.start.offset() <= offset && offset < source.span.end.offset())
+                    || source.directive_span.is_some_and(|span| {
+                        span.start.offset() <= offset && offset < span.end.offset()
+                    })
+            })
+    }
+
+    pub(crate) fn incomplete_reason(&self) -> Option<String> {
+        if self.complete {
             return None;
         }
-        let occurrences =
-            self.variables
-                .references(from_path, target, include_declaration, &|| {
-                    cancellation.is_cancelled()
-                })?;
-        self.variable_locations(occurrences, cancellation)
+        let mut reasons = self
+            .issues
+            .iter()
+            .map(|issue| match issue {
+                WorkspaceIssue::FileLimit => {
+                    format!("workspace file limit ({}) reached", self.file_limit)
+                }
+                WorkspaceIssue::SourceLimit => {
+                    "source analysis reached a file, depth, size, or work limit".into()
+                }
+                WorkspaceIssue::Configuration => {
+                    "some source-path settings could not be read".into()
+                }
+                WorkspaceIssue::Discovery => {
+                    "some workspace files could not be discovered or read".into()
+                }
+            })
+            .collect::<Vec<_>>();
+        if reasons.is_empty() {
+            reasons.push("workspace discovery did not finish".into());
+        }
+        Some(reasons.join("; "))
     }
 
     fn variable_locations(
@@ -984,6 +1103,7 @@ fn project_file(
     let mut dependencies = vec![path.to_path_buf()];
     let resolved_paths = path_analyzer.resolve(model, path, path_provider);
     dependencies.extend(resolved_paths.dependency_paths().cloned());
+    let mut sources = Vec::new();
     let edges = model
         .source_refs()
         .iter()
@@ -1005,23 +1125,60 @@ fn project_file(
             {
                 candidates.push(candidate);
             }
-            candidates
+            let mut checked = Vec::new();
+            let target = candidates
                 .into_iter()
-                .inspect(|path| dependencies.push(path.clone()))
+                .inspect(|candidate| {
+                    dependencies.push(candidate.clone());
+                    checked.push(candidate.clone());
+                })
                 .find_map(|candidate| {
                     let snapshot = path_provider.snapshot(&candidate);
                     snapshot.is_file.then(|| snapshot.canonical_path.clone())
-                })
-                .map(|target| CallFactSourceEdge {
-                    path: target,
-                    span: source_ref.span,
-                    conditional: source_ref.conditionally_executed,
-                    completion_visible: !source_ref.conditionally_executed
-                        && model.enclosing_function_scope(scope).is_none()
-                        && model
-                            .innermost_transient_scope_within_function(scope)
-                            .is_none(),
-                })
+                });
+            let reason = if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull) {
+                SourceResolutionReason::Ignored
+            } else if let Some(target) = &target {
+                if path_provider.source(target).is_some() {
+                    SourceResolutionReason::Resolved
+                } else {
+                    SourceResolutionReason::Unreadable
+                }
+            } else if !resolved_paths.is_complete() {
+                SourceResolutionReason::AnalysisLimit
+            } else if matches!(resolved_paths.candidate(source_ref), Some(None))
+                || (checked.is_empty()
+                    && matches!(
+                        source_ref.kind,
+                        SourceRefKind::SingleVariableStaticTail { .. }
+                    ))
+            {
+                SourceResolutionReason::UnknownValue
+            } else if checked.is_empty() {
+                SourceResolutionReason::Dynamic
+            } else {
+                SourceResolutionReason::Missing
+            };
+            sources.push(WorkspaceSourceDetails {
+                span: source_ref.span,
+                path_span: source_ref.path_span,
+                directive_span: source_ref.directive_path_span,
+                target: target.clone(),
+                candidates: checked,
+                reason,
+                conditional: source_ref.conditionally_executed,
+                in_function: model.enclosing_function_scope(scope).is_some(),
+            });
+            target.map(|target| CallFactSourceEdge {
+                path: target,
+                span: source_ref.span,
+                conditional: source_ref.conditionally_executed,
+                completion_visible: !source_ref.conditionally_executed
+                    && model.enclosing_function_scope(scope).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(scope)
+                        .is_none(),
+            })
         })
         .collect::<Vec<_>>();
     let call_facts = FileCallFacts::project_with_source_edges(model, edges);
@@ -1036,6 +1193,7 @@ fn project_file(
             })
             .collect(),
         calls: call_facts,
+        sources,
         variables,
         complete: resolved_paths.is_complete(),
     }
@@ -1044,6 +1202,7 @@ fn project_file(
 struct ClosedFileDiscovery {
     files: Vec<PathBuf>,
     complete: bool,
+    limited: bool,
 }
 
 fn discover_closed_shell_files(
@@ -1102,6 +1261,7 @@ fn discover_closed_shell_files(
         );
     }
     Some(ClosedFileDiscovery {
+        limited: files.len() > max_files,
         files: files.into_iter().take(max_files).collect(),
         complete,
     })
