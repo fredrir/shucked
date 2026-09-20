@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import struct
 import tarfile
 import tempfile
 import urllib.parse
@@ -45,12 +46,42 @@ def sources(mode):
     return result
 
 
+def elf_is_static(path, header):
+    endian='<' if header[5]==1 else '>'
+    wide=header[4]==2
+    phoff=struct.unpack_from(endian+('Q' if wide else 'I'),header,32 if wide else 28)[0]
+    size,count=struct.unpack_from(endian+'HH',header,54 if wide else 42)
+    length=path.stat().st_size
+    if count>4096 or phoff+size*count>length: raise ValueError('invalid ELF program headers')
+    with path.open('rb') as file:
+        for index in range(count):
+            file.seek(phoff+size*index)
+            entry=file.read(size)
+            kind=struct.unpack_from(endian+'I',entry)[0]
+            if kind==3: return False
+            if kind!=2: continue
+            offset=struct.unpack_from(endian+('Q' if wide else 'I'),entry,8 if wide else 4)[0]
+            dynamic_size=struct.unpack_from(endian+('Q' if wide else 'I'),entry,32 if wide else 16)[0]
+            if offset+dynamic_size>length: raise ValueError('invalid ELF dynamic section')
+            file.seek(offset)
+            for _ in range(dynamic_size//(16 if wide else 8)):
+                dynamic=file.read(16 if wide else 8)
+                tag=struct.unpack_from(endian+('q' if wide else 'i'),dynamic)[0]
+                if tag==0: break
+                if tag==1: return False
+    return True
+
+
 def verify_links():
     for path in DEST.rglob('*'):
         if not path.is_file() or '/sources/' in str(path): continue
-        with path.open('rb') as file: header = file.read(16)
+        with path.open('rb') as file: header = file.read(64)
         magic = header[:4]
         if magic == b'\x7fELF':
+            expected={'x86_64':62,'aarch64':183,'arm64':183,'armv7l':40}[platform.machine()]
+            if int.from_bytes(header[18:20], 'little' if header[5]==1 else 'big')!=expected:
+                raise ValueError(f'ELF architecture mismatch: {path}')
+            if elf_is_static(path,header): continue
             output = subprocess.check_output(['ldd', str(path)], text=True, stderr=subprocess.STDOUT)
             for line in output.splitlines():
                 if '=>' not in line: continue
@@ -58,6 +89,8 @@ def verify_links():
                 if library not in ('libc.so.6','libm.so.6','libdl.so.2','libpthread.so.0','librt.so.1','libgcc_s.so.1','libutil.so.1','libc.musl-aarch64.so.1','libc.musl-x86_64.so.1'):
                     raise ValueError(f'unbundled runtime dependency: {path}: {line}')
         elif magic in (b'\xcf\xfa\xed\xfe', b'\xce\xfa\xed\xfe'):
+            expected={'x86_64':0x01000007,'arm64':0x0100000c}[platform.machine()]
+            if int.from_bytes(header[4:8],'little')!=expected: raise ValueError(f'Mach-O architecture mismatch: {path}')
             dependencies = subprocess.check_output(['otool', '-L', str(path)], text=True).splitlines()[1:]
             if int.from_bytes(header[12:16], 'little') == 6: dependencies = dependencies[1:]
             for line in dependencies:

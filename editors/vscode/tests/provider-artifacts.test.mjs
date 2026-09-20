@@ -11,7 +11,10 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const contents = { 'sbom.spdx.json': '{}', 'source.tar': 'source fixture' };
   const helpers = ['awk', 'basename', 'cat', 'cut', 'dirname', 'find', 'grep', 'head', 'ls', 'readlink', 'sed', 'sort', 'tail', 'tr', 'uniq', 'wc', 'xargs'];
-  for (const name of ['bash', 'zsh', 'fish']) { contents['bin/' + name] = 'engine'; }
+  const engine = Buffer.alloc(64);
+  engine.set([0x7f, 0x45, 0x4c, 0x46, 2, 1]);
+  engine.writeUInt16LE(183, 18);
+  for (const name of ['bash', 'zsh', 'fish']) { contents['bin/' + name] = engine; }
   for (const name of helpers) { contents['helpers/bin/' + name] = 'helper'; }
   const files = Object.entries(contents).map(([name, content]) => {
     fs.mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
@@ -60,4 +63,15 @@ test('runtime packaging rejects executable bits removed after validation', t => 
   const { root } = fixture(t);
   fs.chmodSync(path.join(root, 'helpers/bin/grep'), 0o644);
   assert.throws(() => verifyProviderRuntime(root, 'linux-arm64'), /inventory mismatch/);
+});
+
+test('runtime packaging rejects binaries of another CPU even with matching inventory', t => {
+  const { root, manifest, write } = fixture(t);
+  const file = path.join(root, 'bin/fish');
+  const binary = fs.readFileSync(file);
+  binary.writeUInt16LE(62, 18);
+  fs.writeFileSync(file, binary);
+  manifest.files.find(item => item.path === 'bin/fish').sha256 = createHash('sha256').update(binary).digest('hex');
+  write();
+  assert.throws(() => verifyProviderRuntime(root, 'linux-arm64'), /architecture mismatch/);
 });

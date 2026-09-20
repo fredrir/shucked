@@ -8,7 +8,7 @@ export SOURCE_DATE_EPOCH=1751328000
 mkdir -p "$build" "$prefix/helpers/bin"
 python3 "$repo/tooling/providers/fetch-linux.py"
 python3 - "$repo" "$build" "$prefix" <<'PY'
-import hashlib,json,os,subprocess,sys
+import hashlib,json,os,shutil,subprocess,sys
 from pathlib import Path
 repo,build,prefix=map(Path,sys.argv[1:])
 metadata=json.loads((repo/'tooling/providers/runtime-sources.json').read_text())
@@ -20,11 +20,16 @@ for name in os.environ.get('SHUCKED_HELPER_COMPONENTS','coreutils,findutils,grep
     stamp=source/'.shucked-installed'
     stamp_value=str(prefix)+hashlib.sha256((repo/'tooling/providers/build-helpers.sh').read_bytes()+json.dumps(item,sort_keys=True).encode()).hexdigest()
     if stamp.is_file() and stamp.read_text()==stamp_value: continue
+    source_identity=hashlib.sha256(json.dumps(item,sort_keys=True).encode()).hexdigest()
+    source_stamp=source/'.shucked-source-input'
+    if source.is_dir() and (not source_stamp.is_file() or source_stamp.read_text()!=source_identity):
+        shutil.rmtree(source)
     if not source.is_dir():
         subprocess.run(['tar','-xf',str(archive),'-C',str(build)],check=True)
         for patch in item.get('patches',[]):
             patchfile=prefix/'sources'/patch['url'].split('?',1)[0].rsplit('/',1)[1]
             subprocess.run(['patch','-'+patch['strip'],'-i',str(patchfile)],cwd=source,check=True)
+        source_stamp.write_text(source_identity)
     if (source/'Makefile').is_file():
         subprocess.run(['make','clean'],cwd=source,check=True,stdout=subprocess.DEVNULL)
     flags=['--prefix='+str(prefix/'helpers'),'--disable-nls','--disable-dependency-tracking','--without-selinux']

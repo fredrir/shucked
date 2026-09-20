@@ -18,8 +18,11 @@ image=${SHUCKED_BUILD_IMAGE:-$image}
 case "$image" in *@sha256:*) ;; *) echo 'Build image must be digest-pinned' >&2; exit 1;; esac
 engine=${SHUCKED_CONTAINER_ENGINE:-podman}
 output=${SHUCKED_PROVIDER_DEST:-$repo/target/provider-$target}
-mkdir -p "$output"
-"$engine" run --rm --platform="linux/$architecture" -v "$repo:/repo" -v "$output:/output" \
-  -e SHUCKED_PROVIDER_DEST=/output -e SHUCKED_PROVIDER_BUILD=/tmp/provider-build \
+build=${SHUCKED_PROVIDER_BUILD:-$repo/target/provider-container-build-$target}
+mkdir -p "$output" "$build"
+"$engine" run --rm --platform="linux/$architecture" -v "$repo:/repo" -v "$output:/output" -v "$build:/build" \
+  -e SHUCKED_PROVIDER_DEST=/output -e SHUCKED_PROVIDER_BUILD=/build \
+  -e SHUCKED_FISH_PREBUILT="${SHUCKED_FISH_PREBUILT:-}" \
+  -e SHUCKED_PROVIDER_EXECUTION="${SHUCKED_PROVIDER_EXECUTION:-container}" \
   -e SHUCKED_BUILD_JOBS="${SHUCKED_BUILD_JOBS:-1}" -e FORCE_UNSAFE_CONFIGURE=1 \
   "$image" sh -c "$install && /repo/tooling/providers/build-unix.sh && python3 /repo/tooling/providers/runtime-manifest.py /output --target '$target'"

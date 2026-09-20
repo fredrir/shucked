@@ -22,6 +22,7 @@
 | Discovery | Private engines/helpers extend only worker PATH; target PATH stays separate; helper-only command candidates are removed |
 | Runtime override | `SHUCKED_PROVIDER_ROOT`, absolute path with a pack manifest |
 | Licenses | Original license files remain with packs; runtime sources, patches, build metadata, and Rust dependencies accompany binaries |
+| SBOM license IDs | Pinned SPDX3.27 identifiers; ambiguous upstream labels stay in manifest and become `NOASSERTION` in SPDX |
 | Pack refresh | Explicit maintenance operation; packaging verifies local assets without downloading |
 | Unsupported runtime | Packaging fails instead of omitting a required engine |
 
@@ -44,6 +45,8 @@ Windows staging does not enable runtime dispatch or prove DLL search behavior. B
 | Output | `SHUCKED_PROVIDER_DEST`; default `target/provider-runtime` |
 | Build directory | `SHUCKED_PROVIDER_BUILD`; target-specific directory required |
 | Parallel jobs | `SHUCKED_BUILD_JOBS`; use 1 in small VMs |
+| Execution receipt | `SHUCKED_PROVIDER_EXECUTION`: native, container, or emulated |
+| Optional Fish cross build | `SHUCKED_FISH_PREBUILT`: local prefix with `source.json`, binary/share files, vendored Rust sources; source SHA and target checked |
 | Root-only containers | Explicit `FORCE_UNSAFE_CONFIGURE=1` for GNU configure; ordinary builds use an unprivileged account |
 | Source changes | Archive hashes and patches verified before build |
 | Build reproducibility | Pinned inputs and fixed source epoch; byte-identical output across toolchains is not asserted |
