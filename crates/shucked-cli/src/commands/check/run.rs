@@ -95,7 +95,7 @@ pub(super) fn run_check_with_cwd(
             .map(|file| file.absolute_path.clone())
             .collect::<Vec<_>>();
         let analyzed_paths = LinterSettings::analyzed_path_set(direct_input_paths.iter().cloned());
-        let linter_settings = project_settings
+        let mut linter_settings = project_settings
             .linter_settings
             .clone()
             .with_analyzed_path_set(analyzed_paths);
@@ -112,9 +112,24 @@ pub(super) fn run_check_with_cwd(
         // closure's own base-directory resolution already covers relative hints.
         let closure_resolver: Option<&(dyn shucked_semantic::SourcePathResolver + Send + Sync)> =
             source_resolver.has_roots().then_some(&source_resolver);
+        let (workspace_usage, workspace_dependencies) = super::workspace::variable_usage(
+            &direct_input_paths,
+            &project_settings,
+            &source_resolver,
+        );
+        linter_settings.workspace_variable_usage = Some(workspace_usage.clone());
+        report.dependency_paths.extend(workspace_dependencies);
         let mut follow_worklist: Vec<(PathBuf, DiscoveredFile)> = Vec::new();
         let pending = run.take_pending_files_with_validator(
-            |_, cached| Ok(cached.dependencies_match()),
+            |file, cached| {
+                Ok(cached.dependencies_match()
+                    && cached.workspace_consumed_names
+                        == workspace_usage
+                            .consumed_names(&file.absolute_path)
+                            .into_iter()
+                            .map(|name| name.to_string())
+                            .collect::<Vec<_>>())
+            },
             |file, cached| {
                 report.cache_hits += 1;
                 report.parse_failed |= cached.parse_failed;
@@ -186,15 +201,15 @@ pub(super) fn run_check_with_cwd(
             &project_settings,
             &source_resolver,
         )?;
-        let followed_settings = project_settings
-            .linter_settings
-            .clone()
-            .with_analyzed_path_set(LinterSettings::analyzed_path_set(
-                direct_input_paths
-                    .iter()
-                    .cloned()
-                    .chain(followed_files.iter().map(|file| file.absolute_path.clone())),
-            ));
+        let followed_settings =
+            linter_settings
+                .clone()
+                .with_analyzed_path_set(LinterSettings::analyzed_path_set(
+                    direct_input_paths
+                        .iter()
+                        .cloned()
+                        .chain(followed_files.iter().map(|file| file.absolute_path.clone())),
+                ));
 
         for file in followed_files {
             if !linted.insert(file.absolute_path.clone()) {

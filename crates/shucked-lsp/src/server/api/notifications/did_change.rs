@@ -30,7 +30,7 @@ impl super::super::traits::SyncNotificationHandler for DidChange {
             .update_text_document(&key, content_changes, new_version)
             .with_failure_code(ErrorCode::InternalError)?;
 
-        session.schedule_diagnostics(key.into_url());
+        session.schedule_all_diagnostics();
 
         Ok(())
     }

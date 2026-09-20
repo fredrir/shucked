@@ -30,6 +30,7 @@ pub struct DiagnosticsReady {
     pub uri: Url,
     pub version: i32,
     pub settings_epoch: u64,
+    pub workspace_epoch: Option<u64>,
     pub source_fingerprint: u64,
     pub environment_generation: u64,
     pub environment_complete: bool,
@@ -160,6 +161,7 @@ impl DiagnosticWorker {
                                 uri: snapshot.query().file_url().clone(),
                                 version: snapshot.query().document().version(),
                                 settings_epoch: snapshot.analysis_settings_epoch(),
+                                workspace_epoch: snapshot.workspace_epoch(),
                                 source_fingerprint: crate::handlers::commands::source_fingerprint(
                                     &snapshot,
                                 ),

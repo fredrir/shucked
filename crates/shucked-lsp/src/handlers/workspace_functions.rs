@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use lsp_types as types;
 use sha2::{Digest, Sha256};
@@ -180,12 +180,28 @@ impl IndexedWorkspaceFile {
 pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
     variables: WorkspaceVariableIndex,
+    variable_usage: OnceLock<Arc<shucked_semantic::WorkspaceVariableUsage>>,
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
     encoding: PositionEncoding,
     complete: bool,
 }
 
 impl WorkspaceFunctionIndex {
+    pub(crate) fn variable_usage(
+        &self,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Option<Arc<shucked_semantic::WorkspaceVariableUsage>> {
+        if is_cancelled() {
+            return None;
+        }
+        if let Some(usage) = self.variable_usage.get() {
+            return Some(usage.clone());
+        }
+        let usage = Arc::new(self.variables.usage(is_cancelled)?);
+        let _ = self.variable_usage.set(usage.clone());
+        Some(usage)
+    }
+
     fn build(context: &WorkspaceFunctionContext) -> Option<Self> {
         let mut graph = WorkspaceCallIndex::new();
         let mut variables = WorkspaceVariableIndex::default();
@@ -353,6 +369,7 @@ impl WorkspaceFunctionIndex {
         }
 
         Some(Self {
+            variable_usage: OnceLock::new(),
             graph,
             variables,
             files,

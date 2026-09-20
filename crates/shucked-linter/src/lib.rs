@@ -920,7 +920,13 @@ fn build_linter_semantic_artifacts<'a>(
             source_path: request.source_path,
             source_path_resolver: request.source_path_resolver,
             plugin_resolver: request.plugin_resolver,
-            file_entry_contract: None,
+            file_entry_contract: request.source_path.and_then(|path| {
+                request
+                    .settings
+                    .workspace_variable_usage
+                    .as_ref()
+                    .map(|usage| usage.file_contract(path))
+            }),
             file_entry_contract_collector: Some(&mut file_entry_contract_collector),
             file_entry_contract_collector_factory: Some(&file_entry_contract_collector_factory),
             analyzed_paths,

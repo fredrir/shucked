@@ -32,7 +32,7 @@ impl CheckCacheSettings {
 
 impl CacheKey for CheckCacheSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
-        state.write_tag(b"check-cache-settings");
+        state.write_tag(b"check-cache-settings-workspace-variables-v1");
         self.effective.cache_key(state);
         self.analyzed_paths.cache_key(state);
         self.source_resolution_home.cache_key(state);
@@ -62,6 +62,7 @@ pub(super) struct CheckCacheData {
     /// stored separately in `dependency_fingerprints`.
     #[serde(default)]
     pub(super) followed_paths: Vec<PathBuf>,
+    pub(super) workspace_consumed_names: Vec<String>,
 }
 
 impl CheckCacheData {
@@ -85,6 +86,7 @@ impl CheckCacheData {
                 .map(|path| ResolvedDependencyFingerprint::from_path(path))
                 .collect(),
             followed_paths: followed_paths.to_vec(),
+            workspace_consumed_names: Vec::new(),
         }
     }
 

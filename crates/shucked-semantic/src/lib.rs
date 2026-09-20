@@ -40,6 +40,11 @@ mod source_resolve;
 mod uninitialized;
 mod unused;
 mod value_flow;
+mod workspace_variables;
+pub use workspace_variables::{
+    WorkspaceVariableIndex, WorkspaceVariableOccurrence, WorkspaceVariableTarget,
+    WorkspaceVariableUsage, variable_target,
+};
 mod zsh_options;
 mod zsh_plugin_framework;
 

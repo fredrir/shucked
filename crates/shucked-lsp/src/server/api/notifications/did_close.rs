@@ -26,6 +26,8 @@ impl super::super::traits::SyncNotificationHandler for DidClose {
         }
         session
             .close_document(&key)
-            .with_failure_code(lsp_server::ErrorCode::InternalError)
+            .with_failure_code(lsp_server::ErrorCode::InternalError)?;
+        session.schedule_all_diagnostics();
+        Ok(())
     }
 }

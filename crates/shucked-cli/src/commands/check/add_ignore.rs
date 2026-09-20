@@ -10,6 +10,7 @@ use super::cache::CheckCacheData;
 use super::diagnostics_exit_status;
 use super::display::{display_parse_error, push_lint_diagnostics};
 use super::settings::{ResolvedCheckSettings, resolve_project_check_settings};
+use super::source_resolver::NativeSourceResolver;
 use crate::ExitStatus;
 use crate::args::CheckCommand;
 use crate::commands::check_output::DisplayedDiagnostic;
@@ -75,11 +76,21 @@ pub(super) fn run_add_ignore_with_cwd(
             .iter()
             .map(|file| file.absolute_path.clone())
             .collect::<Vec<_>>();
-        let linter_settings = run
+        let source_root = run
+            .files
+            .first()
+            .map(|file| file.project_root.canonical_root.clone())
+            .unwrap_or_else(|| cwd.to_path_buf());
+        let source_resolver =
+            NativeSourceResolver::new(source_root, run.settings.source_paths.clone());
+        let (workspace_usage, _) =
+            super::workspace::variable_usage(&analyzed_paths, &run.settings, &source_resolver);
+        let mut linter_settings = run
             .settings
             .linter_settings
             .clone()
             .with_analyzed_paths(analyzed_paths);
+        linter_settings.workspace_variable_usage = Some(workspace_usage);
 
         for file in run.files {
             let file_linter_settings =
@@ -92,7 +103,9 @@ pub(super) fn run_add_ignore_with_cwd(
                 &file.absolute_path,
                 &file_linter_settings,
                 reason,
-                None,
+                source_resolver.has_roots().then_some(
+                    &source_resolver as &(dyn shucked_semantic::SourcePathResolver + Send + Sync),
+                ),
                 Some(zsh_plugins.as_ref()),
             )?;
             report.directives_added += result.directives_added;

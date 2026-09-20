@@ -165,12 +165,24 @@ fn analyze_shell_file(
     dependency_paths.sort();
     dependency_paths.dedup();
     let followed_paths = collected_source_paths.followed;
-    let cache_data = CheckCacheData::from_displayed(
+    let mut cache_data = CheckCacheData::from_displayed(
         &diagnostics,
         parse_failed,
         &dependency_paths,
         &followed_paths,
     );
+
+    cache_data.workspace_consumed_names = linter_settings
+        .workspace_variable_usage
+        .as_ref()
+        .map(|usage| {
+            usage
+                .consumed_names(&pending.file.absolute_path)
+                .into_iter()
+                .map(|name| name.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
 
     Ok(FileCheckResult {
         file: pending.file,

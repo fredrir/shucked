@@ -342,6 +342,8 @@ pub struct LinterSettings {
     pub ambient_contracts: Arc<ResolvedAmbientContracts>,
     /// Canonicalized paths included in the current analysis scope, when bounded.
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
+    /// Cross-file variable reads supplied by the workspace host.
+    pub workspace_variable_usage: Option<Arc<shucked_semantic::WorkspaceVariableUsage>>,
     /// Compiled path-specific rule exclusions.
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
     /// Whether style diagnostics should name environment variables in their messages.
@@ -370,6 +372,7 @@ impl Default for LinterSettings {
             ambient_shell_options: AmbientShellOptions::default(),
             ambient_contracts: Arc::new(ResolvedAmbientContracts::default()),
             analyzed_paths: None,
+            workspace_variable_usage: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
             report_environment_style_names: false,
             resolve_source_closure: true,

@@ -1315,17 +1315,18 @@ fn dirname_source_template_part(commands: &StmtSeq, source: &str) -> Option<Temp
     let Command::Simple(command) = &stmt.command else {
         return None;
     };
-    if stmt.negated
-        || !stmt.redirects.is_empty()
-        || !command.assignments.is_empty()
-        || command.args.len() != 1
-    {
+    if stmt.negated || !stmt.redirects.is_empty() || !command.assignments.is_empty() {
         return None;
     }
     if static_word_text(&command.name, source).as_deref() != Some("dirname") {
         return None;
     }
-    current_source_file_word(&command.args[0], source).then_some(TemplatePart::SourceDir)
+    let argument = match command.args.as_slice() {
+        [argument] => argument,
+        [option, argument] if static_word_text(option, source).as_deref() == Some("--") => argument,
+        _ => return None,
+    };
+    current_source_file_word(argument, source).then_some(TemplatePart::SourceDir)
 }
 
 fn current_source_file_word(word: &Word, source: &str) -> bool {

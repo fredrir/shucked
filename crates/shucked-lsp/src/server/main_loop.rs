@@ -158,6 +158,7 @@ impl Server {
                     if current.query().document().version() != result.version
                         || crate::handlers::commands::source_fingerprint(&current)
                             != result.source_fingerprint
+                        || current.workspace_epoch() != result.workspace_epoch
                         || current.analysis_settings_epoch() != result.settings_epoch
                         || current.environment_generation() != result.environment_generation
                     {
@@ -166,6 +167,7 @@ impl Server {
                     let diagnostic_key = (
                         result.version,
                         result.settings_epoch,
+                        result.workspace_epoch,
                         result.source_fingerprint,
                         result.environment_generation,
                     );

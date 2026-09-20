@@ -25,6 +25,7 @@ struct AnalysisCacheKey {
     version: DocumentVersion,
     document_id: usize,
     settings_epoch: u64,
+    workspace_epoch: Option<u64>,
     encoding: PositionEncoding,
 }
 
@@ -224,6 +225,7 @@ fn analysis_cache_key(snapshot: &DocumentSnapshot) -> AnalysisCacheKey {
         version: query.document().version(),
         document_id: Arc::as_ptr(query.document()) as usize,
         settings_epoch: snapshot.analysis_settings_epoch(),
+        workspace_epoch: snapshot.workspace_epoch(),
         encoding: snapshot.encoding(),
     }
 }

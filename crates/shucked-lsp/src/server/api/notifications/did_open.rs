@@ -28,7 +28,7 @@ impl super::super::traits::SyncNotificationHandler for DidOpen {
         let document = TextDocument::new(text, version).with_language_id(&language_id);
         session.open_text_document(uri.clone(), document);
 
-        session.schedule_diagnostics(uri);
+        session.schedule_all_diagnostics();
 
         Ok(())
     }

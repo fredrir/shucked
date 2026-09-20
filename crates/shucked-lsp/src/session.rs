@@ -71,6 +71,7 @@ pub struct DocumentSnapshot {
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceDocumentSnapshotFactory {
+    workspace_functions: crate::workspace_functions::WorkspaceFunctionContext,
     command_service: Arc<crate::handlers::commands::CommandService>,
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     position_encoding: PositionEncoding,
@@ -282,8 +283,7 @@ impl Session {
                 .update_text_document(key, content_changes, new_version, self.encoding());
         if result.is_ok() {
             self.analysis_cache.invalidate_uri(&key.clone().into_url());
-            self.workspace_diagnostics
-                .invalidate_uri(&key.clone().into_url());
+            self.workspace_diagnostics.invalidate_all();
             self.workspace_function_index.invalidate();
         }
         result
@@ -292,7 +292,7 @@ impl Session {
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.analysis_cache.invalidate_uri(&url);
-        self.workspace_diagnostics.invalidate_uri(&url);
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.index.open_text_document(url, document);
     }
@@ -301,8 +301,7 @@ impl Session {
         self.diagnostic_worker.cancel(&key.clone().into_url());
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
-        self.workspace_diagnostics
-            .invalidate_uri(&key.clone().into_url());
+        self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols
             .invalidate_uri(&key.clone().into_url());
@@ -405,6 +404,8 @@ impl Session {
 
     pub(crate) fn workspace_document_snapshot_factory(&self) -> WorkspaceDocumentSnapshotFactory {
         WorkspaceDocumentSnapshotFactory {
+            workspace_functions: self
+                .workspace_function_context(RequestCancellationToken::default()),
             command_service: self.command_service.clone(),
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             position_encoding: self.position_encoding,
@@ -539,6 +540,12 @@ impl DocumentSnapshot {
         self.analysis_cache.get_or_build(self)
     }
 
+    pub(crate) fn workspace_epoch(&self) -> Option<u64> {
+        self.workspace_functions
+            .as_ref()
+            .map(|context| context.epoch)
+    }
+
     pub(crate) fn analysis_settings_epoch(&self) -> u64 {
         self.analysis_settings_epoch
     }
@@ -554,7 +561,7 @@ impl WorkspaceDocumentSnapshotFactory {
     ) -> DocumentSnapshot {
         DocumentSnapshot {
             analysis_cancellation: RequestCancellationToken::default(),
-            workspace_functions: None,
+            workspace_functions: Some(self.workspace_functions.clone()),
             command_service: self.command_service.clone(),
             environment_generation: self.command_service.generation(),
             workspace_cwd: settings.project_root().map(PathBuf::from),

@@ -72,11 +72,6 @@ impl WorkspaceDiagnosticCache {
         lock_or_recover(&self.entries).clear();
     }
 
-    pub(crate) fn invalidate_uri(&self, uri: &types::Url) {
-        self.generation.fetch_add(1, Ordering::AcqRel);
-        lock_or_recover(&self.entries).remove(uri.as_str());
-    }
-
     pub(crate) fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
     }
@@ -684,3 +679,7 @@ mod tests {
         assert!(path_starts_with_root(&canonical_path, directory.path()));
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/handlers/workspace_usage_diagnostics.rs"]
+mod workspace_usage_tests;

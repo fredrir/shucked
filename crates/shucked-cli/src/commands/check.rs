@@ -18,6 +18,7 @@ mod settings;
 mod source_resolver;
 mod stdin;
 mod watch;
+mod workspace;
 #[cfg(test)]
 mod zsh_plugin_dependency_fixtures;
 

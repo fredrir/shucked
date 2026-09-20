@@ -203,14 +203,27 @@ pub(crate) fn collect_raw_diagnostics_for_analysis(
     analysis: &crate::analysis::DocumentAnalysis,
 ) -> RawDocumentDiagnostics {
     let shellcheck_map = ShellCheckCodeMap::default();
-    let shell_diagnostics = AnalysisRequest::from_parse_result(
-        analysis.parse_result(),
-        analysis.source(),
-        snapshot.shuck_settings().linter(),
-    )
-    .with_optional_source_path(analysis.path())
-    .with_shellcheck_map(&shellcheck_map)
-    .lint();
+    let lint = |settings| {
+        AnalysisRequest::from_parse_result(analysis.parse_result(), analysis.source(), settings)
+            .with_optional_source_path(analysis.path())
+            .with_shellcheck_map(&shellcheck_map)
+            .lint()
+    };
+    let mut shell_diagnostics = lint(snapshot.shuck_settings().linter());
+    if shell_diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.rule == shucked_linter::Rule::UnusedAssignment)
+        && let Some(context) = &snapshot.workspace_functions
+        && let Some(index) = crate::workspace_functions::workspace_function_index(context)
+        && let Some(usage) = index.variable_usage(&|| context.cancellation.is_cancelled())
+        && analysis
+            .path()
+            .is_some_and(|path| !usage.consumed_names(path).is_empty())
+    {
+        let mut settings = snapshot.shuck_settings().linter().clone();
+        settings.workspace_variable_usage = Some(usage);
+        shell_diagnostics = lint(&settings);
+    }
     let parse_error = analysis.parse_result().is_err().then(|| {
         let shucked_parser::Error::Parse {
             message,
