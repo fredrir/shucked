@@ -86,6 +86,50 @@ fn recv_response_with_notifications(
     }
 }
 
+fn settled_completion(
+    connection: &Connection,
+    id: i32,
+    version: i32,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let matches_cursor = |notification: &Notification| {
+        notification.method == "shucked/completionReady"
+            && notification.params["uri"] == params["textDocument"]["uri"]
+            && notification.params["version"] == version
+            && notification.params["position"] == params["position"]
+    };
+    loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "completion should settle after preparation"
+        );
+        send_request(connection, id, "textDocument/completion", params.clone());
+        let (result, notifications) = recv_response_with_notifications(connection, id);
+        if result["isIncomplete"] != true {
+            return result;
+        }
+        // Preparation may finish on either side of the initial response.
+        if notifications.iter().any(&matches_cursor) {
+            continue;
+        }
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            match connection
+                .receiver
+                .recv_timeout(remaining)
+                .expect("incomplete completion should become ready")
+            {
+                Message::Notification(notification) if matches_cursor(&notification) => break,
+                Message::Notification(_) => {}
+                message => {
+                    panic!("unexpected message while awaiting completion readiness: {message:?}")
+                }
+            }
+        }
+    }
+}
+
 fn replay_capabilities() -> ClientCapabilities {
     serde_json::from_value(serde_json::json!({
         "general": {
@@ -1207,6 +1251,9 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
         serde_json::json!({
             "capabilities": capabilities,
             "rootUri": Url::from_file_path(workspace.path()).unwrap(),
+            "initializationOptions": {"server": {"completion": {
+                "includeEnvironment": false, "includePaths": false, "includeCommandArguments": false
+            }}},
         }),
     );
     let initialize = recv_response(&client_connection, 1);
@@ -1225,32 +1272,30 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
     );
     open_document(&client_connection, &caller_uri, &caller);
 
-    send_request(
+    let before_source = settled_completion(
         &client_connection,
         2,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 0, "character": 3 },
         }),
     );
-    let before_source = recv_response(&client_connection, 2);
     assert!(
         before_source["items"]
             .as_array()
             .is_none_or(|items| items.iter().all(|item| item["label"] != "imported"))
     );
 
-    send_request(
+    let after_source = settled_completion(
         &client_connection,
         3,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 3, "character": completion_line.len() },
         }),
     );
-    let after_source = recv_response(&client_connection, 3);
     let imported = after_source["items"]
         .as_array()
         .unwrap_or_else(|| panic!("completion response should be a list: {after_source:#}"))
@@ -1266,16 +1311,15 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
         })
     );
 
-    send_request(
+    let shadowed = settled_completion(
         &client_connection,
         4,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 5, "character": 2 },
         }),
     );
-    let shadowed = recv_response(&client_connection, 4);
     let duplicates = shadowed["items"]
         .as_array()
         .unwrap()
@@ -1285,32 +1329,30 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
     assert_eq!(duplicates.len(), 1);
     assert_eq!(duplicates[0]["detail"], "Function");
 
-    send_request(
+    let before_later_source = settled_completion(
         &client_connection,
         5,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 6, "character": 3 },
         }),
     );
-    let before_later_source = recv_response(&client_connection, 5);
     assert!(
         before_later_source["items"]
             .as_array()
             .is_none_or(|items| items.iter().all(|item| item["label"] != "later_function"))
     );
 
-    send_request(
+    let configured = settled_completion(
         &client_connection,
         6,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 9, "character": 3 },
         }),
     );
-    let configured = recv_response(&client_connection, 6);
     assert!(
         configured["items"]
             .as_array()
@@ -1320,16 +1362,15 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
     );
 
     for (id, line, character) in [(7, 10, 10), (8, 11, "run() { local imp".len())] {
-        send_request(
+        let non_command = settled_completion(
             &client_connection,
             id,
-            "textDocument/completion",
+            1,
             serde_json::json!({
                 "textDocument": { "uri": caller_uri },
                 "position": { "line": line, "character": character },
             }),
         );
-        let non_command = recv_response(&client_connection, id);
         assert!(
             non_command["items"]
                 .as_array()
@@ -1340,16 +1381,15 @@ fn sourced_function_completion_uses_order_shadowing_and_open_buffers() {
         );
     }
 
-    send_request(
+    let function_local = settled_completion(
         &client_connection,
         9,
-        "textDocument/completion",
+        1,
         serde_json::json!({
             "textDocument": { "uri": caller_uri },
             "position": { "line": 15, "character": 5 },
         }),
     );
-    let function_local = recv_response(&client_connection, 9);
     assert!(
         function_local["items"]
             .as_array()

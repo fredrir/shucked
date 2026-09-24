@@ -18,12 +18,29 @@ interface PendingCompletion {
   position: vscode.Position;
   generations: Set<number>;
   enrichments: number;
+  queries: number;
   invalidations: number;
   responses: number;
   ready?: CompletionReady;
   settled: boolean;
   refreshing: boolean;
   timer?: ReturnType<typeof setTimeout>;
+  document: vscode.TextDocument;
+  next: ProvideCompletionItemsSignature;
+  displayed: string;
+  prepared?: vscode.CompletionItem[] | vscode.CompletionList;
+  cancellation?: vscode.CancellationTokenSource;
+}
+
+type CompletionResult = vscode.CompletionItem[] | vscode.CompletionList | null | undefined;
+
+function items(result: CompletionResult): vscode.CompletionItem[] {
+  return Array.isArray(result) ? result : result?.items ?? [];
+}
+
+function fingerprint(result: CompletionResult): string {
+  return JSON.stringify(items(result).map(item => [item.label, item.kind, item.detail,
+    item.insertText, item.filterText, item.sortText, item.range, item.additionalTextEdits]));
 }
 
 function validReady(value: unknown): value is CompletionReady {
@@ -69,7 +86,8 @@ export class CompletionRefresh implements vscode.Disposable {
   ): Promise<vscode.CompletionItem[] | vscode.CompletionList | null | undefined> {
     const candidate: PendingCompletion = {
       uri: document.uri.toString(), version: document.version, position,
-      generations: new Set(), enrichments: 0, invalidations: 0, responses: 0, settled: false, refreshing: false,
+      generations: new Set(), enrichments: 0, queries: 0, invalidations: 0, responses: 0, settled: false, refreshing: false,
+      document, next, displayed: "[]",
     };
     // Programmatic provider queries must not open a suggestion popup elsewhere.
     if (!this.current(candidate)) { return next(document, position, context, token); }
@@ -82,16 +100,20 @@ export class CompletionRefresh implements vscode.Disposable {
       pending.timer = setTimeout(() => { if (this.pending === pending) { this.clear(); } }, 5000);
       void vscode.commands.executeCommand("setContext", "shucked.completionPending", true);
     }
+    pending.next = next;
     pending.settled = false;
     const started = performance.now();
     const cancellation = token.onCancellationRequested(() => {
       if (this.pending === pending && !pending.settled && !pending.refreshing) { this.clear(); }
     });
     try {
-      const result = await next(document, position, context, token);
+      const prepared = pending.prepared;
+      pending.prepared = undefined;
+      const result = prepared ?? await next(document, position, context, token);
       this.output.trace(`Completion response: ${Math.round(performance.now() - started)}ms, ${Array.isArray(result) ? result.length : result?.items.length ?? 0} candidates`);
       if (this.pending === pending) {
         pending.settled = true;
+        pending.displayed = fingerprint(result);
         if (pending.responses++ === 0 && result && !Array.isArray(result) && result.isIncomplete && result.items.length === 0) {
           // A cold workspace can need longer to prepare its semantic index.
           // Extend once; retries must never keep an abandoned session alive.
@@ -117,22 +139,46 @@ export class CompletionRefresh implements vscode.Disposable {
     const invalidated = value.reason === "environmentChanged";
     if (!pending || !this.matches(pending, value) || !this.current(pending)
       || pending.generations.has(value.generation)
+      || pending.queries >= 12
       || (invalidated ? pending.invalidations >= 8 : pending.enrichments >= 3)) { return; }
     if (!pending.settled || pending.refreshing) { pending.ready = value; return; }
     pending.ready = undefined;
     pending.generations.add(value.generation);
-    if (invalidated) { pending.invalidations++; } else { pending.enrichments++; }
+    if (invalidated) { pending.invalidations++; }
+    pending.queries++;
     pending.refreshing = true;
     this.output.trace(`Completion ready: ${value.provider ?? value.reason ?? "provider"}, ${value.elapsedMs ?? "?"}ms, ${value.candidateCount ?? "?"} candidates`);
-    // VS Code requires the suggestion widget to be hidden before triggerSuggest.
-    void vscode.commands.executeCommand("hideSuggestWidget").then(async () => {
-      if (this.pending === pending && this.current(pending)) {
-        await vscode.commands.executeCommand("editor.action.triggerSuggest");
+    // Analysis/environment notices can arrive before any useful items exist.
+    // Query privately first so those notices do not redraw an empty popup.
+    const cancellation = new vscode.CancellationTokenSource();
+    pending.cancellation = cancellation;
+    void Promise.resolve().then(() => this.pending === pending && this.current(pending)
+      ? pending.next(pending.document, pending.position,
+        { triggerKind: vscode.CompletionTriggerKind.Invoke, triggerCharacter: undefined }, cancellation.token)
+      : undefined).then(async result => {
+      if (this.pending !== pending || !this.current(pending)) { return; }
+      if (items(result).length > 0 && fingerprint(result) !== pending.displayed) {
+        if (!invalidated) { pending.enrichments++; }
+        pending.prepared = result ?? undefined;
+        // VS Code requires a hidden widget before triggerSuggest. Reuse the
+        // prepared result when it asks again, avoiding a second provider request.
+        await vscode.commands.executeCommand("hideSuggestWidget");
+        if (this.pending === pending && this.current(pending)) {
+          await vscode.commands.executeCommand("editor.action.triggerSuggest");
+        }
+      } else if (!result || Array.isArray(result) || !result.isIncomplete) {
+        if (items(result).length === 0 && pending.displayed !== "[]") {
+          await vscode.commands.executeCommand("hideSuggestWidget");
+        }
+        if (this.pending === pending) { this.clear(); }
       }
     }).then(() => {
+      cancellation.dispose();
+      if (pending.cancellation === cancellation) { pending.cancellation = undefined; }
       pending.refreshing = false;
       if (this.pending === pending && pending.settled && pending.ready) { this.ready(pending.ready); }
     }, error => {
+      cancellation.dispose();
       this.output.trace(`Completion refresh failed: ${String(error)}`);
       if (this.pending === pending) { this.clear(); }
     });
@@ -152,6 +198,8 @@ export class CompletionRefresh implements vscode.Disposable {
 
   public clear(): void {
     if (this.pending?.timer) { clearTimeout(this.pending.timer); }
+    this.pending?.cancellation?.cancel();
+    this.pending?.cancellation?.dispose();
     this.pending = undefined;
     void vscode.commands.executeCommand("setContext", "shucked.completionPending", false);
   }

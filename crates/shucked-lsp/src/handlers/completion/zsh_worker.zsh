@@ -17,7 +17,9 @@ if [[ -d $SHUCKED_PROVIDER_ROOT/packs/zsh ]]; then
 fi
 [[ -n $SHUCKED_COMPLETION_PATHS ]] && fpath=("${(@s/:/)SHUCKED_COMPLETION_PATHS}" $fpath)
 autoload -Uz compinit
-(($+functions[compdef])) || compinit -i -D
+# Native execution authorizes these provider roots, including read-only bundles
+# mounted with a different owner inside a container.
+(($+functions[compdef])) || compinit -u -D
 zmodload zsh/zutil || exit 1
 function compadd {
   local -A shucked_options

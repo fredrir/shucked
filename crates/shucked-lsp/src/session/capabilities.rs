@@ -3,6 +3,8 @@ use lsp_types::ClientCapabilities;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct ResolvedClientCapabilities {
     pub(crate) completion_insert_replace: bool,
+    pub(crate) completion_snippets: bool,
+    pub(crate) completion_adjust_indentation: bool,
     pub(crate) code_action_deferred_edit_resolution: bool,
     pub(crate) apply_edit: bool,
     pub(crate) document_changes: bool,
@@ -63,6 +65,24 @@ impl ResolvedClientCapabilities {
             .unwrap_or_default();
 
         Self {
+            completion_snippets: client_capabilities
+                .text_document
+                .as_ref()
+                .and_then(|document| document.completion.as_ref())
+                .and_then(|completion| completion.completion_item.as_ref())
+                .and_then(|item| item.snippet_support)
+                .unwrap_or_default(),
+            completion_adjust_indentation: client_capabilities
+                .text_document
+                .as_ref()
+                .and_then(|document| document.completion.as_ref())
+                .and_then(|completion| completion.completion_item.as_ref())
+                .and_then(|item| item.insert_text_mode_support.as_ref())
+                .is_some_and(|support| {
+                    support
+                        .value_set
+                        .contains(&lsp_types::InsertTextMode::ADJUST_INDENTATION)
+                }),
             completion_insert_replace: client_capabilities
                 .text_document
                 .as_ref()

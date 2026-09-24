@@ -5,6 +5,10 @@ use crate::session::{DocumentSnapshot, RequestCancellationToken};
 use lsp_types as types;
 use std::collections::BTreeSet;
 
+const KEYWORDS: &[&str] = &[
+    "if", "else", "end", "for", "while", "function", "begin", "switch", "case", "and", "or", "not",
+];
+
 pub(crate) fn complete(
     snapshot: &DocumentSnapshot,
     params: &types::CompletionParams,
@@ -44,8 +48,34 @@ pub(crate) fn complete(
             .iter()
             .find(|word| word.span.start.offset() <= offset && offset <= word.span.end.offset())
     });
-    let start = word.map_or(offset, |word| word.span.start.offset());
-    let end = word.map_or(offset, |word| word.span.end.offset());
+    // Structural tokens are consumed by the Fish grammar, rather than recorded as
+    // command words. Keep their source range while the caret still touches them.
+    let keyword_range = word
+        .is_none()
+        .then(|| {
+            let start = source[..offset]
+                .char_indices()
+                .rfind(|(_, ch)| !ch.is_ascii_alphabetic())
+                .map_or(0, |(index, ch)| index + ch.len_utf8());
+            let end = offset
+                + source[offset..]
+                    .chars()
+                    .take_while(char::is_ascii_alphabetic)
+                    .map(char::len_utf8)
+                    .sum::<usize>();
+            KEYWORDS
+                .contains(&&source[start..end])
+                .then_some(start..end)
+        })
+        .flatten();
+    let start = word.map_or_else(
+        || keyword_range.as_ref().map_or(offset, |range| range.start),
+        |word| word.span.start.offset(),
+    );
+    let end = word.map_or_else(
+        || keyword_range.as_ref().map_or(offset, |range| range.end),
+        |word| word.span.end.offset(),
+    );
     let raw_prefix = &source[start..offset];
     if raw_prefix.contains(['\n', '\r']) {
         return None;
@@ -107,13 +137,12 @@ pub(crate) fn complete(
     let mut incomplete = false;
     if command_position && !variable {
         for name in shucked_command::builtins(shucked_command::ShellDialect::Fish) {
-            add(name, "Fish builtin", types::CompletionItemKind::FUNCTION, 1);
+            if !KEYWORDS.contains(&name) {
+                add(name, "Fish builtin", types::CompletionItemKind::FUNCTION, 1);
+            }
         }
         if options.include_keywords {
-            for name in [
-                "if", "else", "end", "for", "while", "function", "begin", "switch", "case", "and",
-                "or", "not",
-            ] {
+            for name in KEYWORDS {
                 add(name, "Fish keyword", types::CompletionItemKind::KEYWORD, 4);
             }
         }
@@ -175,6 +204,12 @@ pub(crate) fn complete(
                     .remember(super::background::notice(snapshot, client, position));
             }
             let mut provider_candidates = false;
+            let mut provider_active = false;
+            let directories_only = grammar_allowed
+                && words
+                    .first()
+                    .is_some_and(|word| matches!(word.as_str(), "cd" | "pushd" | "rmdir"));
+            let local_directories = directories_only && !prefix.starts_with('-');
             if !command_position
                 && options.include_native
                 && options.include_command_arguments
@@ -191,7 +226,7 @@ pub(crate) fn complete(
                                     && facts.effective_words.iter().all(|word| word.text.is_some())
                             })
                     } else {
-                        grammar_allowed
+                        grammar_allowed && !local_directories
                     };
                     if !allowed {
                         continue;
@@ -209,6 +244,7 @@ pub(crate) fn complete(
                         false,
                     );
                     incomplete |= pending;
+                    provider_active |= pending || candidates.is_some();
                     if let Some(candidates) = candidates {
                         for candidate in candidates
                             .iter()
@@ -247,7 +283,18 @@ pub(crate) fn complete(
                     position,
                 );
             }
-            if options.include_paths && local && !provider_candidates && !prefix.starts_with('-') {
+            if options.include_paths
+                && local
+                && !provider_candidates
+                && !prefix.starts_with('-')
+                && super::path_fallback(
+                    &prefix,
+                    command_position,
+                    false,
+                    local_directories,
+                    provider_active,
+                )
+            {
                 let (directory_prefix, basename) = prefix
                     .rsplit_once('/')
                     .map_or(("", prefix.as_str()), |(dir, base)| {
@@ -278,6 +325,7 @@ pub(crate) fn complete(
                         if entry.name.starts_with(basename)
                             && (!entry.name.starts_with('.') || basename.starts_with('.'))
                             && (!command_position || entry.directory || entry.executable)
+                            && (!directories_only || entry.directory)
                         {
                             let name = format!(
                                 "{directory_prefix}{}{}",
@@ -299,6 +347,9 @@ pub(crate) fn complete(
                 }
             }
         }
+    }
+    if command_position && !variable && !raw_prefix.contains(['\'', '"', '\\']) {
+        crate::handlers::editor_features::snippets::apply(snapshot, &mut items);
     }
     incomplete |= super::finish(&mut items, snapshot, position);
     Some(types::CompletionResponse::List(types::CompletionList {

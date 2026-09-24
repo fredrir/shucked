@@ -26,6 +26,7 @@ pub(super) enum Output {
     Directory(Arc<Directory>),
     Invalidated,
     Prepared,
+    Unavailable,
 }
 
 impl Output {
@@ -33,7 +34,7 @@ impl Output {
         match self {
             Self::Candidates(items) => items.len(),
             Self::Directory(directory) => directory.entries.len(),
-            Self::Invalidated | Self::Prepared => 0,
+            Self::Invalidated | Self::Prepared | Self::Unavailable => 0,
         }
     }
 }
@@ -238,7 +239,7 @@ impl Service {
             .failures
             .retain(|(_, when)| when.elapsed() < Duration::from_millis(250));
         if state.failures.iter().any(|(failed, _)| failed == &key) {
-            return (output, true);
+            return (output.or(Some(Output::Unavailable)), false);
         }
         // Speculation cannot fill the demand queue while the user is typing.
         if notice.is_none() && state.pending.len() >= 8 {
@@ -340,9 +341,20 @@ impl Job {
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "completion provider unavailable"
             );
+            let provider_finished = matches!(pending.key, Key::Native(_) | Key::Directory(_));
             state.failures.push_back((pending.key, Instant::now()));
             while state.failures.len() > MAX_CACHE {
                 state.failures.pop_front();
+            }
+            drop(state);
+            if provider_finished {
+                for notice in pending.listeners {
+                    let _ = notice.client.send_notification_value("shucked/completionReady", serde_json::json!({
+                        "uri": notice.uri, "version": notice.version, "position": notice.position,
+                        "generation": self.generation, "elapsedMs": started.elapsed().as_millis() as u64,
+                        "candidateCount": 0, "reason": "providerUnavailable",
+                    }));
+                }
             }
             return;
         };
@@ -367,6 +379,7 @@ impl Job {
             return;
         }
         let count = output.len();
+        let provider_finished = matches!(pending.key, Key::Native(_) | Key::Directory(_));
         let previous_count = state
             .cache
             .iter()
@@ -397,11 +410,12 @@ impl Job {
             candidates = count,
             "completion background result"
         );
-        if count > 0 || previous_count > 0 {
+        if count > 0 || previous_count > 0 || provider_finished {
             for notice in pending.listeners {
                 let _ = notice.client.send_notification_value("shucked/completionReady", serde_json::json!({
                     "uri": notice.uri, "version": notice.version, "position": notice.position,
                     "generation": self.generation, "elapsedMs": elapsed_ms, "candidateCount": count,
+                    "reason": "providerReady",
                 }));
             }
         }

@@ -41,8 +41,10 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Native engines | Persistent Zsh, Bash, and Fish workers; prewarming and bounded background requests |
 | Oh My Zsh | Bundled completion functions, loaded automatically; no setup or separate toggle |
 | Automatic popup | Spaces, flags, paths, option values, pipes, redirections, and command boundaries |
+| Word guesses | Disabled by default for shell languages; explicit language settings override this default |
 | First response | Local symbols and cached results when analysis is ready; cold analysis and providers run in the background |
-| Idle enrichment | Ready results refresh the current document version and cursor; no extra keystroke required |
+| Idle enrichment | Changed, nonempty results refresh the current document version and cursor; empty/unchanged results do not redraw the popup |
+| Block snippets | Structural keywords expand into editable fields and dialect-appropriate closing syntax |
 | Dismissal / navigation | Escape, edits, cursor changes, focus loss, and Up/Down/PageUp/PageDown stop idle refresh |
 | Provenance | Completion details identify the provider alongside available descriptions |
 | Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable |
@@ -182,6 +184,7 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Real editor smoke | `npm run test:extension-host` |
 | Automatic popup smoke | `SHUCKED_COMPLETION_UI_ONLY=1 npm run test:extension-host` |
 | Editor and native providers, without live terminals | `SHUCKED_COMPLETION_NATIVE_ONLY=1 npm run test:extension-host` |
+| Existing workspace, ordinary defaults and editable snippets; untitled probes only | `SHUCKED_COMPLETION_REGRESSION_WORKSPACE=/absolute/workspace npm run test:extension-host` |
 | Installed package smoke | `SHUCKED_TEST_VSIX=/absolute/path/package.vsix npm run test:extension-host` |
 
 ## Language server selection

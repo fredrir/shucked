@@ -5,6 +5,7 @@ import signal
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKERS = ROOT / 'crates/shucked-lsp/src/handlers/completion'
@@ -14,6 +15,17 @@ PACKS = PROVIDERS / 'packs' if PROVIDERS else ROOT / 'tooling/providers/packs'
 
 
 class ManagedWorkers(unittest.TestCase):
+    def test_installed_zsh_provider_can_match_prefixes_with_regular_expressions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            definitions = home / 'completions'
+            definitions.mkdir()
+            (definitions / '_regex_fixture').write_text(
+                '#compdef regex-fixture\n[[ $PREFIX =~ "^--" ]] && compadd -- --regex\n')
+            with patch.dict(os.environ, SHUCKED_COMPLETION_PATHS=str(definitions)):
+                candidates = self.complete('zsh', ['regex-fixture', '--'], home)
+            self.assertIn('--regex', candidates)
+
     def complete(self, shell, words, home):
         return self.complete_many(shell, [words], home)[0]
 

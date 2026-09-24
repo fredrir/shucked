@@ -18,6 +18,9 @@ use crate::server::Error;
 use crate::session::RequestCancellationToken;
 use crate::session::{Client, DocumentSnapshot};
 
+#[path = "completion/snippets.rs"]
+pub(super) mod snippets;
+
 pub(crate) type CompletionResponse = Option<types::CompletionResponse>;
 pub(crate) type DefinitionResponse = Option<types::GotoDefinitionResponse>;
 pub(crate) type ReferencesResponse = Option<Vec<types::Location>>;
@@ -401,6 +404,14 @@ where
             (environment, cancellation, _client),
             parameter,
         );
+    }
+    if site.command
+        && parameter.is_none()
+        && !semantic_operand
+        && site.quote == native_completion::context::Quote::None
+        && !source[site.range.start..offset].contains('\\')
+    {
+        snippets::apply(&snapshot, &mut items);
     }
     is_incomplete |= native_completion::finish(&mut items, &snapshot, position);
     Ok(Some(types::CompletionResponse::List(

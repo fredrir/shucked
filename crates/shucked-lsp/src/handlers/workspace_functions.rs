@@ -57,9 +57,28 @@ pub(crate) struct WorkspaceFunctionContext {
 pub(crate) struct WorkspaceFunctionIndexCache {
     epoch: AtomicU64,
     built: Mutex<Option<(u64, Arc<WorkspaceFunctionIndex>)>>,
+    building: Mutex<()>,
+    projections: Mutex<BTreeMap<PathBuf, IndexedWorkspaceFile>>,
 }
 
 impl WorkspaceFunctionIndexCache {
+    fn build_guard<'a>(
+        &'a self,
+        context: &WorkspaceFunctionContext,
+    ) -> Option<std::sync::MutexGuard<'a, ()>> {
+        loop {
+            if context.cancellation.is_cancelled() || self.current_epoch() != context.epoch {
+                return None;
+            }
+            match self.building.try_lock() {
+                Ok(guard) => return Some(guard),
+                Err(std::sync::TryLockError::Poisoned(error)) => return Some(error.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(std::time::Duration::from_millis(5))
+                }
+            }
+        }
+    }
     pub(crate) fn dependency_paths(&self) -> Vec<PathBuf> {
         self.previous()
             .map(|index| {
@@ -119,9 +138,38 @@ pub(crate) fn workspace_function_index(
         return None;
     }
     if let Some(built) = context.cache.get(context.epoch) {
+        built.prepare_functions(&context.cancellation)?;
+        return Some(built);
+    }
+    let _guard = context.cache.build_guard(context)?;
+    if let Some(built) = context.cache.get(context.epoch) {
+        built.prepare_functions(&context.cancellation)?;
         return Some(built);
     }
     let built = Arc::new(WorkspaceFunctionIndex::build(context)?);
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
+        return None;
+    }
+    context.cache.store(context.epoch, built.clone());
+    Some(built)
+}
+
+/// Completion only evaluates the source-connected component of the current file.
+/// The same complete file projections remain available to navigation and edits.
+pub(crate) fn completion_workspace_function_index(
+    context: &WorkspaceFunctionContext,
+) -> Option<Arc<WorkspaceFunctionIndex>> {
+    if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
+        return None;
+    }
+    if let Some(built) = context.cache.get(context.epoch) {
+        return Some(built);
+    }
+    let _guard = context.cache.build_guard(context)?;
+    if let Some(built) = context.cache.get(context.epoch) {
+        return Some(built);
+    }
+    let built = Arc::new(WorkspaceFunctionIndex::build_projections(context)?);
     if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
         return None;
     }
@@ -160,6 +208,7 @@ pub(crate) fn fresh_workspace_function_index(
 }
 
 /// Source snapshot retained for one indexed file.
+#[derive(Clone)]
 pub(crate) struct IndexedWorkspaceFile {
     analysis: Arc<WorkspaceFileAnalysis>,
     projection: Arc<WorkspaceFileProjection>,
@@ -258,7 +307,8 @@ enum WorkspaceIssue {
 /// Shared index queried by cross-file editor features.
 pub(crate) struct WorkspaceFunctionIndex {
     graph: WorkspaceCallIndex,
-    functions: shucked_semantic::WorkspaceFunctionIndex,
+    functions: OnceLock<shucked_semantic::WorkspaceFunctionIndex>,
+    completion_functions: Mutex<BTreeMap<PathBuf, Arc<CompletionFunctions>>>,
     variables: WorkspaceVariableIndex,
     variable_usage: OnceLock<Arc<shucked_semantic::WorkspaceVariableUsage>>,
     files: BTreeMap<PathBuf, IndexedWorkspaceFile>,
@@ -266,6 +316,11 @@ pub(crate) struct WorkspaceFunctionIndex {
     complete: bool,
     issues: BTreeSet<WorkspaceIssue>,
     file_limit: usize,
+}
+
+struct CompletionFunctions {
+    index: shucked_semantic::WorkspaceFunctionIndex,
+    complete: bool,
 }
 
 impl WorkspaceFunctionIndex {
@@ -285,6 +340,105 @@ impl WorkspaceFunctionIndex {
     }
 
     fn build(context: &WorkspaceFunctionContext) -> Option<Self> {
+        let result = Self::build_projections(context)?;
+        result.prepare_functions(&context.cancellation)?;
+        Some(result)
+    }
+
+    fn prepare_functions(&self, cancellation: &RequestCancellationToken) -> Option<()> {
+        if self.functions.get().is_none() {
+            let functions = shucked_semantic::WorkspaceFunctionIndex::build(
+                self.files
+                    .iter()
+                    .map(|(path, file)| (path.clone(), file.projection.functions.clone()))
+                    .collect(),
+                &|| cancellation.is_cancelled(),
+            )?;
+            let _ = self.functions.set(functions);
+        }
+        (!cancellation.is_cancelled()).then_some(())
+    }
+
+    fn functions(&self) -> &shucked_semantic::WorkspaceFunctionIndex {
+        self.functions.get_or_init(|| {
+            shucked_semantic::WorkspaceFunctionIndex::build(
+                self.files
+                    .iter()
+                    .map(|(path, file)| (path.clone(), file.projection.functions.clone()))
+                    .collect(),
+                &|| false,
+            )
+            .expect("uncancelled bounded workspace evaluation")
+        })
+    }
+
+    fn completion_functions(&self, path: &Path) -> Arc<CompletionFunctions> {
+        if let Some(index) = self
+            .completion_functions
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(path).cloned())
+        {
+            return index;
+        }
+        // Include incoming loaders, their other imports, and recursively sourced
+        // files: module visibility depends on their execution order together.
+        let mut connected = BTreeSet::from([path.to_path_buf()]);
+        loop {
+            let before = connected.len();
+            for (source, facts) in self.graph.files() {
+                for edge in &facts.source_edges {
+                    if connected.contains(source) || connected.contains(&edge.path) {
+                        connected.insert(source.to_path_buf());
+                        connected.insert(edge.path.clone());
+                    }
+                }
+            }
+            if connected.len() == before {
+                break;
+            }
+        }
+        let complete = connected.iter().all(|path| {
+            self.files.get(path).is_some_and(|file| {
+                file.projection.complete && file.projection.source_paths.complete
+            })
+        });
+        let index = Arc::new(CompletionFunctions {
+            index: shucked_semantic::WorkspaceFunctionIndex::build(
+                connected
+                    .iter()
+                    .filter_map(|path| {
+                        self.files
+                            .get(path)
+                            .map(|file| (path.clone(), file.projection.functions.clone()))
+                    })
+                    .collect(),
+                &|| false,
+            )
+            .expect("uncancelled bounded component evaluation"),
+            complete,
+        });
+        if let Ok(mut cache) = self.completion_functions.lock() {
+            for path in connected {
+                cache.insert(path, index.clone());
+            }
+        }
+        index
+    }
+
+    pub(crate) fn completion_function_resolution(
+        &self,
+        path: &Path,
+        span: Span,
+    ) -> shucked_semantic::WorkspaceFunctionResolution {
+        let functions = self.completion_functions(path);
+        let mut resolution = functions.index.resolve(path, span);
+        resolution.incomplete |= !functions.complete;
+        resolution
+    }
+
+    fn build_projections(context: &WorkspaceFunctionContext) -> Option<Self> {
+        let started = std::time::Instant::now();
         let previous = context.cache.previous();
         let mut graph = WorkspaceCallIndex::new();
         let mut variables = WorkspaceVariableIndex::default();
@@ -311,7 +465,8 @@ impl WorkspaceFunctionIndex {
         let path_provider = WorkspacePathProvider::new(context);
 
         for (path, open) in &open_docs {
-            if context.cancellation.is_cancelled() {
+            if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
+            {
                 return None;
             }
             if graph.file_count() >= max_files {
@@ -348,7 +503,7 @@ impl WorkspaceFunctionIndex {
             );
         }
 
-        if context.cancellation.is_cancelled() {
+        if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch {
             return None;
         }
         let remaining = max_files.saturating_sub(graph.file_count());
@@ -358,6 +513,11 @@ impl WorkspaceFunctionIndex {
             remaining,
             &context.cancellation,
         )?;
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            files = discovery.files.len(),
+            "workspace index discovery complete"
+        );
         complete &= discovery.complete;
         if !discovery.complete {
             issues.insert(if discovery.limited {
@@ -367,7 +527,8 @@ impl WorkspaceFunctionIndex {
             });
         }
         for file in discovery.files {
-            if context.cancellation.is_cancelled() {
+            if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
+            {
                 return None;
             }
             let Some(source) = path_provider.source(&file) else {
@@ -406,7 +567,8 @@ impl WorkspaceFunctionIndex {
         }
 
         'expand: loop {
-            if context.cancellation.is_cancelled() {
+            if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
+            {
                 return None;
             }
             let missing = graph
@@ -420,7 +582,9 @@ impl WorkspaceFunctionIndex {
                 break;
             }
             for target in missing {
-                if context.cancellation.is_cancelled() {
+                if context.cancellation.is_cancelled()
+                    || context.cache.current_epoch() != context.epoch
+                {
                     return None;
                 }
                 if graph.file_count() >= max_files {
@@ -502,15 +666,14 @@ impl WorkspaceFunctionIndex {
         if files.values().any(|file| !file.projection.complete) {
             issues.insert(WorkspaceIssue::SourceLimit);
         }
-        let functions = shucked_semantic::WorkspaceFunctionIndex::build(
-            files
-                .iter()
-                .map(|(path, file)| (path.clone(), file.projection.functions.clone()))
-                .collect(),
-            &|| context.cancellation.is_cancelled(),
-        )?;
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            files = files.len(),
+            "workspace index projections complete"
+        );
         Some(Self {
-            functions,
+            functions: OnceLock::new(),
+            completion_functions: Mutex::default(),
             issues,
             file_limit: max_files,
             variable_usage: OnceLock::new(),
@@ -527,7 +690,7 @@ impl WorkspaceFunctionIndex {
         path: &Path,
         span: Span,
     ) -> shucked_semantic::WorkspaceFunctionResolution {
-        let mut result = self.functions.resolve(path, span);
+        let mut result = self.functions().resolve(path, span);
         result.incomplete |=
             !self.complete && result.exact().is_none_or(|target| target.path != path);
         result
@@ -577,9 +740,9 @@ impl WorkspaceFunctionIndex {
         &self,
         definitions: &[shucked_semantic::WorkspaceFunctionDefinition],
     ) -> (Vec<types::Location>, bool) {
-        let mut incomplete = !self.complete || self.functions.incomplete;
+        let mut incomplete = !self.complete || self.functions().incomplete;
         let locations = self
-            .functions
+            .functions()
             .calls()
             .filter(|call| {
                 call.resolution
@@ -605,12 +768,15 @@ impl WorkspaceFunctionIndex {
         path: &Path,
         offset: usize,
     ) -> Vec<VisibleSourcedFunction> {
-        self.functions
+        let functions = self.completion_functions(path);
+        functions
+            .index
             .visible(path, offset)
             .into_iter()
             .flat_map(|(_, resolution)| {
-                let possible =
-                    resolution.exact().is_none() || !self.complete || self.functions.incomplete;
+                let possible = resolution.exact().is_none()
+                    || !functions.complete
+                    || functions.index.incomplete;
                 resolution
                     .definitions
                     .into_iter()
@@ -694,7 +860,7 @@ impl WorkspaceFunctionIndex {
     }
 
     pub(crate) fn incomplete_reason(&self) -> Option<String> {
-        if self.complete && !self.functions.incomplete {
+        if self.complete && !self.functions().incomplete {
             return None;
         }
         let mut reasons = self
@@ -715,7 +881,7 @@ impl WorkspaceFunctionIndex {
                 }
             })
             .collect::<Vec<_>>();
-        if self.functions.incomplete {
+        if self.functions().incomplete {
             reasons.push("workspace function analysis limit reached".into());
         }
         if reasons.is_empty() {
@@ -767,7 +933,7 @@ impl WorkspaceFunctionIndex {
         target_node: &CallNodeKind,
     ) -> Vec<CrossFileCall> {
         let mut result: Vec<CrossFileCall> = Vec::new();
-        for call in self.functions.calls().filter(|call| {
+        for call in self.functions().calls().filter(|call| {
             call.resolution.definitions.iter().any(|target| {
                 target.path == target_path
                     && CallNodeKind::Function(target.definition.identity()) == *target_node
@@ -805,7 +971,7 @@ impl WorkspaceFunctionIndex {
     ) -> Vec<CrossFileCall> {
         let mut result: Vec<CrossFileCall> = Vec::new();
         for call in self
-            .functions
+            .functions()
             .calls()
             .filter(|call| call.path == from_path && call.enclosing == *from_node)
         {
@@ -1178,7 +1344,17 @@ fn insert_file(
         .ok()
         .and_then(|path| types::Url::from_file_path(path).ok())
         .unwrap_or(input.uri);
-    let previous = previous.and_then(|index| index.files.get(&key));
+    let retained = path_provider
+        .context
+        .cache
+        .projections
+        .lock()
+        .ok()
+        .and_then(|files| files.get(&key).cloned());
+    let previous = previous
+        .and_then(|index| index.files.get(&key))
+        .filter(|file| file.source() == input.source)
+        .or(retained.as_ref());
     let analysis = previous
         .filter(|file| file.source() == input.source)
         .map(|file| file.analysis.clone())
@@ -1229,16 +1405,30 @@ fn insert_file(
     let complete = projection.complete;
     variables.insert_facts(key.clone(), projection.variables.clone());
     graph.insert(key.clone(), projection.calls.clone());
-    files.insert(
-        key,
-        IndexedWorkspaceFile {
-            analysis,
-            projection,
-            uri,
-            open_uri,
-            version: input.version,
-        },
-    );
+    let file = IndexedWorkspaceFile {
+        analysis,
+        projection,
+        uri,
+        open_uri,
+        version: input.version,
+    };
+    if let Ok(mut retained) = path_provider.context.cache.projections.lock() {
+        let mut compact = file.clone();
+        // Progress retention must not accumulate heavyweight semantic models
+        // across cancelled builds; validated compact projections are sufficient.
+        compact.analysis = Arc::new(WorkspaceFileAnalysis {
+            source: file.analysis.source.clone(),
+            model: None,
+            line_index: file.analysis.line_index.clone(),
+            content_hash: file.analysis.content_hash,
+        });
+        retained.insert(key.clone(), compact);
+        // Retain interrupted build progress while bounding churn across workspace edits.
+        while retained.len() > path_provider.context.max_files.saturating_mul(2).max(1) {
+            retained.pop_first();
+        }
+    }
+    files.insert(key, file);
     complete
 }
 
@@ -1461,6 +1651,10 @@ pub(crate) fn canonical_path(path: &Path) -> PathBuf {
 fn content_hash(contents: &[u8]) -> [u8; 32] {
     Sha256::digest(contents).into()
 }
+
+#[cfg(test)]
+#[path = "../../tests/requests/completion_index.rs"]
+mod completion_tests;
 
 #[cfg(test)]
 mod tests {

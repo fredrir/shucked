@@ -75,6 +75,27 @@ fn fish_function_and_builtin_completion_does_not_need_bash_analysis() {
             .any(|i| i.label == "string")
     );
 }
+
+#[test]
+fn fish_blank_arguments_do_not_guess_files_and_cd_only_lists_directories() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("workspace-noise"), "").unwrap();
+    std::fs::create_dir(root.path().join("real-directory")).unwrap();
+    assert!(items(root.path(), "unregistered ¦").is_empty());
+    let completed = items(root.path(), "cd ¦");
+    assert_eq!(
+        completed
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>(),
+        ["real-directory/"]
+    );
+    assert!(
+        items(root.path(), "unregistered ./¦")
+            .iter()
+            .any(|item| item.label == "./workspace-noise")
+    );
+}
 #[test]
 fn fish_path_edit_replaces_entire_quoted_word_with_correct_utf16_range() {
     let root = tempfile::tempdir().unwrap();

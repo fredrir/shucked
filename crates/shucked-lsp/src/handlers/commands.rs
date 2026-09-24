@@ -616,7 +616,7 @@ fn build(
     let source_index = source_analysis
         .as_ref()
         .and(snapshot.workspace_functions.as_ref())
-        .and_then(crate::workspace_functions::workspace_function_index);
+        .and_then(crate::workspace_functions::completion_workspace_function_index);
     let source_path = snapshot
         .query()
         .file_path()
@@ -635,7 +635,7 @@ fn build(
             let workspace_resolution = source_index
                 .as_ref()
                 .zip(source_path.as_ref())
-                .map(|(index, path)| index.function_resolution(path, facts.name_span()));
+                .map(|(index, path)| index.completion_function_resolution(path, facts.name_span()));
             let sourced_function = workspace_resolution.as_ref().and_then(|r| r.exact());
             let site = CommandSite {
                 name: name.clone(),

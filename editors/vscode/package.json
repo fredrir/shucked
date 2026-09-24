@@ -4,7 +4,7 @@
   "description": "Shucked: Industry-grade Shellscript & ZSH Language Server, Linter, and Formatter",
   "author": "fredrir",
   "license": "MIT",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "repository": {
     "type": "git",
     "url": "https://github.com/fredrir/shuck"
@@ -357,11 +357,17 @@
     ],
     "configurationDefaults": {
       "[shellscript]": {
-        "editor.semanticHighlighting.enabled": true
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
       },
       "[fish]": {
-        "editor.semanticHighlighting.enabled": true
-      }
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[bash]": { "editor.wordBasedSuggestions": "off" },
+      "[zsh]": { "editor.wordBasedSuggestions": "off" },
+      "[sh]": { "editor.wordBasedSuggestions": "off" },
+      "[ksh]": { "editor.wordBasedSuggestions": "off" }
     },
     "terminal": {
       "profiles": [

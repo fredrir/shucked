@@ -27,6 +27,12 @@ exports.run = async function run() {
     await extension.activate(); report.extensionPath = extension.extensionPath;
     if (report.packaged) { assert.ok(extension.extensionPath.includes(`${path.sep}extensions${path.sep}`), 'Shucked loaded from isolated installed VSIX'); }
     check('extension activated with isolated configuration');
+    if (process.env.SHUCKED_COMPLETION_REGRESSION_WORKSPACE) {
+      await require('./completion-ui.cjs').checkCompletionRegression(root, report, eventually);
+      check('ordinary defaults provide contextual completion in an existing workspace');
+      report.passed = true;
+      return;
+    }
     await require('./completion-ui.cjs').checkAutomaticCompletion(root, report, eventually);
     check('actual typing opens directory, flag and subcommand suggestions automatically');
     if (process.env.SHUCKED_COMPLETION_UI_ONLY === '1') { report.passed = true; return; }

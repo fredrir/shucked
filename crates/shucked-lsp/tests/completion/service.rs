@@ -58,6 +58,72 @@ fn slow_provider_returns_immediately_and_identical_requests_share_work() {
 }
 
 #[test]
+fn empty_provider_results_settle_without_inviting_file_guesses() {
+    let service = Service::default();
+    let (notice, messages) = listener();
+    let key = Key::Native("valid empty argument context".into());
+    service.query(key.clone(), Some(notice.clone()), |_| {
+        Some(Output::Candidates(Arc::new(Vec::new())))
+    });
+    let lsp_server::Message::Notification(ready) =
+        messages.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("completion readiness notification")
+    };
+    assert_eq!(ready.params["reason"], "providerReady");
+    assert_eq!(ready.params["candidateCount"], 0);
+    let (cached, pending) =
+        service.query(key, Some(notice), |_| panic!("empty result was not cached"));
+    assert!(!pending);
+    assert!(matches!(cached, Some(Output::Candidates(items)) if items.is_empty()));
+}
+
+#[test]
+fn unavailable_provider_settles_and_can_retry_after_the_failure_cooldown() {
+    let service = Service::default();
+    let (notice, messages) = listener();
+    let key = Key::Native("unregistered-command fi".into());
+    service.query(key.clone(), Some(notice.clone()), |_| None);
+    let lsp_server::Message::Notification(ready) =
+        messages.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("completion readiness notification")
+    };
+    assert_eq!(ready.params["reason"], "providerUnavailable");
+    let (output, pending) = service.query(key.clone(), Some(notice.clone()), |_| {
+        panic!("failure cooldown")
+    });
+    assert!(
+        !pending,
+        "settled failure must release provider ownership of arguments"
+    );
+    assert!(matches!(output, Some(Output::Unavailable)));
+    {
+        let mut state = service.state.lock().unwrap();
+        assert!(
+            state.cache.is_empty(),
+            "unavailable is not an authoritative empty grammar"
+        );
+        for (_, when) in &mut state.failures {
+            *when = Instant::now() - Duration::from_secs(1);
+        }
+    }
+    let (_, pending) = service.query(key.clone(), Some(notice.clone()), |_| Some(item()));
+    assert!(pending);
+    let lsp_server::Message::Notification(ready) =
+        messages.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("successful retry notification")
+    };
+    assert_eq!(ready.params["candidateCount"], 1);
+    let (output, pending) = service.query(key, Some(notice), |_| {
+        panic!("successful retry was not cached")
+    });
+    assert!(!pending);
+    assert!(matches!(output, Some(Output::Candidates(items)) if items.len() == 1));
+}
+
+#[test]
 fn blocked_preparation_returns_immediately_and_notifies_without_candidates() {
     let service = Service::default();
     let (started, start) = bounded(1);

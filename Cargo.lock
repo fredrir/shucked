@@ -1884,14 +1884,14 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shucked-ast"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "compact_str",
 ]
 
 [[package]]
 name = "shucked-benchmark"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "criterion",
  "dhat",
@@ -1914,7 +1914,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-cache"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "bincode",
  "serde",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-cli"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "annotate-snippets",
  "anyhow",
@@ -1966,7 +1966,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-command"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "libc",
  "serde",
@@ -1978,7 +1978,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-config"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -1992,7 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-discover"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "globset",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-extract"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "github-actions-expressions",
@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-formatter"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "memchr",
  "rayon",
@@ -2034,7 +2034,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-indexer"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "shucked-ast",
  "shucked-parser",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-linter"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "compact_str",
@@ -2064,7 +2064,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-lsp"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "crossbeam",
@@ -2093,7 +2093,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-parser"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "memchr",
  "serde",
@@ -2104,7 +2104,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-semantic"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "bitflags 2.11.0",
  "compact_str",
@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-server"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "lsp-server",
@@ -2128,7 +2128,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-tooling"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2146,7 +2146,7 @@ dependencies = [
 
 [[package]]
 name = "shucked-wasm"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "js-sys",
  "serde",

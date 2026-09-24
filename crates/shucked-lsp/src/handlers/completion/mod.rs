@@ -21,6 +21,88 @@ use crate::session::{DocumentSnapshot, RequestCancellationToken};
 use context::{Quote, Site};
 use environment::Environment;
 
+/// Show literal local directory operands while cross-file preparation continues.
+/// Authoritative completion still replaces this provisional, incomplete list.
+pub(crate) fn directory_preview(
+    snapshot: &DocumentSnapshot,
+    environment: &Environment,
+    client: &crate::session::Client,
+    position: types::Position,
+) -> Option<Vec<types::CompletionItem>> {
+    let options = snapshot.client_settings().environment();
+    if !snapshot.client_settings().completion().include_paths
+        || options.policy.as_deref() == Some("portable")
+        || options.target_inventory.is_some()
+        || options.session_id.is_some()
+        || crate::handlers::commands::dialect(snapshot) == "fish"
+        || snapshot.query().document().contents().len() > 8192
+    {
+        return None;
+    }
+    let analysis = snapshot.analysis()?;
+    let offset = position.to_offset(
+        analysis.source(),
+        analysis.line_index(),
+        snapshot.encoding(),
+    );
+    let site = context::at(analysis.source(), analysis.indexer(), offset)?;
+    if site.command
+        || site.redirect
+        || site.words.len() != 1
+        || !matches!(site.words[0].as_str(), "cd" | "pushd" | "rmdir")
+        || site.prefix.starts_with('-')
+        || analysis.source()[site.range.clone()].contains(['$', '`', '*', '?', '['])
+    {
+        return None;
+    }
+    let semantic = analysis.semantic();
+    if !semantic.source_refs().is_empty() {
+        return None;
+    }
+    let facts = semantic.command_site_facts();
+    let facts = facts
+        .iter()
+        .rfind(|facts| facts.span.start.offset() <= offset)?;
+    if facts.name() != Some(site.words[0].as_str())
+        || facts.visible_function.is_some()
+        || !facts.aliases.is_empty()
+        || facts.environment_uncertain.is_some()
+        || facts
+            .effective_words
+            .iter()
+            .any(|word| word.text.is_none() && word.span.start.offset() < site.range.start)
+    {
+        return None;
+    }
+    if snapshot
+        .workspace_functions
+        .as_ref()
+        .and_then(crate::workspace_functions::cached_workspace_function_index)
+        .is_some()
+    {
+        let command = snapshot.command_service.cached_analysis(snapshot)?;
+        let (facts, resolution) = command
+            .sites
+            .iter()
+            .rfind(|(facts, _)| facts.span.start.offset() <= offset)?;
+        if !grammar_allowed(facts, resolution) {
+            return None;
+        }
+    }
+    let mut items = Vec::new();
+    paths(
+        &mut items,
+        &site,
+        snapshot,
+        &analysis,
+        offset,
+        environment,
+        Some(background::notice(snapshot, client, position)),
+    );
+    finish(&mut items, snapshot, position);
+    Some(items)
+}
+
 pub(super) fn extend(
     items: &mut Vec<types::CompletionItem>,
     site: &Site,
@@ -131,6 +213,11 @@ pub(super) fn extend(
         )
     });
     let words = effective_words.as_ref().unwrap_or(&site.words);
+    let directory_context = grammar_allowed
+        && words
+            .first()
+            .is_some_and(|word| matches!(word.as_str(), "cd" | "pushd" | "rmdir"));
+    let local_directories = directory_context && !site.prefix.starts_with('-');
     let position = crate::edit::offset_to_position(
         analysis.source(),
         analysis.line_index(),
@@ -150,7 +237,8 @@ pub(super) fn extend(
         && options.include_native
         && environment.native_allowed
         && local
-        && grammar_allowed;
+        && grammar_allowed
+        && !local_directories;
     let live_enabled = !site.command
         && !site.redirect
         && options.include_command_arguments
@@ -163,6 +251,7 @@ pub(super) fn extend(
                 && facts.effective_words.iter().all(|word| word.text.is_some())
         });
     let mut native_arguments = false;
+    let mut provider_active = false;
     tracing::debug!(
         native_enabled,
         live_enabled,
@@ -189,6 +278,7 @@ pub(super) fn extend(
             false,
         );
         incomplete |= pending;
+        provider_active |= pending || candidates.is_some();
         if let Some(candidates) = candidates {
             incomplete |= candidates.len() >= 2000;
             for candidate in candidates.iter() {
@@ -254,7 +344,13 @@ pub(super) fn extend(
     if options.include_paths
         && local
         && !native_arguments
-        && (!site.command || site.prefix.contains('/') || site.prefix.starts_with('~'))
+        && path_fallback(
+            &site.prefix,
+            site.command,
+            site.redirect,
+            local_directories,
+            provider_active,
+        )
         && (!site.prefix.starts_with('-')
             || words.iter().any(|word| word == "--")
             || site.prefix.contains('=')
@@ -282,6 +378,22 @@ pub(super) fn extend(
     }
 
     incomplete
+}
+
+/// A provider owns argument meaning, including a valid empty result. Only
+/// explicit paths or shell directory operands can bypass pending provider work.
+pub(super) fn path_fallback(
+    prefix: &str,
+    command: bool,
+    redirect: bool,
+    directory: bool,
+    provider_active: bool,
+) -> bool {
+    redirect
+        || directory
+        || prefix.contains('/')
+        || prefix.starts_with('~')
+        || (!command && !provider_active && !prefix.is_empty())
 }
 
 fn grammar_allowed(
@@ -463,19 +575,22 @@ pub(super) fn matches(candidate: &str, prefix: &str) -> bool {
 }
 
 fn match_score(candidate: &str, prefix: &str) -> Option<u8> {
-    if candidate.starts_with(prefix) {
+    if candidate == prefix {
         return Some(0);
+    }
+    if candidate.starts_with(prefix) {
+        return Some(1);
     }
     let candidate = candidate.to_ascii_lowercase();
     let prefix = prefix.to_ascii_lowercase();
     if candidate.starts_with(&prefix) {
-        return Some(1);
+        return Some(2);
     }
     let mut chars = candidate.chars();
     prefix
         .chars()
         .all(|expected| chars.by_ref().any(|ch| ch == expected))
-        .then_some(2)
+        .then_some(3)
 }
 
 pub(super) fn finish(
@@ -501,7 +616,11 @@ pub(super) fn finish(
                     edit.range
                         .start
                         .to_offset(source, analysis.line_index(), snapshot.encoding());
-                let score = match_score(&edit.new_text, &source[start..offset]).unwrap_or(3);
+                let score = match_score(
+                    item.filter_text.as_deref().unwrap_or(&edit.new_text),
+                    &source[start..offset],
+                )
+                .unwrap_or(4);
                 item.sort_text = Some(format!(
                     "{score}:{}",
                     item.sort_text.as_deref().unwrap_or(&item.label)
@@ -540,3 +659,7 @@ pub(super) fn finish(
 #[cfg(test)]
 #[path = "../../../tests/completion/context.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/completion/preview.rs"]
+mod preview_tests;

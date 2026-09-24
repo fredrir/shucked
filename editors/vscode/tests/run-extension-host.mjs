@@ -27,6 +27,9 @@ compdef _slow_fixture slow_fixture
 await writeFile(join(home, 'custom_history'), 'printf shucked_history_fixture\n');
 await writeFile(join(home, '.config/fish/config.fish'), "alias shucked_smoke_alias='printf'\nset -g fish_history shucked_test\n");
 const resultPath = join(root, 'result.json');
+// A real workspace may be inspected using untitled probes only. All profiles,
+// fixtures, settings and reports remain inside this isolated temporary root.
+const inspectedWorkspace = process.env.SHUCKED_COMPLETION_REGRESSION_WORKSPACE;
 const launchEnvironment = { ...process.env, HOME: home, ZDOTDIR: home, XDG_CONFIG_HOME: join(home, '.config'), SHUCKED_EXTENSION_TEST_RESULT: resultPath, SHUCKED_EXTENSION_TEST_PACKAGED: vsix ? '1' : '0' };
 let developmentExtension = extension;
 if (vsix) {
@@ -39,7 +42,7 @@ if (vsix) {
 }
 console.log(`Extension Development Host evidence: ${root}`);
 // Keep secrets in memory so an isolated macOS HOME never asks to initialize a keychain.
-const child = spawn(process.env.SHUCKED_CODE_COMMAND ?? 'code', ['--new-window', '--log', 'trace', '--wait', '--user-data-dir', user, '--extensions-dir', extensions, ...(vsix ? [] : ['--disable-extensions']), '--use-inmemory-secretstorage', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', `--extensionDevelopmentPath=${developmentExtension}`, `--extensionTestsPath=${join(extension, 'tests/extension-host.cjs')}`, workspace], { env: launchEnvironment, stdio: ['ignore', 'pipe', 'pipe'] });
+const child = spawn(process.env.SHUCKED_CODE_COMMAND ?? 'code', ['--new-window', '--log', 'trace', '--wait', '--user-data-dir', user, '--extensions-dir', extensions, ...(vsix ? [] : ['--disable-extensions']), '--use-inmemory-secretstorage', '--skip-welcome', '--skip-release-notes', '--disable-workspace-trust', `--extensionDevelopmentPath=${developmentExtension}`, `--extensionTestsPath=${join(extension, 'tests/extension-host.cjs')}`, inspectedWorkspace ?? workspace], { env: launchEnvironment, stdio: ['ignore', 'pipe', 'pipe'] });
 let output = '';
 for (const stream of [child.stdout, child.stderr]) {stream.on('data', chunk => { output = (output + chunk.toString()).slice(-16000); });}
 // Code's CLI can detach the desktop process; stopping only the wrapper leaves it alive.
@@ -56,7 +59,7 @@ function stopHost() {
   }
   child.kill('SIGTERM');
 }
-const watchdog = setTimeout(stopHost, 150000);
+const watchdog = setTimeout(stopHost, inspectedWorkspace ? 45000 : 150000);
 for (const signal of ['SIGINT', 'SIGTERM']) {process.once(signal, () => { stopHost(); process.exit(1); });}
 const exit = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => resolve(code)); });
 clearTimeout(watchdog);

@@ -50,3 +50,25 @@ python3 tests/remote/native_acceptance.py \
 | Personal setup | Isolated HOME; startup files fail if executed |
 | Side effects | Temporary Git repository only; no package installation or database refresh |
 | Executed | Arch x86_64 SSH: all seven checks passed |
+
+## Existing workspace completion
+
+```sh
+python3 tests/remote/workspace_completion.py \
+  --command '["ssh","-T","archie"]' --ssh \
+  --binary /path/to/shucked --provider-root /path/to/providers \
+  --workspace /home/fredrir/dotfiles/shared/zsh \
+  --workspace /home/fredrir/dotfiles --dialects bash,zsh,fish
+```
+
+| Input | Value |
+|---|---|
+| Workspace | Existing absolute path; repeat `--workspace` |
+| Files | Unsaved LSP document only; workspace files remain unchanged |
+| Checks | Directory-only `cd`, real installed command flags/subcommands, no workspace-file fallback at subcommand positions |
+| Commands | Installed `ls`, `brew`, `docker`, `podman`, `pacman`, `paru` |
+| Refresh | Completion-ready notifications; no timer-driven completion retries |
+| Bounds | Foreground response below 500 ms; useful result within 15 seconds |
+| Output | JSON timings/counts; per-case progress on stderr |
+| Local transport | Omit `--command` and `--ssh` |
+| Container transport | `--command '["podman","exec","-i","fixture"]'` |

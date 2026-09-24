@@ -56,7 +56,13 @@ impl super::super::traits::BackgroundRequestHandler for Completion {
             return Ok(Some(types::CompletionResponse::List(
                 types::CompletionList {
                     is_incomplete: true,
-                    items: Vec::new(),
+                    items: crate::handlers::completion::directory_preview(
+                        &document,
+                        &snapshot.environment,
+                        client,
+                        params.text_document_position.position,
+                    )
+                    .unwrap_or_default(),
                 },
             )));
         }

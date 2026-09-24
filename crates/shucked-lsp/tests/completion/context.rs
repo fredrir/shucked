@@ -279,6 +279,36 @@ fn assignments_and_equals_options_complete_paths() {
 }
 
 #[test]
+fn blank_arguments_do_not_guess_workspace_files_but_cd_lists_directories() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("workspace-noise"), "").unwrap();
+    std::fs::create_dir(root.path().join("real-directory")).unwrap();
+    for source in [
+        "unregistered ¦",
+        "unregistered subcommand ¦",
+        "unregistered value ¦",
+    ] {
+        let items = complete(root.path(), source, serde_json::json!({}), false);
+        assert!(items.is_empty(), "{source}: {items:?}");
+    }
+    let items = complete(root.path(), "cd ¦", serde_json::json!({}), false);
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect::<Vec<_>>(),
+        ["real-directory/"]
+    );
+    let items = complete(
+        root.path(),
+        "unregistered ./¦",
+        serde_json::json!({}),
+        false,
+    );
+    assert!(items.iter().any(|item| item.label == "workspace-noise"));
+}
+
+#[test]
 fn escaped_dollars_do_not_complete_variables_and_quoted_tildes_are_literal() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("~")).unwrap();

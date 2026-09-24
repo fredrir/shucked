@@ -15,7 +15,7 @@ python3 - <<'PYMOD'
 from pathlib import Path
 import re
 p = Path('config.modules')
-p.write_text(re.sub(r'(name=zsh/(?:system|zpty|zselect) .*?)link=no', r'\1link=static', p.read_text()))
+p.write_text(re.sub(r'(name=zsh/(?:system|zpty|zselect|regex) .*?)link=no', r'\1link=static', p.read_text()))
 PYMOD
 make -j "${SHUCKED_BUILD_JOBS:-4}"
 make install.bin

@@ -10,7 +10,7 @@ use super::{
 use crate::edit::PositionExt;
 use crate::session::{Client, DocumentSnapshot};
 use crate::workspace_functions::{
-    WorkspaceFunctionContext, cached_workspace_function_index, workspace_function_index,
+    WorkspaceFunctionContext, cached_workspace_function_index, completion_workspace_function_index,
 };
 
 /// Keep workspace discovery and command analysis off the completion response path.
@@ -54,7 +54,7 @@ pub(crate) fn prepare(
             }
             workspace.cancellation = cancel.clone();
             let snapshot = worker_snapshot.with_analysis_cancellation(cancel.clone());
-            if workspace_function_index(&workspace).is_none() {
+            if completion_workspace_function_index(&workspace).is_none() {
                 return (!cancel.is_cancelled()).then_some(Output::Invalidated);
             }
             if let Some(analysis) = snapshot.analysis() {
@@ -100,7 +100,7 @@ fn warm(
     position: Position,
     refresh: bool,
 ) {
-    let key = Key::Native(format!(
+    let key = Key::Preparation(format!(
         "prewarm:{refresh}:{}:{}:{position:?}",
         snapshot.query().file_url(),
         snapshot.query().document().version()
