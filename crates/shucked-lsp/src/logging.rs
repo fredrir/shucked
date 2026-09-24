@@ -6,9 +6,12 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::FmtSubscriber;
 
 pub(crate) fn init_logging(log_level: LogLevel, log_file: Option<&Path>) {
+    // Stdout carries the protocol and its writer thread holds the stdout lock for
+    // the whole session, so logging there would corrupt messages or block forever.
     let builder = FmtSubscriber::builder()
         .with_max_level(log_level.level_filter())
-        .with_ansi(false);
+        .with_ansi(false)
+        .with_writer(std::io::stderr);
     if let Some(log_file) = log_file {
         match OpenOptions::new().create(true).append(true).open(log_file) {
             Ok(file) => {
