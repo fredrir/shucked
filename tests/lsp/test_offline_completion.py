@@ -1,6 +1,7 @@
 """Offline argument completion: bundled option grammars bound to the resolved
-executable. No completion engine is involved, so these pass where zsh, bash
-and fish are absent."""
+executable, and cached subcommand inventories for brew, git, docker and
+kubectl. No completion engine is involved, so these pass where zsh, bash and
+fish are absent."""
 import asyncio
 import os
 
@@ -121,5 +122,90 @@ async def test_untrusted_workspaces_get_unverified_grammar_flags_without_running
         assert detail(result, "-l") == "List in long format · gnu-ls 9.7 (unverified)"
         await asyncio.sleep(0.05)
         assert run_count(runs, "ls") == 0
+    finally:
+        await client.shutdown_and_exit()
+
+
+async def test_subcommand_inventories_complete_brew_git_and_docker_once_per_installation(shucked_binary, tmp_path):
+    host, runs, environment = fixture_host(tmp_path)
+    client = await start(shucked_binary, host, environment, trusted=True)
+    try:
+        uri = (host / "script.sh").as_uri()
+        lines = ["brew ", "git ", "docker ", "git co"]
+        await client.open_document(uri, text="\n".join(lines))
+        result = await complete_when_ready(client, uri, 0, len(lines[0]), "install")
+        assert detail(result, "install") == "Install a formula or cask · brew"
+        assert {"install", "list", "search"} <= {item["label"] for item in result["items"]}
+        result = await complete_when_ready(client, uri, 1, len(lines[1]), "commit")
+        assert detail(result, "commit") == "Record staged changes to the repository · git"
+        assert detail(result, "fixture-alias") == "git"
+        # The bundled docker grammar lists `run` at once; the inventory's
+        # description arrives with the readiness notice.
+        result = await complete_until(client, uri, 2, len(lines[2]), described("run", "fixture"))
+        assert detail(result, "run") == "Start a fixture container · docker"
+        assert detail(result, "builder") == "Manage fixture builds · docker"
+        assert "exec" in {item["label"] for item in result["items"]}
+        result = await complete_when_ready(client, uri, 3, len(lines[3]), "commit")
+        assert {item["label"] for item in result["items"]} == {"commit"}
+        assert (run_count(runs, "brew"), run_count(runs, "git"), run_count(runs, "docker")) == (1, 1, 1)
+        cached = sorted(path.name for path in (tmp_path / "state" / "cache" / "subcommands").iterdir())
+        assert [name.split("-")[0] for name in cached] == ["brew", "docker", "git"]
+    finally:
+        await client.shutdown_and_exit()
+    # A new server answers from the cache directory without running the tools.
+    client = await start(shucked_binary, host, environment, trusted=True)
+    try:
+        uri = (host / "script.sh").as_uri()
+        await client.open_document(uri, text="brew ins")
+        result = await complete_when_ready(client, uri, 0, len("brew ins"), "install")
+        assert detail(result, "install") == "Install a formula or cask · brew"
+        assert run_count(runs, "brew") == 1
+    finally:
+        await client.shutdown_and_exit()
+
+
+async def test_changed_tool_is_inventoried_again_after_environment_refresh(shucked_binary, tmp_path):
+    host, runs, environment = fixture_host(tmp_path)
+    client = await start(shucked_binary, host, environment, trusted=True)
+    try:
+        uri = (host / "script.sh").as_uri()
+        line = "brew "
+        await client.open_document(uri, text=line)
+        result = await complete_when_ready(client, uri, 0, len(line), "install")
+        assert "upgrade" not in {item["label"] for item in result["items"]}
+        install_tool(host / "bin", "brew", f"""case "$1" in
+  commands) printf x >> '{runs / "brew"}'; printf 'install\\nlist\\nsearch\\nupgrade\\n' ;;
+  *) exit 1 ;;
+esac""")
+        # The watcher notices the rewritten executable on its own (a 250 ms
+        # debounce and a 2 s fingerprint pass); let those refreshes settle so
+        # they cannot cancel the query the explicit refresh below triggers.
+        await asyncio.sleep(2.5)
+        await client.send_request("workspace/executeCommand", {"command": "shucked.refreshEnvironment"})
+        result = await complete_when_ready(client, uri, 0, len(line), "upgrade")
+        assert detail(result, "upgrade") == "Upgrade outdated formulae and casks · brew"
+        assert run_count(runs, "brew") == 2
+    finally:
+        await client.shutdown_and_exit()
+
+
+async def test_inventories_require_native_execution_trust(shucked_binary, tmp_path):
+    host, runs, environment = fixture_host(tmp_path)
+    client = await start(shucked_binary, host, environment, trusted=False)
+    try:
+        uri = (host / "script.sh").as_uri()
+        lines = ["brew ", "git "]
+        await client.open_document(uri, text="\n".join(lines))
+        for index, line in enumerate(lines):
+            result = await client.completion(uri, index, len(line))
+            assert not {"install", "commit"} & {item["label"] for item in result["items"]}
+        await client.send_notification("workspace/didChangeConfiguration", {"settings": {"shucked": {"nativeExecutionAllowed": True}}})
+        await asyncio.sleep(0.1)
+        for index, line in enumerate(lines):
+            result = await client.completion(uri, index, len(line))
+            assert not {"install", "commit"} & {item["label"] for item in result["items"]}
+        await asyncio.sleep(0.05)
+        assert run_count(runs, "brew") == 0 and run_count(runs, "git") == 0
+        assert not (tmp_path / "state" / "cache" / "subcommands").exists()
     finally:
         await client.shutdown_and_exit()

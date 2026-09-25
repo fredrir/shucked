@@ -1,5 +1,5 @@
-//! Instant argument candidates that need no completion engine: the bundled
-//! option grammars.
+//! Instant argument candidates that need no completion engine: bundled option
+//! grammars and cached subcommand inventories.
 //!
 //! These sources answer on the request thread, before any native provider is
 //! consulted. Native results then enrich them: an item that both sources know
@@ -9,9 +9,10 @@ use std::collections::{BTreeSet, HashMap};
 use lsp_types as types;
 
 use super::context::{Quote, Site};
+use super::environment::Environment;
 use super::native_zsh::Candidate;
 use crate::handlers::commands::CommandAnalysis;
-use crate::session::RequestCancellationToken;
+use crate::session::{Client, DocumentSnapshot, RequestCancellationToken};
 
 /// Labels the offline sources contributed, mapped to their item index so a
 /// later native candidate can enrich rather than duplicate them.
@@ -109,15 +110,19 @@ pub(super) struct Request<'a> {
     pub words: &'a [String],
     pub resolved: &'a shucked_command::ResolvedCommand,
     pub analysis: &'a std::sync::Arc<CommandAnalysis>,
+    pub environment: &'a Environment,
+    pub snapshot: &'a DocumentSnapshot,
+    pub client: &'a Client,
+    pub position: types::Position,
     pub range: types::Range,
     pub cancellation: &'a RequestCancellationToken,
     /// Native tool execution is permitted for this request.
     pub execution: bool,
 }
 
-/// Add grammar candidates for the site. Returns whether a background query is
-/// still pending (the response stays incomplete and a readiness notice
-/// follows) and whether anything was contributed.
+/// Add grammar and inventory candidates for the site. Returns whether a
+/// background inventory query is still pending (the response stays incomplete
+/// and a readiness notice follows) and whether anything was contributed.
 pub(super) fn extend(
     items: &mut Vec<types::CompletionItem>,
     seen: &mut BTreeSet<String>,
@@ -125,7 +130,16 @@ pub(super) fn extend(
     request: &Request<'_>,
 ) -> (bool, bool) {
     let before = items.len();
-    let pending = false;
+    let mut pending = false;
+    if request.words.len() == 1 && !request.site.prefix.starts_with('-') {
+        let (candidates, waiting) = super::inventory::candidates(request);
+        pending |= waiting;
+        for candidate in candidates {
+            if candidate.text.starts_with(&request.site.prefix) {
+                offline.push(items, seen, request.site, request.range, candidate);
+            }
+        }
+    }
     if let Some(binding) = super::grammar::bind(request) {
         for candidate in super::grammar::candidates(&binding, request.words, &request.site.prefix) {
             offline.push(items, seen, request.site, request.range, candidate);
@@ -134,10 +148,12 @@ pub(super) fn extend(
     (pending, items.len() > before)
 }
 
-/// Forget bindings held in memory; the next request re-reads the executable
-/// identity.
+/// Forget bindings and inventories held in memory; the next request re-reads
+/// the executable identity and the on-disk inventory cache.
 pub(super) fn invalidate() {
     super::grammar::invalidate();
+    super::inventory::invalidate();
+    shucked_command::subcommands::invalidate();
 }
 
 #[cfg(test)]

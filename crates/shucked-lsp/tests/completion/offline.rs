@@ -1,6 +1,5 @@
-//! Offline argument completion: bundled grammars bound like validation, and
-//! native enrichment of the items they offer.
-use super::super::environment::Environment;
+//! Offline argument completion: bundled grammars bound like validation, cached
+//! subcommand inventories, and native enrichment of both.
 use super::super::grammar;
 use super::*;
 use crate::{
@@ -347,8 +346,45 @@ fn flags_complete_from_the_bundled_grammar_without_any_shell() {
     grammar::invalidate();
 }
 
+#[cfg(unix)]
 #[test]
-fn native_descriptions_enrich_offline_items() {
+fn cached_inventories_complete_subcommands_and_native_descriptions_enrich_them() {
+    grammar::invalidate();
+    shucked_command::subcommands::invalidate();
+    let root = tempfile::tempdir().unwrap();
+    let cache = root.path().join("cache");
+    executable(
+        &root.path().join("bin"),
+        "brew",
+        "[ \"$1\" = commands ] || exit 9\nprintf 'install\\nlist\\n'",
+    );
+    // Without a cached inventory and without trust nothing is offered.
+    let list = complete(root.path(), "brew ¦", false);
+    assert!(!list.items.iter().any(|item| item.label == "install"));
+    // Populate the inventory the way the trusted background query would.
+    let (context, environment) = host(root.path(), true);
+    let command = resolved(&context, &environment, "brew");
+    let inventory = shucked_command::subcommands::acquire(
+        &context,
+        &environment,
+        command.executable.as_ref().unwrap(),
+        Some(&cache),
+        &|| false,
+    )
+    .unwrap();
+    assert_eq!(inventory.commands.len(), 2);
+    let list = complete(root.path(), "brew ¦", false);
+    assert_eq!(
+        item(&list, "install").detail.as_deref(),
+        Some("Install a formula or cask · brew")
+    );
+    assert_eq!(
+        item(&list, "install").kind,
+        Some(types::CompletionItemKind::VALUE)
+    );
+    let list = complete(root.path(), "brew li¦", false);
+    assert_eq!(labels_of(&list), ["list"]);
+
     // A native candidate for a label the grammar already offered enriches it.
     let mut items = vec![super::super::item(
         "-l",
@@ -378,4 +414,10 @@ fn native_descriptions_enrich_offline_items() {
         ..Default::default()
     };
     assert!(!offline.enrich(&mut items, &other));
+    shucked_command::subcommands::invalidate();
+    grammar::invalidate();
+}
+
+fn labels_of(list: &types::CompletionList) -> Vec<&str> {
+    list.items.iter().map(|item| item.label.as_str()).collect()
 }

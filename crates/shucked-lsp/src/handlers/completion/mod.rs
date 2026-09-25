@@ -4,6 +4,7 @@ pub(super) mod context;
 pub(crate) mod environment;
 pub(crate) mod fish;
 mod grammar;
+mod inventory;
 mod native;
 pub(crate) mod native_process;
 mod native_zsh;
@@ -259,8 +260,8 @@ pub(super) fn extend(
         });
     let mut native_arguments = false;
     let mut provider_active = false;
-    // Bundled grammars answer first; a native provider then enriches the same
-    // labels instead of repeating them.
+    // Bundled grammars and cached inventories answer first; a native provider
+    // then enriches the same labels instead of repeating them.
     let mut offline = offline::Offline::default();
     let mut offline_arguments = false;
     if !site.command
@@ -276,6 +277,10 @@ pub(super) fn extend(
             words,
             resolved,
             analysis: &command_analysis,
+            environment,
+            snapshot,
+            client,
+            position,
             range,
             cancellation,
             execution: local && options.include_native && environment.native_allowed,
