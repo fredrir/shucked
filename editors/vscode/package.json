@@ -36,7 +36,9 @@
     "onLanguage:shellscript",
     "onLanguage:fish",
     "onLanguage:bash",
-    "onLanguage:zsh"
+    "onLanguage:zsh",
+    "onLanguage:sh",
+    "onLanguage:ksh"
   ],
   "main": "./dist/extension.js",
   "extensionKind": [
