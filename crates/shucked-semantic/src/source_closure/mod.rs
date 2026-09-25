@@ -843,7 +843,7 @@ struct CallInfo {
     args: Vec<Option<compact_str::CompactString>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SourcePathTemplate {
     Interpolated(Vec<TemplatePart>),
 }
@@ -857,7 +857,7 @@ impl SourcePathTemplate {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TemplatePart {
     Literal(String),
     Arg(usize),
@@ -914,17 +914,64 @@ fn source_template_uses_positional_args(template: &SourcePathTemplate) -> bool {
     }
 }
 
+/// Path template evaluated later by the path analyzer, which seeds `HOME`,
+/// the XDG base directories and (for Zsh) `ZDOTDIR` before it runs.
+///
+/// Because those seeds exist, a leading unquoted `~` becomes `$HOME`, and a
+/// `${VAR:-default}` whose default spells out the seed's own fallback is
+/// modeled as `$VAR`. Every other variable stays a symbolic reference that the
+/// analyzer substitutes from the values it has proven.
 pub(crate) fn source_path_expression(
     word: &Word,
     source: &str,
     bash: bool,
     zsh: bool,
 ) -> Option<SourcePathTemplate> {
-    assignment_source_path_template(word, source, bash, zsh, |name, _| {
-        Some(SourcePathTemplate::Interpolated(vec![
-            TemplatePart::Variable(name.clone()),
-        ]))
-    })
+    let mut context = SourceTemplateContext {
+        source,
+        bash_runtime_vars_enabled: bash,
+        zsh_runtime_vars_enabled: zsh,
+        seeded_environment: true,
+        resolve_variable_template: |name: &Name, _| {
+            Some(SourcePathTemplate::Interpolated(vec![
+                TemplatePart::Variable(name.clone()),
+            ]))
+        },
+    };
+    source_path_template_with_context(word, &mut context)
+        .filter(|resolved| !resolved.ignored_root)
+        .map(|resolved| resolved.template)
+}
+
+/// [`source_path_expression`] for the operand of `source`/`.`, or `None`
+/// when the operand's expansion might not stay a single path.
+///
+/// Inside double quotes an expansion is one field in every shell. Outside
+/// them Bash and the POSIX shells field-split and glob the result, so only
+/// quoted expansions are modeled for those dialects. Zsh leaves an unquoted
+/// expansion whole unless `SH_WORD_SPLIT` or `GLOB_SUBST` is set, so its
+/// `source $ZSH/oh-my-zsh.sh` and `. $ZDOTDIR/functions.zsh` are modeled
+/// exactly like their quoted forms.
+pub(crate) fn source_operand_path_expression(
+    word: &Word,
+    source: &str,
+    bash: bool,
+    zsh: bool,
+) -> Option<SourcePathTemplate> {
+    let unquoted_expansions_stay_whole = zsh;
+    if !unquoted_expansions_stay_whole
+        && word.parts.iter().any(|part| {
+            !matches!(
+                part.kind,
+                WordPart::Literal(_)
+                    | WordPart::SingleQuoted { .. }
+                    | WordPart::DoubleQuoted { .. }
+            )
+        })
+    {
+        return None;
+    }
+    source_path_expression(word, source, bash, zsh)
 }
 
 pub(crate) fn assignment_source_path_template(
@@ -957,7 +1004,27 @@ pub(crate) fn source_path_template_with_resolver(
     zsh_runtime_vars_enabled: bool,
     resolve_variable_template: impl FnMut(&Name, Span) -> Option<SourcePathTemplate>,
 ) -> Option<ResolvedSourcePathTemplate> {
-    if let Some(text) = static_word_text(word, source) {
+    let mut context = SourceTemplateContext {
+        source,
+        bash_runtime_vars_enabled,
+        zsh_runtime_vars_enabled,
+        seeded_environment: false,
+        resolve_variable_template,
+    };
+    source_path_template_with_context(word, &mut context)
+}
+
+fn source_path_template_with_context<F>(
+    word: &Word,
+    context: &mut SourceTemplateContext<'_, F>,
+) -> Option<ResolvedSourcePathTemplate>
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
+    if let Some(text) = static_word_text(word, context.source)
+        && !(context.seeded_environment
+            && unquoted_home_tilde_rest(&word.parts, context.source).is_some())
+    {
         return (!text.is_empty()).then(|| ResolvedSourcePathTemplate {
             template: SourcePathTemplate::Interpolated(vec![TemplatePart::Literal(
                 text.into_owned(),
@@ -966,22 +1033,17 @@ pub(crate) fn source_path_template_with_resolver(
         });
     }
 
-    let mut context = SourceTemplateContext {
-        source,
-        bash_runtime_vars_enabled,
-        zsh_runtime_vars_enabled,
-        resolve_variable_template,
-    };
     let mut parts = Vec::new();
     let mut ignored_root = false;
     let mut saw_dynamic = false;
 
     if !collect_source_template_parts(
         &word.parts,
-        &mut context,
+        context,
         &mut parts,
         &mut ignored_root,
         &mut saw_dynamic,
+        true,
     ) {
         return None;
     }
@@ -999,7 +1061,29 @@ struct SourceTemplateContext<'a, F> {
     source: &'a str,
     bash_runtime_vars_enabled: bool,
     zsh_runtime_vars_enabled: bool,
+    /// Whether the consumer evaluates the template in an environment seeded
+    /// with `HOME`, the XDG base directories and `ZDOTDIR` (see
+    /// [`source_path_expression`]). Enables `~` and matching
+    /// `${VAR:-default}` modeling.
+    seeded_environment: bool,
     resolve_variable_template: F,
+}
+
+/// The text after the tilde when `parts` begin with an unquoted `~` or `~/`
+/// that the shell would replace with the home directory.
+///
+/// A quoted or escaped tilde is literal, as is `~` followed by anything but
+/// a slash: `~user` needs a password lookup and `~$x` never expands.
+fn unquoted_home_tilde_rest<'a>(parts: &'a [WordPartNode], source: &'a str) -> Option<&'a str> {
+    let first = parts.first()?;
+    let WordPart::Literal(text) = &first.kind else {
+        return None;
+    };
+    if !first.span.slice(source).starts_with('~') {
+        return None;
+    }
+    let rest = crate::source_resolve::home_tilde_suffix(text.as_str(source, first.span))?;
+    (!rest.is_empty() || parts.len() == 1).then_some(rest)
 }
 
 fn collect_source_template_parts<F>(
@@ -1008,13 +1092,26 @@ fn collect_source_template_parts<F>(
     parts: &mut Vec<TemplatePart>,
     ignored_root: &mut bool,
     saw_dynamic: &mut bool,
+    word_start: bool,
 ) -> bool
 where
     F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
 {
-    for part in word_parts {
+    for (index, part) in word_parts.iter().enumerate() {
         match &part.kind {
             WordPart::Literal(text) => {
+                if word_start
+                    && index == 0
+                    && context.seeded_environment
+                    && let Some(rest) = unquoted_home_tilde_rest(word_parts, context.source)
+                {
+                    *saw_dynamic = true;
+                    parts.push(TemplatePart::Variable(Name::from("HOME")));
+                    if !rest.is_empty() {
+                        push_literal(parts, rest.to_owned());
+                    }
+                    continue;
+                }
                 let text = text.as_str(context.source, part.span);
                 if !text.is_empty() {
                     push_literal(parts, text.to_owned());
@@ -1027,8 +1124,14 @@ where
                 }
             }
             WordPart::DoubleQuoted { parts: inner, .. } => {
-                if !collect_source_template_parts(inner, context, parts, ignored_root, saw_dynamic)
-                {
+                if !collect_source_template_parts(
+                    inner,
+                    context,
+                    parts,
+                    ignored_root,
+                    saw_dynamic,
+                    false,
+                ) {
                     return false;
                 }
             }
@@ -1064,9 +1167,24 @@ where
                 *saw_dynamic = true;
             }
             WordPart::Parameter(parameter) => {
-                let Some(BourneParameterExpansion::Access { reference }) = parameter.bourne()
-                else {
-                    return false;
+                let reference = match parameter.bourne() {
+                    Some(BourneParameterExpansion::Access { reference }) => reference,
+                    Some(BourneParameterExpansion::Operation {
+                        reference,
+                        operator,
+                        operand_word_ast,
+                        ..
+                    }) if matches!(
+                        **operator,
+                        shucked_ast::ParameterOp::UseDefault
+                            | shucked_ast::ParameterOp::AssignDefault
+                    ) && operand_word_ast.as_deref().is_some_and(|operand| {
+                        default_matches_seeded_fallback(&reference.name, operand, context)
+                    }) =>
+                    {
+                        reference
+                    }
+                    _ => return false,
                 };
                 if reference.subscript.is_some() {
                     return false;
@@ -1136,6 +1254,47 @@ fn template_parts_within_budget(
         }
     }
     true
+}
+
+/// Whether `${name:-operand}` can be modeled as plain `$name`: the path
+/// analyzer seeds `name` with exactly this fallback whenever the process
+/// environment leaves it unset (`HOME` for `ZDOTDIR`, the XDG Base Directory
+/// defaults for `XDG_*_HOME`), so the two forms agree in every environment.
+fn default_matches_seeded_fallback<F>(
+    name: &Name,
+    operand: &Word,
+    context: &mut SourceTemplateContext<'_, F>,
+) -> bool
+where
+    F: FnMut(&Name, Span) -> Option<SourcePathTemplate>,
+{
+    if !context.seeded_environment {
+        return false;
+    }
+    let seeded_default = match name.as_str() {
+        "ZDOTDIR" if context.zsh_runtime_vars_enabled => "",
+        "XDG_CONFIG_HOME" => "/.config",
+        "XDG_CACHE_HOME" => "/.cache",
+        "XDG_DATA_HOME" => "/.local/share",
+        "XDG_STATE_HOME" => "/.local/state",
+        _ => return false,
+    };
+    let mut expected = vec![TemplatePart::Variable(Name::from("HOME"))];
+    if !seeded_default.is_empty() {
+        expected.push(TemplatePart::Literal(seeded_default.to_owned()));
+    }
+    let mut fallback = Vec::new();
+    let mut ignored_root = false;
+    let mut saw_dynamic = false;
+    collect_source_template_parts(
+        &operand.parts,
+        context,
+        &mut fallback,
+        &mut ignored_root,
+        &mut saw_dynamic,
+        true,
+    ) && !ignored_root
+        && fallback == expected
 }
 
 fn push_literal(parts: &mut Vec<TemplatePart>, text: String) {
@@ -1217,6 +1376,22 @@ where
             } else {
                 reference.name_span
             };
+            match &parameter.operation {
+                None | Some(ZshExpansionOperation::Unknown { .. }) => {}
+                Some(ZshExpansionOperation::Defaulting {
+                    kind: ZshDefaultingOp::UseDefault | ZshDefaultingOp::AssignDefault,
+                    operand_word_ast,
+                    ..
+                }) if reference.subscript.is_none()
+                    && default_matches_seeded_fallback(
+                        &reference.name,
+                        operand_word_ast,
+                        context,
+                    ) => {}
+                // Any other operation changes the value in ways this model
+                // does not track.
+                Some(_) => return None,
+            }
             (context.resolve_variable_template)(&reference.name, span)?
         }
         ZshExpansionTarget::Nested(nested_expansion) => {
@@ -1497,6 +1672,7 @@ where
         &mut parts,
         &mut ignored_root,
         &mut saw_dynamic,
+        true,
     ) || ignored_root
         || !(parts_have_current_source_anchor(&parts)
             || parts

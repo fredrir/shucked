@@ -15,4 +15,4 @@ pub(super) use did_close::DidClose;
 pub(super) use did_open::DidOpen;
 
 mod environment;
-pub(super) use environment::{SelectEnvironment, ShellSession};
+pub(super) use environment::{EnvironmentDetailsRequest, SelectEnvironment, ShellSession};

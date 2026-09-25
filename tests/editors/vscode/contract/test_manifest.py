@@ -110,15 +110,60 @@ def test_untrusted_workspaces_cannot_choose_programs(extension_manifest: Manifes
         assert settings[key]["default"] is False, "history is opt-in"
 
 
+# Token types and modifiers every client knows; only additions need a manifest entry.
+STANDARD_SEMANTIC_TOKEN_TYPES = {
+    "namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter",
+    "variable", "property", "enumMember", "event", "function", "method", "macro", "keyword",
+    "modifier", "comment", "string", "number", "regexp", "operator", "decorator",
+}
+STANDARD_SEMANTIC_TOKEN_MODIFIERS = {
+    "declaration", "definition", "readonly", "static", "deprecated", "abstract", "async",
+    "modification", "documentation", "defaultLibrary",
+}
+
+
+@pytest.fixture(scope="module")
+def server_legend(extension_root: Path) -> tuple[set[str], set[str]]:
+    """Token types and modifiers the language server advertises in its legend."""
+    legend = (extension_root.parents[1] / "crates" / "shucked-lsp" / "src" / "handlers" / "semantic_tokens.rs").read_text()
+    types_block = re.search(r"SUPPORTED_TOKEN_TYPES[^=]*=\s*&\[(.*?)\];", legend, re.S).group(1)
+    modifiers_block = re.search(r"SUPPORTED_TOKEN_MODIFIERS[^=]*=\s*&\[(.*?)\];", legend, re.S).group(1)
+
+    def names(block: str, standard: set[str]) -> set[str]:
+        custom = set(re.findall(r'new\("([^"]+)"\)', block))
+        constants = re.findall(r"::([A-Z_]+)\b", block)
+        camel = {"".join(part.capitalize() if index else part.lower() for index, part in enumerate(name.split("_"))) for name in constants}
+        return custom | (camel & standard)
+
+    return names(types_block, STANDARD_SEMANTIC_TOKEN_TYPES), names(modifiers_block, STANDARD_SEMANTIC_TOKEN_MODIFIERS)
+
+
+def test_custom_semantic_tokens_match_the_server_legend(extension_manifest: Manifest, server_legend: tuple[set[str], set[str]]) -> None:
+    contributes = extension_manifest["contributes"]
+    server_types, server_modifiers = server_legend
+    declared_types = {item["id"] for item in contributes["semanticTokenTypes"]}
+    declared_modifiers = {item["id"] for item in contributes["semanticTokenModifiers"]}
+    assert declared_types == server_types - STANDARD_SEMANTIC_TOKEN_TYPES
+    assert declared_modifiers == server_modifiers - STANDARD_SEMANTIC_TOKEN_MODIFIERS
+    for item in contributes["semanticTokenTypes"]:
+        assert item["superType"] in STANDARD_SEMANTIC_TOKEN_TYPES, item
+
+
 def test_semantic_token_scopes_use_declared_types(extension_manifest: Manifest) -> None:
     contributes = extension_manifest["contributes"]
-    types = {item["id"] for item in contributes["semanticTokenTypes"]}
-    modifiers = {item["id"] for item in contributes["semanticTokenModifiers"]}
+    types = {item["id"] for item in contributes["semanticTokenTypes"]} | STANDARD_SEMANTIC_TOKEN_TYPES
+    modifiers = {item["id"] for item in contributes["semanticTokenModifiers"]} | STANDARD_SEMANTIC_TOKEN_MODIFIERS
     for scope in contributes["semanticTokenScopes"]:
         for selector in scope["scopes"]:
             kind, *applied = selector.split(".")
             assert kind in types, selector
             assert set(applied) <= modifiers, selector
+
+
+def test_shell_languages_enable_semantic_highlighting(extension_manifest: Manifest) -> None:
+    defaults = extension_manifest["contributes"]["configurationDefaults"]
+    for language in ("shellscript", "bash", "zsh", "sh", "ksh", "fish"):
+        assert defaults[f"[{language}]"]["editor.semanticHighlighting.enabled"] is True, language
 
 
 def test_type_definitions_do_not_exceed_the_engine(extension_manifest: Manifest) -> None:

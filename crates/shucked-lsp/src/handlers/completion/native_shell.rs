@@ -50,6 +50,11 @@ impl ManagedShell {
             .clear();
     }
 
+    /// Whether the worker is still occupied by an earlier request.
+    pub(super) fn busy(&self) -> bool {
+        self.worker.busy()
+    }
+
     #[cfg(test)]
     pub(super) fn complete(
         &self,
@@ -127,6 +132,7 @@ impl ManagedShell {
             .env("TERM", "dumb")
             .env("HOMEBREW_NO_AUTO_UPDATE", "1")
             .env("HOMEBREW_NO_ANALYTICS", "1")
+            .env("HOMEBREW_NO_ENV_HINTS", "1")
             .env_remove("BASH_ENV")
             .env_remove("ENV");
         assets::configure_worker_path(&mut command, &self.root, execution_path);

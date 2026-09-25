@@ -414,6 +414,46 @@ impl<'model> EditorQuery<'model> {
         spans
     }
 
+    /// Returns the declaration sites (`local`, `export`, `typeset`, `declare`,
+    /// `readonly`, and function definitions) of the symbol under `offset`.
+    ///
+    /// Plain assignments are not declarations; an empty result means the symbol
+    /// is only ever assigned, so callers usually fall back to definitions.
+    pub fn declaration_spans_at_offset(&self, offset: usize) -> Vec<Span> {
+        let Some(target) = self.target_at_offset(offset) else {
+            return Vec::new();
+        };
+        self.declaration_spans_for_target(&target)
+    }
+
+    /// Returns the declaration sites of `target`; see [`Self::declaration_spans_at_offset`].
+    pub fn declaration_spans_for_target(&self, target: &EditorSymbolTarget) -> Vec<Span> {
+        let binding_id = match target {
+            EditorSymbolTarget::Binding(binding_id) => Some(*binding_id),
+            EditorSymbolTarget::Reference(reference_id) => self
+                .model
+                .resolved_binding(*reference_id)
+                .map(|binding| binding.id),
+            EditorSymbolTarget::FunctionCall(call) => call.binding,
+            EditorSymbolTarget::RuntimeName(_) => None,
+        };
+        let Some(binding_id) = binding_id else {
+            return Vec::new();
+        };
+        let binding = self.model.binding(binding_id);
+        if matches!(binding.kind, BindingKind::FunctionDefinition) {
+            return vec![binding_definition_span(binding)];
+        }
+        let mut spans = storage_family_bindings(self.model, binding)
+            .into_iter()
+            .map(|binding_id| self.model.binding(binding_id))
+            .filter(|binding| matches!(binding.kind, BindingKind::Declaration(_)))
+            .map(binding_definition_span)
+            .collect::<Vec<_>>();
+        sort_dedup_spans(&mut spans);
+        spans
+    }
+
     /// Returns read/write occurrences for the symbol under `offset`.
     pub fn occurrences_at_offset(
         &self,

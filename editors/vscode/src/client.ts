@@ -147,6 +147,23 @@ export function getInitializationOptions(
     format: config.get("format"),
     codeAction: config.get("codeAction"),
     server: config.get("server"),
+    tracing: getTracingOptions(config),
+  };
+}
+
+/**
+ * Server log settings (`shucked.trace.logLevel`, `shucked.trace.logFile`).
+ * Only explicit values are forwarded so the server keeps its own defaults;
+ * an empty log file path never creates a file.
+ */
+export function getTracingOptions(
+  config: vscode.WorkspaceConfiguration,
+): { logLevel?: string; logFile?: string } {
+  const logLevel = config.get<string>("trace.logLevel");
+  const logFile = config.get<string>("trace.logFile");
+  return {
+    ...(logLevel && ["error", "warn", "info", "debug", "trace"].includes(logLevel) ? { logLevel } : {}),
+    ...(logFile?.trim() ? { logFile: logFile.trim() } : {}),
   };
 }
 

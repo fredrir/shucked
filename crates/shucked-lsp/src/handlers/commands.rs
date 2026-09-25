@@ -21,6 +21,45 @@ pub(crate) struct CommandService {
     sessions: Mutex<BTreeMap<String, ShellSessionState>>,
     completed_diagnostics: Mutex<VecDeque<(String, Vec<types::Diagnostic>)>>,
     host_snapshots: Mutex<VecDeque<CachedHostSnapshot>>,
+    login_shell: std::sync::OnceLock<Arc<super::login_shell::LoginShellService>>,
+}
+
+/// Upper bound for aliases and functions accepted from one shell state; larger
+/// inventories are truncated rather than discarded.
+pub(crate) const MAX_SESSION_NAMES: usize = 50_000;
+/// Upper bound for PATH entries accepted from one shell state.
+pub(crate) const MAX_SESSION_PATH_ENTRIES: usize = 1024;
+
+/// Where the environment evidence for an analysis came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum EnvironmentSource {
+    /// Inherited server host PATH and builtins.
+    WorkspaceHost,
+    /// Syntax and source checks only; no host absence evidence.
+    Portable,
+    /// A frozen target inventory file.
+    CapturedTarget,
+    /// An explicitly attached terminal session.
+    Terminal,
+    /// The user's login shell, captured once per startup-file fingerprint.
+    LoginShell { shell: PathBuf },
+    /// Login shell requested; the workspace host is used until capture completes or recovers.
+    LoginShellFallback { shell: PathBuf, reason: String },
+}
+
+impl EnvironmentSource {
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::WorkspaceHost => "workspace host".into(),
+            Self::Portable => "portable (no host absence evidence)".into(),
+            Self::CapturedTarget => "captured target inventory".into(),
+            Self::Terminal => "attached terminal".into(),
+            Self::LoginShell { shell } => format!("login shell ({})", shell.display()),
+            Self::LoginShellFallback { shell, reason } => {
+                format!("workspace host; login shell {} {reason}", shell.display())
+            }
+        }
+    }
 }
 
 struct CachedHostSnapshot {
@@ -39,6 +78,7 @@ pub(crate) struct CommandAnalysis {
     pub failure: Option<String>,
     validation: Mutex<Option<Arc<Vec<super::commands_validation::ValidationDiagnostic>>>>,
     pub local_environment: bool,
+    pub source: EnvironmentSource,
 }
 
 impl CommandService {
@@ -72,6 +112,9 @@ impl CommandService {
         {
             paths.extend(state.path.iter().map(|path| state.cwd.join(path)));
         }
+        if let Some(login_shell) = self.login_shell.get() {
+            paths.extend(login_shell.watch_directories());
+        }
         paths
     }
     pub fn new(native_allowed: bool) -> Self {
@@ -83,6 +126,7 @@ impl CommandService {
             sessions: Mutex::default(),
             completed_diagnostics: Mutex::default(),
             host_snapshots: Mutex::default(),
+            login_shell: std::sync::OnceLock::new(),
         }
     }
     #[cfg(test)]
@@ -91,15 +135,41 @@ impl CommandService {
         service.path = Some(paths);
         service
     }
-    pub fn update_session(&self, state: ShellSessionState) {
+    /// Attach the login-shell capture service; later calls keep the first one.
+    pub(crate) fn install_login_shell(&self, service: Arc<super::login_shell::LoginShellService>) {
+        let _ = self.login_shell.set(service);
+    }
+    pub(crate) fn login_shell(&self) -> Option<&Arc<super::login_shell::LoginShellService>> {
+        self.login_shell.get()
+    }
+    /// Resolve the login shell for `explicit` and return its current capture
+    /// status, starting the first capture when the workspace is trusted.
+    pub(crate) fn login_shell_state(
+        &self,
+        explicit: Option<&std::path::Path>,
+    ) -> (PathBuf, super::login_shell::LoginShellStatus) {
+        match self.login_shell.get() {
+            Some(service) => {
+                let shell = service.resolve_shell(explicit);
+                let status = service.lookup(&shell);
+                (shell, status)
+            }
+            None => (
+                super::login_shell::resolve_shell(explicit, None),
+                super::login_shell::LoginShellStatus::Disabled(
+                    "login shell capture is unavailable in this server".into(),
+                ),
+            ),
+        }
+    }
+    pub fn update_session(&self, mut state: ShellSessionState) {
         if !self.native_allowed
             || state.id.len() > 256
-            || state.path.len() > 1024
-            || state.aliases.len() > 10000
-            || state.functions.len() > 10000
+            || state.id == super::login_shell::SESSION_ID
         {
             return;
         }
+        truncate_session_state(&mut state);
         let mut sessions = self
             .sessions
             .lock()
@@ -379,16 +449,67 @@ fn build(
     if startup {
         context.mode = shucked_command::ExecutionMode::StartupFile;
     }
+    let mut failure = None;
+    let login_shell = (options.session_id.is_none()
+        && options.target_inventory.is_none()
+        && options.policy.as_deref() == Some(super::login_shell::POLICY))
+    .then(|| {
+        snapshot
+            .command_service
+            .login_shell_state(options.login_shell.as_deref())
+    });
+    let mut source = if options.target_inventory.is_some() {
+        EnvironmentSource::CapturedTarget
+    } else if options.policy.as_deref() == Some("portable") {
+        EnvironmentSource::Portable
+    } else if session.is_some() {
+        EnvironmentSource::Terminal
+    } else if let Some((shell, _)) = &login_shell {
+        EnvironmentSource::LoginShell {
+            shell: shell.clone(),
+        }
+    } else {
+        EnvironmentSource::WorkspaceHost
+    };
+    let session = match login_shell {
+        Some((_, super::login_shell::LoginShellStatus::Ready(state))) => Some(state),
+        Some((shell, status)) => {
+            let reason = match status {
+                super::login_shell::LoginShellStatus::Pending => {
+                    "capture is in progress".to_owned()
+                }
+                super::login_shell::LoginShellStatus::Failed(reason) => {
+                    format!("capture failed: {reason}")
+                }
+                super::login_shell::LoginShellStatus::Disabled(reason) => {
+                    format!("capture is disabled: {reason}")
+                }
+                super::login_shell::LoginShellStatus::Ready(_) => {
+                    "capture is unavailable".to_owned()
+                }
+            };
+            failure = Some(format!(
+                "Login shell {reason}; using the workspace environment"
+            ));
+            source = EnvironmentSource::LoginShellFallback { shell, reason };
+            None
+        }
+        None => session.map(Arc::new),
+    };
+    let login_shell_session = matches!(source, EnvironmentSource::LoginShell { .. });
     if let Some(session) = &session {
         context.target_id = session.id.clone();
         context.policy = ValidationPolicy::Session;
-        context.cwd = Some(session.cwd.clone());
-        context.cwd_known = true;
+        // A login shell describes startup state, not a live directory; the
+        // document keeps its own launch directory.
+        if !login_shell_session {
+            context.cwd = Some(session.cwd.clone());
+            context.cwd_known = true;
+        }
         if !startup {
             context.mode = shucked_command::ExecutionMode::InteractiveSession;
         }
     }
-    let mut failure = None;
     let mut environment = if let Some(path) = &options.target_inventory {
         let mut file_options = std::fs::OpenOptions::new();
         file_options.read(true);
@@ -447,10 +568,12 @@ fn build(
             context.cwd = None;
             context.cwd_known = false;
             context.native_execution_allowed = false;
-            failure = Some(
+            failure = Some(if login_shell_session {
+                "Login shell state was captured after startup; entry environment is unknown".into()
+            } else {
                 "Attached session state was captured after startup; entry environment is unknown"
-                    .into(),
-            );
+                    .into()
+            });
             EnvironmentSnapshot::empty(&context)
         } else {
             snapshot
@@ -477,7 +600,13 @@ fn build(
                     shucked_command::Alias {
                         words: words.clone(),
                         opaque: words.is_empty(),
-                        provenance: Some(shucked_command::Provenance::new("attached terminal")),
+                        provenance: Some(shucked_command::Provenance::new(
+                            if login_shell_session {
+                                "login shell"
+                            } else {
+                                "attached terminal"
+                            },
+                        )),
                     },
                 )
             })
@@ -722,6 +851,7 @@ fn build(
             && !(startup && session.is_some())
             && (options.session_id.is_none()
                 || session.as_ref().is_some_and(|state| state.connected)),
+        source,
     }
 }
 
@@ -901,9 +1031,10 @@ pub(crate) fn hover(snapshot: &DocumentSnapshot, offset: usize) -> Option<types:
         String::new()
     };
     let value = format!(
-        "Command: {}\nTarget: {}\nShell: {:?} · {:?}\nLaunch directory: {} ({})\nResolution: {}{}{}{}",
+        "Command: {}\nTarget: {}\nEnvironment: {}\nShell: {:?} · {:?}\nLaunch directory: {} ({})\nResolution: {}{}{}{}",
         site.name().unwrap_or("dynamic"),
         analysis.context.target_id,
+        analysis.source.label(),
         analysis.context.dialect,
         analysis.context.mode,
         analysis
@@ -935,6 +1066,279 @@ pub(crate) fn hover(snapshot: &DocumentSnapshot, offset: usize) -> Option<types:
     })
 }
 
+/// Host-level facts gathered for the environment details report.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct HostDetails {
+    /// Native execution permission granted at initialization.
+    pub trusted: bool,
+    /// Bundled completion provider root, when one is installed.
+    pub provider_root: Option<PathBuf>,
+    /// Completion engines: name, resolved executable, and whether it is the managed copy.
+    pub engines: Vec<(String, Option<PathBuf>, bool)>,
+}
+
+impl HostDetails {
+    /// Detect the provider root and engines the way the completion providers do.
+    pub(crate) fn detect(trusted: bool) -> Self {
+        let has_manifest = |root: &PathBuf| root.join("packs/manifest.json").is_file();
+        let provider_root = std::env::var_os("SHUCKED_PROVIDER_ROOT")
+            .map(PathBuf::from)
+            .filter(|root| root.is_absolute() && has_manifest(root))
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()?
+                    .parent()
+                    .map(|dir| dir.join("providers"))
+                    .filter(has_manifest)
+            })
+            .or_else(|| {
+                let root =
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tooling/providers");
+                has_manifest(&root).then_some(root)
+            });
+        let engines = ["zsh", "bash", "fish"]
+            .into_iter()
+            .map(|name| {
+                let managed = provider_root
+                    .as_ref()
+                    .map(|root| root.join("runtime/bin").join(name))
+                    .filter(|path| path.is_file());
+                if let Some(path) = managed {
+                    return (name.to_owned(), Some(path), true);
+                }
+                let host = std::env::var_os("PATH")
+                    .and_then(|path| {
+                        std::env::split_paths(&path)
+                            .filter(|dir| dir.is_absolute())
+                            .map(|dir| dir.join(name))
+                            .find(|path| path.is_file())
+                    })
+                    .or_else(|| {
+                        let path = PathBuf::from("/bin").join(name);
+                        path.is_file().then_some(path)
+                    });
+                (name.to_owned(), host, false)
+            })
+            .collect();
+        Self {
+            trusted,
+            provider_root,
+            engines,
+        }
+    }
+}
+
+/// Markdown report of the execution context in effect for one document.
+pub(crate) fn environment_details(
+    snapshot: &DocumentSnapshot,
+    offset: Option<usize>,
+    host: &HostDetails,
+) -> String {
+    let analysis = snapshot.command_service.analysis(snapshot);
+    let options = snapshot.client_settings().environment();
+    let mut out = String::new();
+    out.push_str("# Shucked execution context\n\n");
+    out.push_str(&format!("- Document: `{}`\n", snapshot.query().file_url()));
+    out.push_str(&format!(
+        "- Workspace trust (native execution): {}\n",
+        if host.trusted {
+            "trusted"
+        } else {
+            "untrusted (no shell is ever started)"
+        }
+    ));
+    out.push_str(&format!(
+        "- Selected policy: {}\n",
+        options.policy.as_deref().unwrap_or("workspace (default)")
+    ));
+    out.push_str(&format!(
+        "- Environment evidence: {}\n",
+        analysis.source.label()
+    ));
+    out.push_str(&format!(
+        "- Target: `{}` · {:?} · {:?} · {}\n",
+        analysis.context.target_id,
+        analysis.context.dialect,
+        analysis.context.mode,
+        if analysis.environment.fresh {
+            "fresh"
+        } else {
+            "stale"
+        }
+    ));
+    out.push_str(&format!(
+        "- Launch directory: {} ({})\n",
+        analysis
+            .context
+            .cwd
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "unknown".into()),
+        if analysis.context.cwd_known {
+            "explicit"
+        } else {
+            "assumed"
+        }
+    ));
+    if let Some(failure) = &analysis.failure {
+        out.push_str(&format!("- Notice: {failure}\n"));
+    }
+    if let Some(service) = snapshot.command_service.login_shell() {
+        let shell = service.resolve_shell(options.login_shell.as_deref());
+        let kind = super::login_shell::ShellKind::from_path(&shell);
+        let age = service
+            .captured_age(&shell)
+            .map(|age| format!(", captured {} s ago", age.as_secs()))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "- Login shell: `{}` ({}) · {}{age}\n",
+            shell.display(),
+            kind.label(),
+            service.status(&shell).summary()
+        ));
+    }
+    out.push_str("\n## Search path\n\n");
+    if analysis.environment.search_path.is_empty() {
+        out.push_str("_No PATH evidence for this context._\n");
+    } else {
+        out.push_str("| Directory | Exists | Commands |\n| --- | --- | --- |\n");
+        let cwd = analysis.context.cwd.clone().unwrap_or_default();
+        for directory in &analysis.environment.search_path {
+            let resolved = if directory.path.as_os_str().is_empty() {
+                cwd.clone()
+            } else {
+                cwd.join(&directory.path)
+            };
+            let state = match (&directory.failure, directory.complete) {
+                (Some(failure), _) => format!("error: {failure}"),
+                (None, true) => "yes".into(),
+                (None, false) => "incomplete".into(),
+            };
+            out.push_str(&format!(
+                "| `{}` | {} | {} |\n",
+                if directory.path.as_os_str().is_empty() {
+                    "(empty entry)".to_owned()
+                } else {
+                    directory.path.display().to_string()
+                },
+                if resolved.is_dir() {
+                    state
+                } else {
+                    "missing".into()
+                },
+                directory.commands.len()
+            ));
+        }
+    }
+    out.push_str("\n## Inventory\n\n");
+    out.push_str(&format!(
+        "- Aliases: {} · Functions: {} · Builtins: {}{}\n",
+        analysis.environment.aliases.len(),
+        analysis.environment.functions.len(),
+        analysis.environment.builtins.len(),
+        if analysis.environment.builtins_complete {
+            ""
+        } else {
+            " (incomplete)"
+        }
+    ));
+    out.push_str(&format!(
+        "- Project declarations: {}\n",
+        snapshot.shuck_settings().command_declarations().len() + options.declarations.len()
+    ));
+    out.push_str("\n## Completion providers\n\n");
+    out.push_str(&format!(
+        "- Provider root: {}\n",
+        host.provider_root
+            .as_ref()
+            .map(|root| format!("`{}`", root.display()))
+            .unwrap_or_else(|| "not found (bundled definitions only)".into())
+    ));
+    for (name, path, managed) in &host.engines {
+        out.push_str(&format!(
+            "- {name}: {}\n",
+            match path {
+                Some(path) if *managed => format!("`{}` (managed)", path.display()),
+                Some(path) => format!("`{}` (host)", path.display()),
+                None => "unavailable".into(),
+            }
+        ));
+    }
+    out.push_str("\n## Command at cursor\n\n");
+    let site = offset.and_then(|offset| {
+        analysis.sites.iter().find(|(site, _)| {
+            site.name_span().start.offset() <= offset && offset < site.name_span().end.offset()
+        })
+    });
+    match site {
+        None => out.push_str("_The cursor is not on a command name._\n"),
+        Some((site, resolution)) => {
+            out.push_str(&format!("- Name: `{}`\n", site.name().unwrap_or("dynamic")));
+            match resolution {
+                CommandResolution::Resolved(command) => {
+                    out.push_str(&format!(
+                        "- Resolution: {:?} `{}`\n",
+                        command.kind, command.name
+                    ));
+                    if let Some(identity) = &command.executable {
+                        out.push_str(&format!("- Executable: `{}`\n", identity.path.display()));
+                    }
+                    if !command.alias_chain.is_empty() {
+                        out.push_str(&format!(
+                            "- Alias chain: {}\n",
+                            command.alias_chain.join(" → ")
+                        ));
+                    }
+                    if !command.effective_words.is_empty() {
+                        out.push_str(&format!(
+                            "- Effective words: `{}`\n",
+                            command.effective_words.join(" ")
+                        ));
+                    }
+                    for provenance in &command.provenance {
+                        out.push_str(&format!(
+                            "- Provenance: {}{}\n",
+                            provenance.source,
+                            provenance
+                                .location
+                                .as_ref()
+                                .map(|location| format!(" ({location})"))
+                                .unwrap_or_default()
+                        ));
+                    }
+                }
+                CommandResolution::Missing(missing) => {
+                    out.push_str(&format!(
+                        "- Resolution: missing in `{}`{}\n",
+                        missing.target_id,
+                        if missing.declaration.is_some() {
+                            " (declared dependency)"
+                        } else {
+                            ""
+                        }
+                    ));
+                    out.push_str(&format!(
+                        "- Searched: {}\n",
+                        missing
+                            .searched_path
+                            .iter()
+                            .map(|path| format!("`{}`", path.display()))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                CommandResolution::Unknown(unknown) => {
+                    out.push_str(&format!(
+                        "- Resolution: unknown ({:?}) · {}\n",
+                        unknown.reason, unknown.detail
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn code_actions(
     snapshot: &DocumentSnapshot,
     requested: &types::Range,
@@ -960,7 +1364,7 @@ pub(crate) fn fish_syntax_diagnostics(snapshot: &DocumentSnapshot) -> Vec<types:
     }
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShellSessionState {
     pub id: String,
@@ -978,6 +1382,48 @@ pub(crate) struct ShellSessionState {
     pub shell: Option<String>,
     #[serde(default)]
     pub options: BTreeMap<String, String>,
+}
+
+/// Keep oversized shell inventories usable: drop entries past the limits and
+/// log the truncation instead of discarding the whole state.
+pub(crate) fn truncate_session_state(state: &mut ShellSessionState) {
+    let truncate = |kind: &str, dropped: usize| {
+        if dropped > 0 {
+            tracing::warn!(
+                session = %state.id,
+                kind,
+                dropped,
+                "shell state exceeded the inventory limit; keeping the first entries"
+            );
+        }
+    };
+    let path_extra = state.path.len().saturating_sub(MAX_SESSION_PATH_ENTRIES);
+    state.path.truncate(MAX_SESSION_PATH_ENTRIES);
+    truncate("path", path_extra);
+    let alias_extra = state.aliases.len().saturating_sub(MAX_SESSION_NAMES);
+    if alias_extra > 0 {
+        let keep: Vec<_> = state
+            .aliases
+            .keys()
+            .take(MAX_SESSION_NAMES)
+            .cloned()
+            .collect();
+        state
+            .aliases
+            .retain(|name, _| keep.binary_search(name).is_ok());
+    }
+    truncate("aliases", alias_extra);
+    let function_extra = state.functions.len().saturating_sub(MAX_SESSION_NAMES);
+    if function_extra > 0 {
+        let keep: BTreeSet<_> = state
+            .functions
+            .iter()
+            .take(MAX_SESSION_NAMES)
+            .cloned()
+            .collect();
+        state.functions = keep;
+    }
+    truncate("functions", function_extra);
 }
 
 pub(crate) fn source_fingerprint(snapshot: &DocumentSnapshot) -> u64 {

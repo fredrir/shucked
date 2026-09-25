@@ -1,5 +1,5 @@
 use shucked_indexer::Indexer;
-use shucked_parser::parser::Parser;
+use shucked_parser::{ShellDialect, ShellProfile, parser::Parser};
 use shucked_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathAnalyzer, SourcePathFileProvider, SourceRefKind,
 };
@@ -20,8 +20,17 @@ impl SourcePathFileProvider for Files {
 }
 
 fn candidates(main: &str, helpers: &[(&str, &str)]) -> Vec<Option<PathBuf>> {
+    candidates_with_dialect(ShellDialect::Bash, main, helpers)
+}
+
+fn candidates_with_dialect(
+    dialect: ShellDialect,
+    main: &str,
+    helpers: &[(&str, &str)],
+) -> Vec<Option<PathBuf>> {
     let source = format!("#!/usr/bin/env bash\n{main}");
-    let parse = Parser::new(&source).parse();
+    let profile = ShellProfile::native(dialect);
+    let parse = Parser::with_profile(&source, profile.clone()).parse();
     assert!(!parse.is_err(), "{source}");
     let indexer = Indexer::new(&source, &parse);
     let path = Path::new("/workspace/main.sh");
@@ -31,6 +40,7 @@ fn candidates(main: &str, helpers: &[(&str, &str)]) -> Vec<Option<PathBuf>> {
         &indexer,
         SemanticBuildOptions {
             source_path: Some(path),
+            shell_profile: Some(profile),
             resolve_source_closure: false,
             ..Default::default()
         },
@@ -173,6 +183,10 @@ fn source_order_and_uncertain_execution_prevent_path_inference() {
     for main in [
         "source \"$ROOT_DIR/values.sh\"\nsource paths.sh\n",
         "ROOT_DIR=/old\nTEMP=value source paths.sh\nsource \"$ROOT_DIR/values.sh\"\n",
+        // Bash field-splits and globs an unquoted expansion, so an unquoted
+        // `$ROOT_DIR/values.sh` is not one path even when the value is known
+        // (here it contains a space). Zsh keeps such operands whole; see
+        // `zsh_unquoted_operands_resolve_like_quoted_ones`.
         "source paths.sh\nsource $ROOT_DIR/values.sh\n",
     ] {
         assert_eq!(
@@ -194,6 +208,34 @@ fn source_order_and_uncertain_execution_prevent_path_inference() {
         ),
         vec![None]
     );
+}
+
+#[test]
+fn zsh_unquoted_operands_resolve_like_quoted_ones() {
+    // Zsh performs no field splitting or globbing on an unquoted parameter
+    // expansion by default, so `$VAR/tail` names the same single file as
+    // `"$VAR/tail"`, even when the value contains a space.
+    let helpers = [("/workspace/paths.sh", "ROOT_DIR='/workspace/with spaces'\n")];
+    for main in [
+        "source paths.sh\nsource $ROOT_DIR/values.sh\n",
+        "source paths.sh\nsource ${ROOT_DIR}/values.sh\n",
+        "source paths.sh\n. $ROOT_DIR/values.sh\n",
+        "source paths.sh\nsource \"$ROOT_DIR/values.sh\"\n",
+    ] {
+        assert_eq!(
+            candidates_with_dialect(ShellDialect::Zsh, main, &helpers),
+            vec![Some(PathBuf::from("/workspace/with spaces/values.sh"))],
+            "{main}"
+        );
+        assert_eq!(
+            candidates_with_dialect(ShellDialect::Bash, main, &helpers),
+            vec![
+                Some(PathBuf::from("/workspace/with spaces/values.sh"))
+                    .filter(|_| main.contains("\"$ROOT_DIR"))
+            ],
+            "{main}"
+        );
+    }
 }
 
 #[test]

@@ -169,3 +169,61 @@ fn inherited_reads_identify_the_callers_assignment() {
     assert_eq!(details.references.len(), 1);
     assert!(!details.incomplete);
 }
+
+#[test]
+fn unknown_source_before_the_assignment_cannot_hide_reads() {
+    // A dynamic source that runs before the value exists cannot read it, so
+    // navigation from the assignment stays complete (typical shell startup
+    // files source plugins first and set history variables afterwards).
+    let files = [(
+        "zshrc",
+        "source \"$PLUGIN_MANAGER\"\nSAVEHIST=100000\necho \"$SAVEHIST\"\n",
+    )];
+    let details = explain(&files, 0, 27);
+    assert_eq!(details.definitions.len(), 1);
+    assert_eq!(details.references.len(), 1);
+    assert!(!details.incomplete, "{details:?}");
+    assert!(details.unfollowed_sources.is_empty());
+}
+
+#[test]
+fn unknown_source_after_the_assignment_is_reported_as_unfollowed() {
+    let files = [(
+        "zshrc",
+        "SAVEHIST=100000\nsource \"$PLUGIN_MANAGER\"\necho \"$SAVEHIST\"\n",
+    )];
+    let details = explain(&files, 0, 1);
+    assert!(details.incomplete);
+    assert_eq!(details.unfollowed_sources.len(), 1);
+    let unfollowed = &details.unfollowed_sources[0];
+    assert!(unfollowed.path.ends_with("zshrc"));
+    assert_eq!(unfollowed.span.start.offset(), "SAVEHIST=100000\n".len());
+}
+
+#[test]
+fn unknown_source_after_a_later_definite_write_does_not_affect_the_earlier_value() {
+    let files = [(
+        "zshrc",
+        "SAVEHIST=1000\necho \"$SAVEHIST\"\nSAVEHIST=100000\nsource \"$PLUGIN_MANAGER\"\n",
+    )];
+    let first = explain(&files, 0, 1);
+    assert_eq!(first.references.len(), 1);
+    assert!(!first.incomplete, "{first:?}");
+    let second = explain(&files, 0, "SAVEHIST=1000\necho \"$SAVEHIST\"\n".len() + 1);
+    assert!(second.incomplete);
+    assert_eq!(second.unfollowed_sources.len(), 1);
+}
+
+#[test]
+fn unknown_source_in_a_sibling_file_that_never_sees_the_value_is_ignored() {
+    let files = [
+        ("helper.sh", "VALUE=shared\n"),
+        (
+            "main.sh",
+            "source \"$UNKNOWN\"\nsource helper.sh\necho \"$VALUE\"\n",
+        ),
+    ];
+    let details = explain(&files, 0, 1);
+    assert_eq!(details.references.len(), 1);
+    assert!(!details.incomplete, "{details:?}");
+}

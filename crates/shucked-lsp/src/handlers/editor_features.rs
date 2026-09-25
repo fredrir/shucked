@@ -20,6 +20,8 @@ use crate::session::{Client, DocumentSnapshot};
 
 #[path = "completion/snippets.rs"]
 pub(super) mod snippets;
+#[path = "completion/test_operators.rs"]
+pub(super) mod test_operators;
 
 pub(crate) type CompletionResponse = Option<types::CompletionResponse>;
 pub(crate) type DefinitionResponse = Option<types::GotoDefinitionResponse>;
@@ -394,7 +396,15 @@ where
         }
     }
     let mut is_incomplete = false;
-    if !semantic_operand && let Some((environment, cancellation)) = environment {
+    // Inside `[[`, `[` and `test` the grammar decides what comes next; the
+    // operator list is static, so no shell-backed provider is consulted.
+    let test_operators = parameter.is_none()
+        && !semantic_operand
+        && test_operators::apply(&site, &snapshot, &analysis, range, &mut items);
+    if !test_operators
+        && !semantic_operand
+        && let Some((environment, cancellation)) = environment
+    {
         is_incomplete |= native_completion::extend(
             &mut items,
             &site,
@@ -405,7 +415,8 @@ where
             parameter,
         );
     }
-    if site.command
+    if !test_operators
+        && site.command
         && parameter.is_none()
         && !semantic_operand
         && site.quote == native_completion::context::Quote::None

@@ -88,6 +88,15 @@ impl Session {
         workspaces: &Workspaces,
         client: &Client,
     ) -> crate::Result<Self> {
+        let command_service = Arc::new(crate::handlers::commands::CommandService::new(
+            global.options().native_execution_allowed,
+        ));
+        command_service.install_login_shell(Arc::new(
+            crate::handlers::login_shell::LoginShellService::new(
+                global.options().native_execution_allowed,
+                Some(client.clone()),
+            ),
+        ));
         Ok(Self {
             environment_watcher: crate::server::environment_watcher::EnvironmentWatcher::new(
                 client.clone(),
@@ -96,9 +105,7 @@ impl Session {
             diagnostic_worker: crate::server::diagnostic_worker::DiagnosticWorker::new(
                 client.clone(),
             ),
-            command_service: Arc::new(crate::handlers::commands::CommandService::new(
-                global.options().native_execution_allowed,
-            )),
+            command_service,
             completion_environment: Arc::new(
                 crate::handlers::completion::environment::Environment::detect(
                     global.options().native_execution_allowed,
@@ -149,15 +156,27 @@ impl Session {
         uri: Url,
         options: Option<environment_options::EnvironmentOptions>,
     ) {
+        let login_shell_selected = options.as_ref().is_some_and(|options| {
+            options.policy.as_deref() == Some(crate::handlers::login_shell::POLICY)
+        });
         if let Some(options) = options {
             self.environment_overrides.insert(uri.clone(), options);
         } else {
             self.environment_overrides.remove(&uri);
         }
+        if login_shell_selected && let Some(login_shell) = self.command_service.login_shell() {
+            // Re-selecting the context is the explicit way to retry a failed capture.
+            login_shell.retry_failed();
+        }
         self.analysis_cache.clear();
         self.command_service.invalidate();
         self.workspace_function_index.invalidate();
         self.schedule_all_diagnostics();
+    }
+
+    /// Native execution permission granted at initialization; workspace settings cannot change it.
+    pub(crate) fn native_execution_allowed(&self) -> bool {
+        self.global_settings.options().native_execution_allowed
     }
 
     pub(crate) fn update_shell_session(&self, state: crate::handlers::commands::ShellSessionState) {
@@ -173,6 +192,11 @@ impl Session {
     }
 
     pub(crate) fn refresh_environment(&self) {
+        // A changed startup-file fingerprint re-captures the login shell; an
+        // unchanged one keeps the cached capture, so periodic ticks are cheap.
+        if let Some(login_shell) = self.command_service.login_shell() {
+            login_shell.refresh();
+        }
         self.update_environment_watches();
         self.workspace_function_index.invalidate();
         self.workspace_diagnostics.invalidate_all();

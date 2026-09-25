@@ -79,6 +79,17 @@ impl CommandResolution {
     }
 }
 
+/// Detail attached to an [`UnknownReason::DynamicEnvironment`] result that stems
+/// from the site's own source-level uncertainty, as opposed to a workspace
+/// binding or launch-directory mismatch reported by other layers.
+pub const DYNAMIC_ENVIRONMENT_DETAIL: &str =
+    "The invocation changes the execution environment in a way that is not statically known";
+
+/// Detail attached to an [`UnknownReason::DynamicEnvironment`] result for a
+/// relative lookup whose launch directory differs from the captured one.
+pub const LAUNCH_DIRECTORY_DETAIL: &str =
+    "The launch directory differs from the captured execution PATH context";
+
 /// Resolve source-visible definitions and host evidence without performing I/O.
 /// The caller supplies language-aware alias eligibility and visibility; command
 /// arguments are never parsed or executed by this layer.
@@ -217,7 +228,7 @@ pub fn resolve(
         return unknown(
             site,
             UnknownReason::DynamicEnvironment,
-            "The invocation changes the execution environment in a way that is not statically known",
+            DYNAMIC_ENVIRONMENT_DETAIL,
         );
     }
     if context.policy == ValidationPolicy::Portable {
@@ -240,7 +251,7 @@ pub fn resolve(
         return unknown(
             site,
             UnknownReason::DynamicEnvironment,
-            "The launch directory differs from the captured execution PATH context",
+            LAUNCH_DIRECTORY_DETAIL,
         );
     }
     if !snapshot.fresh {

@@ -56,6 +56,8 @@ pub fn server_capabilities(
             ..types::CompletionOptions::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
+        declaration_provider: Some(types::DeclarationCapability::Simple(true)),
+        implementation_provider: Some(types::ImplementationProviderCapability::Simple(true)),
         document_link_provider: Some(types::DocumentLinkOptions {
             resolve_provider: Some(false),
             work_done_progress_options: WorkDoneProgressOptions {
@@ -231,6 +233,14 @@ mod tests {
         let capabilities = server_capabilities(PositionEncoding::UTF16, false);
         assert!(capabilities.completion_provider.is_some());
         assert_eq!(capabilities.definition_provider, Some(OneOf::Left(true)));
+        assert!(matches!(
+            capabilities.declaration_provider,
+            Some(types::DeclarationCapability::Simple(true))
+        ));
+        assert!(matches!(
+            capabilities.implementation_provider,
+            Some(types::ImplementationProviderCapability::Simple(true))
+        ));
         assert!(capabilities.document_link_provider.is_some());
         assert_eq!(capabilities.references_provider, Some(OneOf::Left(true)));
         assert_eq!(
@@ -323,7 +333,24 @@ mod tests {
             options.full,
             Some(types::SemanticTokensFullOptions::Bool(true))
         );
-        assert_eq!(options.legend.token_types.len(), 11);
-        assert_eq!(options.legend.token_modifiers.len(), 5);
+        let legend = crate::handlers::semantic_tokens::semantic_tokens_legend();
+        assert_eq!(options.legend.token_types, legend.token_types);
+        assert_eq!(options.legend.token_modifiers, legend.token_modifiers);
+        assert_eq!(options.legend.token_types.len(), 12);
+        assert_eq!(options.legend.token_modifiers.len(), 6);
+        assert!(
+            options
+                .legend
+                .token_types
+                .iter()
+                .any(|kind| kind.as_str() == "shellOption")
+        );
+        assert!(
+            options
+                .legend
+                .token_modifiers
+                .iter()
+                .any(|modifier| modifier == &types::SemanticTokenModifier::STATIC)
+        );
     }
 }

@@ -43,9 +43,42 @@ pub trait SourcePathFileProvider {
         Vec::new()
     }
 
-    /// Home directory used only to recognize an installed Zsh startup symlink.
+    /// The home directory that seeds `HOME`, expands a leading `~`, and
+    /// locates the installed Zsh startup files.
+    ///
+    /// The default reads the process environment; tests and editor providers
+    /// override it for deterministic resolution.
     fn home_dir(&self) -> Option<PathBuf> {
-        std::env::var_os("HOME").map(PathBuf::from)
+        crate::source_resolve::home_dir()
+    }
+
+    /// A process environment value used to seed well-known path variables
+    /// (`XDG_CONFIG_HOME`, `ZDOTDIR`, ...). Empty values count as unset.
+    fn environment_variable(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok().filter(|value| !value.is_empty())
+    }
+
+    /// [`candidates`](Self::candidates) after expanding a leading `~` through
+    /// [`home_dir`](Self::home_dir). A home-anchored operand names exactly one
+    /// file, so it bypasses the search roots.
+    fn search_candidates(&self, from: &Path, candidate: &str) -> Vec<PathBuf> {
+        match crate::source_resolve::expand_home_tilde(candidate, self.home_dir().as_deref()) {
+            Some(expanded) => vec![expanded],
+            None => self.candidates(from, candidate),
+        }
+    }
+
+    /// Search candidates for a determinable (literal or directive) source
+    /// reference, in precedence order; dynamic references contribute nothing.
+    fn source_ref_candidates(&self, from: &Path, source_ref: &SourceRef) -> Vec<PathBuf> {
+        match &source_ref.kind {
+            SourceRefKind::Literal(candidate) | SourceRefKind::Directive(candidate) => {
+                self.search_candidates(from, candidate)
+            }
+            SourceRefKind::DirectiveDevNull
+            | SourceRefKind::Dynamic
+            | SourceRefKind::SingleVariableStaticTail { .. } => Vec::new(),
+        }
     }
 
     /// Whether the current request was cancelled.
@@ -123,7 +156,12 @@ enum PathEvent {
         bool,
         Box<[Option<compact_str::CompactString>]>,
     ),
-    SourceLoop(SourceRef, Vec<loops::LoopWord>),
+    SourceLoop {
+        reference: SourceRef,
+        variable: Name,
+        words: Vec<loops::LoopWord>,
+        template: Vec<TemplatePart>,
+    },
     InvalidateArguments,
     Invalidate,
     DefineFunction(Name, Arc<PathFile>),
@@ -320,6 +358,9 @@ impl PathFile {
                 events.push(PathEvent::Branch(branches));
             }
             RecordedCommandKind::For { body } => {
+                // A loop whose body is exactly one `source` of a path built
+                // from the loop variable (`source "$f"`, `source "$dir/$f"`)
+                // loads one file per word; anything else needs a fixed point.
                 let words = program.source_loop_words.get(&SpanKey::new(command.span));
                 let body_events = Self::sequence(model, body);
                 if let Some((name, words)) = words
@@ -332,9 +373,16 @@ impl PathFile {
                         ),
                     ] = body_events.as_slice()
                     && args.is_empty()
-                    && matches!(parts.as_slice(), [TemplatePart::Variable(variable)] if variable == name)
+                    && parts.iter().any(
+                        |part| matches!(part, TemplatePart::Variable(variable) if variable == name),
+                    )
                 {
-                    events.push(PathEvent::SourceLoop(reference.clone(), words.clone()));
+                    events.push(PathEvent::SourceLoop {
+                        reference: reference.clone(),
+                        variable: name.clone(),
+                        words: words.clone(),
+                        template: parts.clone(),
+                    });
                 } else {
                     events.push(PathEvent::Invalidate);
                 }
@@ -447,6 +495,12 @@ impl SourcePathAnalyzer {
         self.incomplete = false;
         let mut remaining = MAX_EVENTS;
         let mut environment = PathEnvironment::default();
+        seed_process_environment(
+            model.shell_profile().dialect,
+            path,
+            provider,
+            &mut environment,
+        );
         if model.shell_profile().dialect == ParseShellDialect::Zsh {
             self.zsh_startup_environment(
                 path,
@@ -485,6 +539,13 @@ impl SourcePathAnalyzer {
         result
     }
 
+    /// Applies the Zsh startup files that run before `path`.
+    ///
+    /// The user's `.zshenv` is evaluated in full only for a startup file: one
+    /// named `.zshrc` (its sibling `.zshenv`) or the installed `~/.zshrc`
+    /// (`~/.zshenv`). Every other Zsh file takes just `ZDOTDIR` from
+    /// `~/.zshenv`, because that variable only tells the shell where the
+    /// startup files live and cannot be set anywhere later.
     fn zsh_startup_environment(
         &mut self,
         path: &Path,
@@ -498,6 +559,13 @@ impl SourcePathAnalyzer {
         if let Some(installed) = &installed {
             result.dependencies.insert(installed.clone());
         }
+        let user_zshenv = environment
+            .values
+            .get(&Name::from("ZDOTDIR"))
+            .map(|zdotdir| PathBuf::from(zdotdir).join(".zshenv"))
+            .filter(|zshenv| {
+                crate::canonical_workspace_path(zshenv) != crate::canonical_workspace_path(path)
+            });
         let startup = if path.file_name().is_some_and(|name| name == ".zshrc") {
             path.parent().map(|parent| parent.join(".zshenv"))
         } else if installed.as_ref().is_some_and(|installed| {
@@ -510,14 +578,19 @@ impl SourcePathAnalyzer {
             None
         };
         let Some(startup) = startup else {
+            if let Some(user_zshenv) = user_zshenv {
+                self.zsh_dotdir_from_startup_file(
+                    &user_zshenv,
+                    path,
+                    provider,
+                    environment,
+                    remaining,
+                    result,
+                );
+            }
             return;
         };
         result.dependencies.insert(startup.clone());
-        if let Some(home) = home {
-            environment
-                .values
-                .insert(Name::from("HOME"), home.to_string_lossy().into_owned());
-        }
         if provider.is_file(&startup)
             && let Some(file) = self.load(
                 &startup,
@@ -540,6 +613,56 @@ impl SourcePathAnalyzer {
             environment.imported = true;
             environment.returned = false;
             environment.early_return = false;
+        }
+    }
+
+    /// Copies a `ZDOTDIR` assignment out of `startup` without importing any
+    /// other value it sets: a non-startup file only inherits the location of
+    /// the startup files, not the whole startup environment.
+    fn zsh_dotdir_from_startup_file(
+        &mut self,
+        startup: &Path,
+        root: &Path,
+        provider: &dyn SourcePathFileProvider,
+        environment: &mut PathEnvironment,
+        remaining: &mut usize,
+        result: &mut ResolvedSourcePaths,
+    ) {
+        result.dependencies.insert(startup.to_path_buf());
+        if !provider.is_file(startup) {
+            return;
+        }
+        let Some(file) = self.load(
+            startup,
+            &ShellProfile::native(ParseShellDialect::Zsh),
+            provider,
+        ) else {
+            return;
+        };
+        let mut scratch = PathEnvironment {
+            values: environment.values.clone(),
+            ..PathEnvironment::default()
+        };
+        let mut scratch_result = ResolvedSourcePaths::default();
+        self.evaluate(
+            &file,
+            startup,
+            root,
+            provider,
+            &mut scratch,
+            &[],
+            &mut FxHashSet::default(),
+            remaining,
+            0,
+            &mut scratch_result,
+        );
+        result.dependencies.extend(scratch_result.dependencies);
+        result.incomplete |= scratch_result.incomplete;
+        let zdotdir = Name::from("ZDOTDIR");
+        if let Some(value) = scratch.values.get(&zdotdir)
+            && Path::new(value).is_absolute()
+        {
+            environment.values.insert(zdotdir, value.clone());
         }
     }
 
@@ -630,12 +753,25 @@ impl SourcePathAnalyzer {
                         environment.values.insert(name.clone(), value);
                     }
                 }
-                PathEvent::SourceLoop(reference, words) => {
+                PathEvent::SourceLoop {
+                    reference,
+                    variable,
+                    words,
+                    template,
+                } => {
                     if path == root {
                         let paths = words
                             .iter()
                             .map(|word| {
-                                word.expand(path, &environment.values, args, provider, result)
+                                word.expand_sources(
+                                    variable,
+                                    template,
+                                    path,
+                                    &environment.values,
+                                    args,
+                                    provider,
+                                    result,
+                                )
                             })
                             .collect::<Option<Vec<_>>>()
                             .map(|paths| paths.into_iter().flatten().collect::<Vec<_>>());
@@ -816,12 +952,7 @@ impl SourcePathAnalyzer {
                     let candidates = if dynamic {
                         value.map(PathBuf::from).into_iter().collect()
                     } else {
-                        match &reference.kind {
-                            SourceRefKind::Literal(value) | SourceRefKind::Directive(value) => {
-                                provider.candidates(path, value)
-                            }
-                            _ => Vec::new(),
-                        }
+                        provider.source_ref_candidates(path, reference)
                     };
                     let target = candidates
                         .into_iter()
@@ -928,6 +1059,65 @@ impl SourcePathAnalyzer {
         self.files.insert(key, file.clone());
         file
     }
+}
+
+/// Seeds the path variables every shell inherits from its process environment.
+///
+/// `HOME` comes from the provider. The XDG base directories follow the XDG
+/// Base Directory specification: the environment value when it is set to an
+/// absolute path, otherwise the documented default under `HOME`. Zsh files
+/// also get `ZDOTDIR`, which the shell resolves in the same order it locates
+/// its startup files: the environment, then the directory of a startup file
+/// being edited in place (`.zshrc` next to its siblings), then `HOME`.
+/// Assignments in the file, and the startup files evaluated afterwards,
+/// override every seed.
+fn seed_process_environment(
+    dialect: ParseShellDialect,
+    path: &Path,
+    provider: &dyn SourcePathFileProvider,
+    environment: &mut PathEnvironment,
+) {
+    let Some(home) = provider.home_dir() else {
+        return;
+    };
+    let home_text = path_to_template_string(&home);
+    environment
+        .values
+        .insert(Name::from("HOME"), home_text.clone());
+    for (name, default) in [
+        ("XDG_CONFIG_HOME", ".config"),
+        ("XDG_CACHE_HOME", ".cache"),
+        ("XDG_DATA_HOME", ".local/share"),
+        ("XDG_STATE_HOME", ".local/state"),
+    ] {
+        let value = provider
+            .environment_variable(name)
+            .filter(|value| Path::new(value).is_absolute())
+            .unwrap_or_else(|| path_to_template_string(&home.join(default)));
+        environment.values.insert(Name::from(name), value);
+    }
+    if dialect == ParseShellDialect::Zsh {
+        let value = provider
+            .environment_variable("ZDOTDIR")
+            .filter(|value| Path::new(value).is_absolute())
+            .or_else(|| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .filter(|name| is_zsh_startup_file_name(name))
+                    .and_then(|_| path.parent())
+                    .filter(|parent| parent.is_absolute())
+                    .map(path_to_template_string)
+            })
+            .unwrap_or(home_text);
+        environment.values.insert(Name::from("ZDOTDIR"), value);
+    }
+}
+
+fn is_zsh_startup_file_name(name: &str) -> bool {
+    matches!(
+        name,
+        ".zshenv" | ".zprofile" | ".zshrc" | ".zlogin" | ".zlogout"
+    )
 }
 
 fn evaluate_expression(

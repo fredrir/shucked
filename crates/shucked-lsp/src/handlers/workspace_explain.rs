@@ -93,15 +93,96 @@ pub(crate) fn variable(
         text.push_str("\n\nIncludes possible assignments and reads from conditional execution.");
     }
     if details.incomplete {
-        text.push_str("\n\nReferences may include reads across unresolved source effects.");
-        text.push_str(&format!(
-            "\n\n**Incomplete results:** {}.",
-            index
-                .incomplete_reason()
-                .unwrap_or_else(|| "some source effects could not be followed".into())
-        ));
+        if let Some(reason) = index.incomplete_reason() {
+            text.push_str(&format!("\n\n**Incomplete results:** {reason}."));
+        }
+        if !details.unfollowed_sources.is_empty() {
+            text.push_str(
+                "\n\n**Possible hidden reads:** these source operations run while the \
+                 value is visible, but their target could not be inspected:\n",
+            );
+            for source in details.unfollowed_sources.iter().take(MAX_LINKS) {
+                text.push_str(&format!(
+                    "\n- {} `{}` ({})",
+                    link(&source.location.uri, Some(source.location.range.start.line)),
+                    source.text,
+                    source.reason_text()
+                ));
+            }
+            if details.unfollowed_sources.len() > MAX_LINKS {
+                text.push_str(&format!(
+                    "\n- … and {} more",
+                    details.unfollowed_sources.len() - MAX_LINKS
+                ));
+            }
+        } else if index.incomplete_reason().is_none() {
+            text.push_str("\n\n**Incomplete results:** some source effects could not be followed.");
+        }
     }
     text
+}
+
+/// Notice shown when a workspace reference query could not follow every
+/// source operation that may read the selected value.
+///
+/// Returns a stable key identifying the situation (independent of which
+/// variable was selected) together with the message text, so the client can
+/// show it once and log later repetitions.
+pub(crate) fn incomplete_references_notice(
+    details: &WorkspaceVariableDetails,
+    index: &WorkspaceFunctionIndex,
+) -> (String, String) {
+    const MAX_SITES: usize = 3;
+    let mut message = format!("References to `{}` may be incomplete", details.name);
+    let mut key = String::from("workspace-references-incomplete");
+    if let Some(reason) = index.incomplete_reason() {
+        message.push_str(&format!(": {reason}"));
+        key.push_str(&format!(":{reason}"));
+    }
+    if !details.unfollowed_sources.is_empty() {
+        message.push_str(if index.incomplete_reason().is_some() {
+            "; "
+        } else {
+            ": "
+        });
+        let count = details.unfollowed_sources.len();
+        message.push_str(&format!(
+            "{count} source operation{} could not be followed while the value is visible",
+            if count == 1 { "" } else { "s" }
+        ));
+        let mut sites = Vec::new();
+        for source in details.unfollowed_sources.iter().take(MAX_SITES) {
+            let file = source
+                .location
+                .uri
+                .to_file_path()
+                .ok()
+                .and_then(|path| {
+                    path.file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                })
+                .unwrap_or_else(|| source.location.uri.to_string());
+            sites.push(format!(
+                "{file}:{} `{}` ({})",
+                source.location.range.start.line + 1,
+                source.text,
+                source.reason_text()
+            ));
+            key.push_str(&format!(
+                ":{}:{}",
+                source.location.uri, source.location.range.start.line
+            ));
+        }
+        message.push_str(&format!(" ({}", sites.join(", ")));
+        if count > MAX_SITES {
+            message.push_str(&format!(", … {} more", count - MAX_SITES));
+        }
+        message.push(')');
+    } else if index.incomplete_reason().is_none() {
+        message.push_str(": some source effects could not be followed");
+    }
+    message.push('.');
+    (key, message)
 }
 
 pub(crate) fn source(details: &WorkspaceSourceDetails, index: &WorkspaceFunctionIndex) -> String {

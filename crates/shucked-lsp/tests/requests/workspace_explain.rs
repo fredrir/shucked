@@ -4,7 +4,7 @@ use crossbeam::channel::{self, Receiver};
 use lsp_types as types;
 
 use super::super::traits::BackgroundRequestHandler;
-use super::{Hover, References};
+use super::{Definition, Hover, References};
 use crate::session::RequestCancellationToken;
 use crate::{
     Client, GlobalOptions, PositionEncoding, Session, TextDocument, Workspace, Workspaces,
@@ -233,7 +233,7 @@ fn unresolved_source_notifies_that_references_are_partial() {
         2
     );
     assert!(messages.try_iter().any(|message| matches!(message, lsp_server::Message::Notification(notification)
-        if notification.method == "window/showMessage" && notification.params["message"].as_str().is_some_and(|text| text.contains("source effects could not be followed")))));
+        if notification.method == "window/showMessage" && notification.params["message"].as_str().is_some_and(|text| text.contains("could not be followed")))));
 }
 
 #[test]
@@ -555,3 +555,160 @@ fn unsaved_startup_path_changes_retarget_module_consumers() {
 
 #[path = "workspace_functions.rs"]
 mod functions;
+
+#[test]
+fn startup_file_sources_before_the_assignment_do_not_warn_or_hide_the_definition() {
+    // A typical zsh startup file loads plugins through sources the index cannot
+    // follow and only then configures history. Navigation from the assignment
+    // must stay silent and complete: nothing sourced earlier can read the value.
+    let root = tempfile::tempdir().unwrap();
+    let (mut session, client, messages) = session(root.path());
+    let source = "export ZSH=\"$HOME/.oh-my-zsh\"\n\
+                  source \"$ZSH/oh-my-zsh.sh\"\n\
+                  [[ -f \"$HOME/.fzf.zsh\" ]] && source \"$HOME/.fzf.zsh\"\n\
+                  HISTSIZE=100000\n\
+                  SAVEHIST=100000\n\
+                  echo \"$SAVEHIST\"\n";
+    let uri = open(&mut session, &root.path().join(".zshrc"), source);
+    let selected = position(&uri, 4, 2);
+    let locations = references(&session, &client, selected.clone(), true);
+    assert_eq!(locations.len(), 2, "{locations:?}");
+    assert!(
+        !messages.try_iter().any(
+            |message| matches!(message, lsp_server::Message::Notification(notification)
+            if notification.method == "window/showMessage")
+        ),
+        "no notice should be shown when every unfollowed source runs before the assignment"
+    );
+    let params = types::GotoDefinitionParams {
+        text_document_position_params: selected,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    let snapshot =
+        Definition::snapshot(&session, &params, RequestCancellationToken::default()).unwrap();
+    let definition = Definition::run_with_snapshot(snapshot, &client, params)
+        .unwrap()
+        .expect("the assignment is its own definition even with conditional sources above");
+    let types::GotoDefinitionResponse::Scalar(location) = definition else {
+        panic!("expected a single definition: {definition:?}");
+    };
+    assert_eq!(location.uri, uri);
+    assert_eq!(location.range.start.line, 4);
+}
+
+#[test]
+fn unfollowed_source_after_the_assignment_is_named_once() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut session, client, messages) = session(root.path());
+    let source = "SAVEHIST=100000\nHISTSIZE=1\nsource \"$PLUGIN_MANAGER\"\necho \"$HISTSIZE\"\n";
+    let uri = open(&mut session, &root.path().join(".zshrc"), source);
+    let selected = position(&uri, 0, 2);
+    assert_eq!(
+        references(&session, &client, selected.clone(), true).len(),
+        1
+    );
+    let shown = messages
+        .try_iter()
+        .filter_map(|message| match message {
+            lsp_server::Message::Notification(notification)
+                if notification.method == "window/showMessage" =>
+            {
+                Some(notification.params["message"].as_str().unwrap().to_owned())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].contains("`SAVEHIST`"), "{}", shown[0]);
+    assert!(shown[0].contains(".zshrc:3"), "{}", shown[0]);
+    assert!(
+        shown[0].contains("source \"$PLUGIN_MANAGER\""),
+        "{}",
+        shown[0]
+    );
+    assert!(shown[0].contains("runtime expression"), "{}", shown[0]);
+
+    // A second query for another variable behind the same unfollowed source
+    // only reaches the log.
+    assert_eq!(
+        references(&session, &client, position(&uri, 1, 2), true).len(),
+        2
+    );
+    let methods = messages
+        .try_iter()
+        .filter_map(|message| match message {
+            lsp_server::Message::Notification(notification) => Some(notification.method),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !methods.iter().any(|method| method == "window/showMessage"),
+        "{methods:?}"
+    );
+    assert!(
+        methods.iter().any(|method| method == "window/logMessage"),
+        "{methods:?}"
+    );
+    let hover_text = hover(&session, &client, position(&uri, 0, 2));
+    assert!(
+        markdown(&hover_text).contains("Possible hidden reads"),
+        "{}",
+        markdown(&hover_text)
+    );
+    assert!(
+        markdown(&hover_text).contains("runtime expression"),
+        "{}",
+        markdown(&hover_text)
+    );
+}
+
+#[test]
+fn home_relative_startup_sources_resolve_for_tilde_and_unquoted_home_operands() {
+    // `HOME` is pinned per thread instead of through the environment: the
+    // test runner is parallel and the process environment is shared.
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join(".fzf.zsh"),
+        "FZF_DEFAULT_OPTS='--height 40%'\n",
+    )
+    .unwrap();
+    std::fs::write(home.path().join(".aliases"), "alias ll='ls -l'\n").unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let source = "[[ -f ~/.fzf.zsh ]] && source ~/.fzf.zsh\n\
+                  source $HOME/.aliases\n\
+                  echo \"$FZF_DEFAULT_OPTS\"\n";
+    crate::handlers::workspace_functions::with_test_home_dir(home.path(), || {
+        let (mut session, client, _messages) = session(root.path());
+        let uri = open(&mut session, &root.path().join(".zshrc"), source);
+        let tilde = hover(&session, &client, position(&uri, 0, 33));
+        assert!(
+            markdown(&tilde).contains("Resolved source:"),
+            "{}",
+            markdown(&tilde)
+        );
+        assert!(
+            markdown(&tilde).contains(".fzf.zsh"),
+            "{}",
+            markdown(&tilde)
+        );
+        let variable = hover(&session, &client, position(&uri, 1, 12));
+        assert!(
+            markdown(&variable).contains("Resolved source:"),
+            "{}",
+            markdown(&variable)
+        );
+        assert!(
+            markdown(&variable).contains(".aliases"),
+            "{}",
+            markdown(&variable)
+        );
+        // The followed file supplies the definition read on the next line.
+        let origin = hover(&session, &client, position(&uri, 2, 9));
+        assert!(
+            markdown(&origin).contains(".fzf.zsh:1"),
+            "{}",
+            markdown(&origin)
+        );
+    });
+}

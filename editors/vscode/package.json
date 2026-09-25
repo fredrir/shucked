@@ -138,6 +138,10 @@
       {
         "command": "shucked.compareTargets",
         "title": "Shucked: Compare Execution Targets"
+      },
+      {
+        "command": "shucked.showEnvironmentDetails",
+        "title": "Shucked: Show Execution Context Details"
       }
     ],
     "configuration": {
@@ -212,6 +216,25 @@
           "default": "off",
           "description": "Traces the communication between VS Code and the Shucked language server."
         },
+        "shucked.trace.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "info",
+          "scope": "machine-overridable",
+          "description": "Log level of the Shucked language server itself (provider eligibility, environment capture, refresh decisions). Changing it restarts the server."
+        },
+        "shucked.trace.logFile": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Append the language server log to this file instead of the extension's output channel. Empty keeps the output channel. Changing it restarts the server."
+        },
         "shucked.server.completion.includeEnvironment": {
           "type": "boolean",
           "default": true,
@@ -266,11 +289,23 @@
           "type": "string",
           "enum": [
             "workspace",
+            "login-shell",
             "portable"
+          ],
+          "enumDescriptions": [
+            "Workspace host: the PATH the language server inherited and the bundled builtin list.",
+            "Login shell: aliases, functions and PATH captured once from your login shell's startup files. Requires workspace trust; recaptured when the startup files change or on Shucked: Refresh Environment.",
+            "Portable: syntax and source checks only; no host absence warnings."
           ],
           "default": "workspace",
           "scope": "resource",
-          "description": "Workspace host checks by default; portable checks omit host absence warnings."
+          "description": "Workspace host checks by default; the login shell adds your startup-file aliases, functions and PATH; portable checks omit host absence warnings."
+        },
+        "shucked.environment.loginShell": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Shell executable captured for the login-shell policy. Empty uses $SHELL, then /bin/zsh on macOS or /bin/bash elsewhere. The shell runs as `-l -i -c` with SHUCKED_CAPTURE=1 set so startup files can skip slow work."
         },
         "shucked.environment.cwd": {
           "type": "string",
@@ -334,6 +369,11 @@
         "id": "shellAlias",
         "superType": "function",
         "description": "Shell alias"
+      },
+      {
+        "id": "shellOption",
+        "superType": "parameter",
+        "description": "Command-line option such as -v or --verbose"
       }
     ],
     "semanticTokenModifiers": [
@@ -348,11 +388,23 @@
           "shellCommand": [
             "entity.name.function.shell"
           ],
-          "shellAlias": [
-            "entity.name.function.alias.shell"
+          "shellCommand.defaultLibrary": [
+            "support.function.builtin.shell"
           ],
           "shellCommand.invalid": [
             "invalid.illegal.command.shell"
+          ],
+          "shellAlias": [
+            "entity.name.function.alias.shell"
+          ],
+          "shellAlias.invalid": [
+            "invalid.illegal.command.shell"
+          ],
+          "shellOption": [
+            "variable.parameter.option.shell"
+          ],
+          "operator": [
+            "keyword.operator.shell"
           ]
         }
       }
@@ -366,10 +418,22 @@
         "editor.semanticHighlighting.enabled": true,
         "editor.wordBasedSuggestions": "off"
       },
-      "[bash]": { "editor.wordBasedSuggestions": "off" },
-      "[zsh]": { "editor.wordBasedSuggestions": "off" },
-      "[sh]": { "editor.wordBasedSuggestions": "off" },
-      "[ksh]": { "editor.wordBasedSuggestions": "off" }
+      "[bash]": {
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[zsh]": {
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[sh]": {
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
+      },
+      "[ksh]": {
+        "editor.semanticHighlighting.enabled": true,
+        "editor.wordBasedSuggestions": "off"
+      }
     },
     "terminal": {
       "profiles": [

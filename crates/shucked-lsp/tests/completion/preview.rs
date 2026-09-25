@@ -101,6 +101,27 @@ fn preview_preserves_home_expansion_and_existing_quote_ranges() {
     }
 }
 
+/// A PATH assignment or a surrounding function cannot change what the `cd`
+/// builtin means, so its directory operands are still previewed there; only a
+/// function or alias for that exact name withholds the guess.
+#[test]
+fn preview_keeps_builtin_directory_operands_through_path_changes_and_functions() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("folder")).unwrap();
+    let environment = Environment::fixture(root.path());
+    for marked in [
+        "PATH=$OTHER\ncd ¦",
+        "export PATH=/usr/bin\ncd fo¦",
+        "enter() {\n  cd ¦\n}\n",
+    ] {
+        let (snapshot, client, position, _) = fixture(root.path(), marked, serde_json::json!({}));
+        let items = directory_preview(&snapshot, &environment, &client, position)
+            .unwrap_or_else(|| panic!("builtin directory preview: {marked}"));
+        assert_eq!(items.len(), 1, "{marked}");
+        assert_eq!(items[0].label, "folder/");
+    }
+}
+
 #[test]
 fn preview_does_not_guess_for_shadowed_dynamic_or_nonlocal_commands() {
     let root = tempfile::tempdir().unwrap();
@@ -109,7 +130,7 @@ fn preview_does_not_guess_for_shadowed_dynamic_or_nonlocal_commands() {
         "cd() { :; }\ncd ¦",
         "alias cd=echo\ncd ¦",
         "source helpers.sh\ncd ¦",
-        "PATH=$OTHER\ncd ¦",
+        "$dir_command ¦",
         "cd $HOME/¦",
         "cd -¦",
         "docker ¦",

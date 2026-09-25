@@ -15,9 +15,15 @@ export interface SessionMetadata {
   aliases: Record<string, string[]>; functions: string[]; options: Record<string, string>;
   private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string; historyFile?: string; liveCompletion?: boolean; liveSignal?: "SIGUSR1" | "SIGUSR2";
 }
-interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; directory?: string; executing?: boolean; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; }
-const MAX_FRAME = 256 * 1024;
-const stringList = (value: unknown, max = 16384): value is string[] => Array.isArray(value) && value.length <= max && value.every(item => typeof item === "string" && item.length < 16384 && !item.includes("\0"));
+interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; directory?: string; executing?: boolean; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; dropWarned?: boolean; }
+/** One hook payload; matches the cap in `shell-integration/capture.cjs`. */
+export const MAX_FRAME = 1024 * 1024;
+/** Aliases or functions accepted from one prompt; the server truncates at the same bound. */
+export const MAX_NAMES = 50000;
+/** Reasons a hook reports when it had to drop its payload instead of sending it. */
+export const DROP_REASONS = ["size", "deadline"] as const;
+export type DropReason = typeof DROP_REASONS[number];
+const stringList = (value: unknown, max = MAX_NAMES): value is string[] => Array.isArray(value) && value.length <= max && value.every(item => typeof item === "string" && item.length < 16384 && !item.includes("\0"));
 
 /** Validate untrusted local IPC before publishing any shell metadata. */
 export function validateSessionMessage(value: unknown): value is SessionMetadata & { token: string } {
@@ -32,8 +38,28 @@ export function validateSessionMessage(value: unknown): value is SessionMetadata
   if (item.liveCompletion !== undefined && typeof item.liveCompletion !== "boolean") { return false; }
   if (item.liveSignal !== undefined && !["SIGUSR1", "SIGUSR2"].includes(String(item.liveSignal))) { return false; }
   if (typeof item.private !== "boolean" || item.connected !== true || !item.aliases || typeof item.aliases !== "object" || Array.isArray(item.aliases)) { return false; }
-  if (Object.keys(item.aliases).length > 16384 || !Object.entries(item.aliases).every(([name, words]) => /^[\w.:-]{1,256}$/.test(name) && stringList(words, 32))) { return false; }
+  if (Object.keys(item.aliases).length > MAX_NAMES || !Object.entries(item.aliases).every(([name, words]) => /^[\w.:-]{1,256}$/.test(name) && stringList(words, 32))) { return false; }
   return !!item.options && typeof item.options === "object" && !Array.isArray(item.options) && Object.entries(item.options).length < 128 && Object.entries(item.options).every(([key, value]) => /^[\w_-]+$/.test(key) && typeof value === "string" && value.length < 128);
+}
+
+/** A hook's notice that it dropped a prompt payload; authenticated like metadata. */
+export interface DropNotice { kind: "hookDropped"; id: string; token: string; generation: number; pid: number; shell: Shell; reason: DropReason }
+
+export function validateDropNotice(value: unknown): value is DropNotice {
+  if (!value || typeof value !== "object") { return false; }
+  const item = value as Record<string, unknown>;
+  return item.kind === "hookDropped" && typeof item.id === "string" && /^[a-f0-9]{32}$/.test(item.id)
+    && typeof item.token === "string" && /^[a-f0-9]{64}$/.test(item.token)
+    && Number.isSafeInteger(item.generation) && Number(item.generation) >= 1 && Number.isSafeInteger(item.pid) && Number(item.pid) > 0
+    && ["bash", "zsh", "fish"].includes(String(item.shell)) && DROP_REASONS.includes(item.reason as DropReason);
+}
+
+/** What the user is told the first time a terminal's state update is lost. */
+export function dropWarning(shell: string, reason: string): string {
+  const cause = reason === "size" ? `its prompt report exceeded ${MAX_FRAME / 1024} KiB`
+    : reason === "deadline" ? "its prompt hook did not finish within the deadline"
+      : `a state update failed ${reason} checks`;
+  return `Shucked could not read the ${shell} terminal state because ${cause}. Aliases and functions from this terminal are unavailable until a later prompt succeeds.`;
 }
 
 export class TerminalManager implements vscode.Disposable {
@@ -95,14 +121,17 @@ export class TerminalManager implements vscode.Disposable {
         let frame = Buffer.alloc(0); let handled = false;
         socket.on("error", () => socket.destroy());
         socket.on("data", chunk => {
-          if (handled || frame.length + chunk.length > MAX_FRAME) { socket.destroy(); return; }
+          if (handled) { socket.destroy(); return; }
+          if (frame.length + chunk.length > MAX_FRAME) { socket.destroy(); this.reportDrop(undefined, "size"); return; }
           frame = Buffer.concat([frame, chunk]);
           if (!frame.includes(10)) { return; }
           handled = true;
           try {
             const value: unknown = JSON.parse(frame.subarray(0, frame.indexOf(10)).toString("utf8"));
             if (value && typeof value === "object" && "kind" in value && value.kind === "liveCompletion") { void this.live.receive(value); }
+            else if (validateDropNotice(value)) { this.dropped(value); }
             else if (validateSessionMessage(value)) { void this.receive(value).catch(() => undefined); }
+            else if (value && typeof value === "object" && "id" in value && typeof value.id === "string") { this.reportDrop(this.sessions.get(value.id), "validation"); }
           } catch { /* Malformed data is discarded without logging shell contents. */ }
           socket.end();
         });
@@ -114,13 +143,41 @@ export class TerminalManager implements vscode.Disposable {
     return this.starting;
   }
 
+  /** Authenticate a session message; a mismatch is reported once, never trusted. */
+  private authenticate(session: AttachedSession | undefined, shell: Shell, token: string, pid: number): session is AttachedSession {
+    if (this.disposed || !vscode.workspace.isTrusted || !session) { return false; }
+    if (session.shell !== shell) { this.reportDrop(session, "shell identity"); return false; }
+    const expected = Buffer.from(session.token), actual = Buffer.from(token);
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) { this.reportDrop(session, "authentication"); return false; }
+    if (session.pid && session.pid !== pid) { this.reportDrop(session, "process identity"); return false; }
+    return true;
+  }
+
+  /** A hook could not deliver its payload (too large or too slow); say so once per terminal. */
+  private dropped(notice: DropNotice): void {
+    const session = this.sessions.get(notice.id);
+    if (!this.authenticate(session, notice.shell, notice.token, notice.pid) || notice.generation <= session.generation) { return; }
+    this.reportDrop(session, notice.reason);
+  }
+
+  private generalDropWarned = false;
+  private reportDrop(session: AttachedSession | undefined, reason: string): void {
+    if (session) {
+      if (session.dropWarned) { return; }
+      session.dropWarned = true;
+      this.environments.sessionState(session.id, session.metadata ? true : undefined, session.metadata, reason);
+      void vscode.window.showWarningMessage(dropWarning(session.shell, reason));
+    } else {
+      if (this.generalDropWarned) { return; }
+      this.generalDropWarned = true;
+      void vscode.window.showWarningMessage(dropWarning("attached", reason));
+    }
+  }
+
   private async receive(message: SessionMetadata & { token: string }): Promise<void> {
     const session = this.sessions.get(message.id);
-    if (this.disposed || !vscode.workspace.isTrusted || !session || session.shell !== message.shell || message.generation <= session.generation) { return; }
     const { token, ...metadata } = message;
-    const expected = Buffer.from(session.token), actual = Buffer.from(token);
-    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) { return; }
-    if (session.pid && session.pid !== message.pid) { return; }
+    if (!this.authenticate(session, message.shell, token, message.pid) || message.generation <= session.generation) { return; }
     session.pid ??= message.pid;
     this.live.cancelSession(session.id);
     session.executing = false;
@@ -159,14 +216,15 @@ export class TerminalManager implements vscode.Disposable {
     let shellArgs: string[];
     if (shell === "bash") {
       const init = path.join(sessionDirectory, "bashrc");
-      await fs.writeFile(init, `[[ -f ~/.bashrc ]] && source ~/.bashrc\nsource ${quote(hook)}\n`, { mode: 0o600 });
+      await fs.writeFile(init, bashLoginInit(hook), { mode: 0o600 });
       shellArgs = ["--rcfile", init, "-i"];
     } else if (shell === "zsh") {
       const original = process.env.ZDOTDIR ?? os.homedir();
-      await fs.writeFile(path.join(sessionDirectory, ".zshenv"), `ZDOTDIR=${quote(original)}\n[[ -r $ZDOTDIR/.zshenv ]] && source $ZDOTDIR/.zshenv\n__shucked_original_zdotdir=$ZDOTDIR\nZDOTDIR=${quote(sessionDirectory)}\n`, { mode: 0o600 });
-      await fs.writeFile(path.join(sessionDirectory, ".zshrc"), `ZDOTDIR=$__shucked_original_zdotdir\n[[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc\nsource ${quote(hook)}\n`, { mode: 0o600 });
-      env.ZDOTDIR = sessionDirectory; shellArgs = ["-i"];
-    } else { shellArgs = ["-i", "--init-command", `source ${fishQuote(hook)}`]; }
+      for (const [name, contents] of Object.entries(zshLoginFiles(original, sessionDirectory, hook))) {
+        await fs.writeFile(path.join(sessionDirectory, name), contents, { mode: 0o600 });
+      }
+      env.ZDOTDIR = sessionDirectory; shellArgs = ["-l", "-i"];
+    } else { shellArgs = ["-l", "-i", "--init-command", `source ${fishQuote(hook)}`]; }
     const options: vscode.TerminalOptions = { name: `Shucked ${shell}`, shellPath: path.basename(process.env.SHELL ?? "") === shell ? process.env.SHELL : shell, shellArgs, env, cwd: vscode.workspace.workspaceFolders?.[0]?.uri };
     return { session, options };
   }
@@ -214,6 +272,39 @@ export class TerminalManager implements vscode.Disposable {
     this.server?.close();
     if (this.directory) { void fs.rm(this.directory, { recursive: true, force: true }).catch(() => undefined); }
   }
+}
+/**
+ * Private rc file for a Shucked bash terminal. Bash ignores `--rcfile` for
+ * login shells, so the file performs the login startup order itself:
+ * /etc/profile, then the first of ~/.bash_profile, ~/.bash_login and
+ * ~/.profile (falling back to ~/.bashrc when none exists), then the hook.
+ */
+export function bashLoginInit(hook: string): string {
+  return [
+    "[[ -f /etc/profile ]] && source /etc/profile",
+    "__shucked_profile_read=0",
+    "for __shucked_profile in ~/.bash_profile ~/.bash_login ~/.profile; do",
+    "  if [[ -f $__shucked_profile ]]; then source \"$__shucked_profile\"; __shucked_profile_read=1; break; fi",
+    "done",
+    "[[ $__shucked_profile_read = 0 && -f ~/.bashrc ]] && source ~/.bashrc",
+    "unset __shucked_profile __shucked_profile_read",
+    `source ${quote(hook)}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Private ZDOTDIR files for a Shucked zsh login shell. Each one hands control
+ * to the user's file of the same name and then points ZDOTDIR back at the
+ * private directory, so .zshenv, .zprofile, .zshrc and .zlogin all run in
+ * login order and the hook is sourced after .zshrc.
+ */
+export function zshLoginFiles(original: string, sessionDirectory: string, hook: string): Record<string, string> {
+  return {
+    ".zshenv": `ZDOTDIR=${quote(original)}\n[[ -r $ZDOTDIR/.zshenv ]] && source $ZDOTDIR/.zshenv\n__shucked_original_zdotdir=$ZDOTDIR\nZDOTDIR=${quote(sessionDirectory)}\n`,
+    ".zprofile": `ZDOTDIR=$__shucked_original_zdotdir\n[[ -r $ZDOTDIR/.zprofile ]] && source $ZDOTDIR/.zprofile\nZDOTDIR=${quote(sessionDirectory)}\n`,
+    ".zshrc": `ZDOTDIR=$__shucked_original_zdotdir\n[[ -r $ZDOTDIR/.zshrc ]] && source $ZDOTDIR/.zshrc\nsource ${quote(hook)}\n`,
+  };
 }
 function quote(value: string): string { return `'${value.replace(/'/g, "'\\''")}'`; }
 function fishQuote(value: string): string { return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`; }

@@ -58,8 +58,17 @@ pub(super) fn request(req: server::Request) -> Task {
             background_session_request_task::<request::Completion>(req, BackgroundSchedule::Worker)
         }
         request::CompletionResolve::METHOD => sync_request_task::<request::CompletionResolve>(req),
+        request::Declaration::METHOD => {
+            background_session_request_task::<request::Declaration>(req, BackgroundSchedule::Worker)
+        }
         request::Definition::METHOD => {
             background_session_request_task::<request::Definition>(req, BackgroundSchedule::Worker)
+        }
+        request::Implementation::METHOD => {
+            background_session_request_task::<request::Implementation>(
+                req,
+                BackgroundSchedule::Worker,
+            )
         }
         request::DocumentDiagnostic::METHOD => {
             background_request_task::<request::DocumentDiagnostic>(req, BackgroundSchedule::Worker)
@@ -74,6 +83,9 @@ pub(super) fn request(req: server::Request) -> Task {
             background_request_task::<request::DocumentSymbols>(req, BackgroundSchedule::Worker)
         }
         request::ExecuteCommand::METHOD => sync_request_task::<request::ExecuteCommand>(req),
+        "shucked/environmentDetails" => background_session_request_task::<
+            notification::EnvironmentDetailsRequest,
+        >(req, BackgroundSchedule::Worker),
         request::Format::METHOD => {
             background_request_task::<request::Format>(req, BackgroundSchedule::Fmt)
         }

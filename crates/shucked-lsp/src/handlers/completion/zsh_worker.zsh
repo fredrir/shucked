@@ -18,8 +18,15 @@ fi
 [[ -n $SHUCKED_COMPLETION_PATHS ]] && fpath=("${(@s/:/)SHUCKED_COMPLETION_PATHS}" $fpath)
 autoload -Uz compinit
 # Native execution authorizes these provider roots, including read-only bundles
-# mounted with a different owner inside a container.
-(($+functions[compdef])) || compinit -u -D
+# mounted with a different owner inside a container. The server keys the dump
+# file by the function path, so an existing dump is trusted without a rescan.
+if (( ! $+functions[compdef] )); then
+  if [[ -n $SHUCKED_COMPDUMP ]]; then
+    compinit -u -C -d "$SHUCKED_COMPDUMP"
+  else
+    compinit -u -D
+  fi
+fi
 zmodload zsh/zutil || exit 1
 function compadd {
   local -A shucked_options

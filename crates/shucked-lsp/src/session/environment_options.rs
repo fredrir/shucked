@@ -16,6 +16,8 @@ pub struct EnvironmentOptions {
     pub cwd: Option<PathBuf>,
     /// Captured target inventory; no local commands are consulted for this target.
     pub target_inventory: Option<PathBuf>,
+    /// Login shell executable for the `login-shell` policy; `$SHELL` otherwise.
+    pub login_shell: Option<PathBuf>,
     /// Expected project commands, keyed by name; values are generated, optional or required.
     pub declarations: BTreeMap<String, String>,
 }
@@ -37,6 +39,13 @@ impl EnvironmentOptions {
         {
             self.target_inventory = None;
         }
+        if self
+            .login_shell
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            self.login_shell = None;
+        }
         if self.session_id.as_ref().is_some_and(String::is_empty) {
             self.session_id = None;
         }
@@ -57,6 +66,9 @@ impl EnvironmentOptions {
         }
         if next.target_inventory.is_some() {
             self.target_inventory.clone_from(&next.target_inventory);
+        }
+        if next.login_shell.is_some() {
+            self.login_shell.clone_from(&next.login_shell);
         }
         self.declarations.extend(next.declarations.clone());
     }

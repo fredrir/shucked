@@ -59,6 +59,11 @@ impl NativeZsh {
             .clear();
     }
 
+    /// Whether the worker is still occupied by an earlier request.
+    pub(super) fn busy(&self) -> bool {
+        self.worker.busy()
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(test)]
     pub(super) fn complete(
@@ -201,6 +206,10 @@ impl NativeZsh {
             .env("SHUCKED_NATIVE_SCRIPT", include_str!("zsh_worker.zsh"))
             .env("SHUCKED_NATIVE_PERSONAL", if personal { "1" } else { "0" })
             .env("TERM", "dumb")
+            // Completers that call the tool must never wait on network updates.
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
+            .env("HOMEBREW_NO_ANALYTICS", "1")
+            .env("HOMEBREW_NO_ENV_HINTS", "1")
             .current_dir(directory);
         if let Some(path) = execution_path {
             command.env("PATH", path);
@@ -208,11 +217,12 @@ impl NativeZsh {
         if !personal {
             command.env_remove("FPATH");
         }
-        if let Some(root) = super::native::assets::root() {
-            super::native::assets::configure_worker_path(&mut command, &root, execution_path);
+        let root = super::native::assets::root();
+        if let Some(root) = &root {
+            super::native::assets::configure_worker_path(&mut command, root, execution_path);
             command.env(
                 "SHUCKED_PROVIDER_ROOT",
-                super::native::assets::shell_path(&root),
+                super::native::assets::shell_path(root),
             );
         }
         let _primary = super::native::assets::bind_primary(&mut command, primary).ok()?;
@@ -225,6 +235,13 @@ impl NativeZsh {
             "SHUCKED_COMPLETION_PATHS",
             super::native::assets::joined_completion_paths(&installed),
         );
+        // Personal startup files own their own completion initialization.
+        if !personal
+            && let Some(dump) =
+                super::native::assets::completion_dump(&self.shell, root.as_deref(), &installed)
+        {
+            command.env("SHUCKED_COMPDUMP", super::native::assets::shell_path(&dump));
+        }
         let path = command
             .get_envs()
             .find(|(key, _)| *key == "PATH")

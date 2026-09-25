@@ -23,12 +23,22 @@ test("native execution permission comes from VS Code trust, not workspace settin
 });
 
 test("initialization options forward every setting group the server reads", () => {
-  const values = { environment: { policy: "portable" }, unsafeFixes: { enable: true }, fixAll: { enable: false }, lint: { enable: true }, format: { enable: true }, codeAction: { disableRuleComment: { enable: false } }, server: { completion: { maxItems: 5 } } };
+  const values = { environment: { policy: "login-shell", loginShell: "/bin/zsh" }, unsafeFixes: { enable: true }, fixAll: { enable: false }, lint: { enable: true }, format: { enable: true }, codeAction: { disableRuleComment: { enable: false } }, server: { completion: { maxItems: 5 } } };
   const options = client().getInitializationOptions(configuration({ values }));
-  assert.deepEqual(Object.keys(options).sort(), ["codeAction", "environment", "fixAll", "format", "lint", "nativeExecutionAllowed", "server", "unsafeFixes"]);
+  assert.deepEqual(Object.keys(options).sort(), ["codeAction", "environment", "fixAll", "format", "lint", "nativeExecutionAllowed", "server", "tracing", "unsafeFixes"]);
   for (const [key, value] of Object.entries(values)) {
     assert.deepEqual(options[key], value, key);
   }
+});
+
+test("server log settings reach the server as tracing options", () => {
+  const { getTracingOptions, getInitializationOptions } = client();
+  // Objects come from the extension's VM realm, so compare plain copies.
+  const tracing = values => ({ ...getTracingOptions(configuration({ values })) });
+  assert.deepEqual(tracing({}), {}, "unset settings keep the server defaults");
+  assert.deepEqual(tracing({ "trace.logLevel": "trace", "trace.logFile": " /tmp/shucked.log " }), { logLevel: "trace", logFile: "/tmp/shucked.log" });
+  assert.deepEqual(tracing({ "trace.logLevel": "verbose", "trace.logFile": "" }), {}, "unknown levels and empty paths are not forwarded");
+  assert.deepEqual({ ...getInitializationOptions(configuration({ values: { "trace.logLevel": "debug" } })).tracing }, { logLevel: "debug" });
 });
 
 test("five crashes within three minutes are a crash loop", () => {

@@ -30,6 +30,14 @@ test("changing the server program or its arguments restarts the server", async (
   assert.deepEqual(await change("shucked.server.extraArgs"), ["synchronize", "restart"]);
 });
 
+test("changing the server log level or log file restarts the server once", async () => {
+  const { change } = await watcher();
+  assert.deepEqual(await change("shucked.trace.logLevel"), ["synchronize", "restart"]);
+  assert.deepEqual(await change("shucked.trace.logFile"), ["synchronize", "restart"]);
+  assert.deepEqual(await change("shucked.server.path", "shucked.trace.logLevel"), ["synchronize", "restart"]);
+  assert.deepEqual(await change("shucked.trace.server"), ["synchronize"], "protocol tracing is handled by the language client");
+});
+
 test("other extensions' settings are ignored", async () => {
   const { change, context } = await watcher();
   assert.deepEqual(await change("editor.fontSize"), []);

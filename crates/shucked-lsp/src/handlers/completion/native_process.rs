@@ -18,13 +18,32 @@ use crossbeam::channel::{self, Receiver, Sender};
 mod windows;
 use std::io::{Read, Write};
 use std::process::{Child, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+const MAX_FRAME: usize = 1024 * 1024;
+/// How long a response nobody waits for any more may keep arriving before the
+/// worker is considered stuck and killed.
+const DRAIN_CAP: Duration = Duration::from_secs(10);
+
 /// A framework is initialized once; requests and candidate records remain data.
-#[derive(Default)]
+///
+/// A request that is cancelled or exceeds its budget does not kill the worker:
+/// the pending response keeps arriving in the background so the initialized
+/// worker stays warm, and an identical request that follows adopts that
+/// response instead of running the completer again.
 pub(super) struct Persistent {
     worker: Mutex<Option<Worker>>,
+    drain_cap: Duration,
+}
+
+impl Default for Persistent {
+    fn default() -> Self {
+        Self {
+            worker: Mutex::default(),
+            drain_cap: DRAIN_CAP,
+        }
+    }
 }
 
 struct Worker {
@@ -34,13 +53,74 @@ struct Worker {
     job: Option<windows::Job>,
     input: Sender<Vec<u8>>,
     output: Receiver<Vec<u8>>,
+    /// Shared with the thread finishing an abandoned response.
+    shared: Arc<Mutex<Shared>>,
+}
+
+#[derive(Default)]
+struct Shared {
+    /// ZLE runs in a separate process group owned by zpty.
     zpty_pid: Option<i32>,
+    drain: Drain,
+}
+
+#[derive(Default)]
+enum Drain {
+    #[default]
+    Idle,
+    /// A response is still arriving after its requester gave up.
+    Draining,
+    /// A finished response kept for an identical request.
+    Late { payload: Vec<u8>, output: Vec<u8> },
+    /// The worker exceeded the drain cap or broke the protocol.
+    Dead,
+}
+
+enum Exchange {
+    Complete(Vec<u8>),
+    /// The requester stopped waiting; the partial response so far.
+    Abandoned(Vec<u8>),
+    Broken,
+}
+
+enum Settled {
+    Ready,
+    Adopted(Vec<u8>),
+    Busy,
+    Dead,
 }
 
 impl Persistent {
+    #[cfg(test)]
+    pub(super) fn with_drain_cap(drain_cap: Duration) -> Self {
+        Self {
+            worker: Mutex::default(),
+            drain_cap,
+        }
+    }
+
     pub(super) fn invalidate(&self) {
         if let Ok(mut worker) = self.worker.try_lock() {
             worker.take();
+        }
+    }
+
+    /// Whether a request is in progress or an abandoned response is still
+    /// arriving, so that a request returning `None` may be retried.
+    pub(super) fn busy(&self) -> bool {
+        match self.worker.try_lock() {
+            Ok(slot) => slot.as_ref().is_some_and(|worker| {
+                matches!(
+                    worker
+                        .shared
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .drain,
+                    Drain::Draining
+                )
+            }),
+            Err(std::sync::TryLockError::WouldBlock) => true,
+            Err(std::sync::TryLockError::Poisoned(_)) => false,
         }
     }
 
@@ -56,6 +136,14 @@ impl Persistent {
     ) -> Option<Vec<u8>> {
         let started = Instant::now();
         let startup_budget = timeout.max(startup_timeout);
+        let mut payload = Vec::new();
+        for field in fields {
+            if field.contains('\0') {
+                return None;
+            }
+            payload.extend_from_slice(field.as_bytes());
+            payload.push(0);
+        }
         let mut slot = loop {
             if cancellation.is_cancelled() || started.elapsed() >= startup_budget {
                 return None;
@@ -68,71 +156,50 @@ impl Persistent {
         if slot.as_ref().is_some_and(|worker| worker.key != key) {
             slot.take();
         }
+        if let Some(worker) = slot.as_mut() {
+            match worker.settle(&payload, started + timeout, cancellation) {
+                Settled::Ready => {}
+                Settled::Adopted(output) => {
+                    tracing::debug!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "native completion worker adopted a late response"
+                    );
+                    return Some(output);
+                }
+                Settled::Busy => {
+                    tracing::debug!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "native completion worker still finishing an abandoned response"
+                    );
+                    return None;
+                }
+                Settled::Dead => {
+                    slot.take();
+                }
+            }
+        }
         let cold = slot.is_none();
         if cold {
             *slot = Worker::spawn(command, key);
         }
-        let request_started = Instant::now();
         let budget = if cold { startup_budget } else { timeout };
+        let deadline = (Instant::now() + budget).min(started + startup_budget);
         let worker = slot.as_mut()?;
-        let mut payload = Vec::new();
-        for field in fields {
-            if field.contains('\0') {
-                return None;
+        let result = match worker.exchange(payload.clone(), deadline, cancellation) {
+            Exchange::Complete(output) => Some(output),
+            Exchange::Abandoned(partial) => {
+                worker.drain(payload, partial, self.drain_cap);
+                None
             }
-            payload.extend_from_slice(field.as_bytes());
-            payload.push(0);
-        }
-        let result = (|| {
-            worker.input.try_send(payload).ok()?;
-            let mut output = Vec::new();
-            loop {
-                if cancellation.is_cancelled()
-                    || started.elapsed() >= startup_budget
-                    || request_started.elapsed() >= budget
-                {
-                    return None;
-                }
-                match worker.output.recv_timeout(Duration::from_millis(5)) {
-                    Ok(chunk) => {
-                        output.extend_from_slice(&chunk);
-                        if output.len() > 1024 * 1024 {
-                            return None;
-                        }
-                        // ZLE runs in a separate process group owned by zpty.
-                        if worker.zpty_pid.is_none() {
-                            let mut fields = output.split(|byte| *byte == 0);
-                            if fields.next() == Some(b"P")
-                                && output.iter().filter(|byte| **byte == 0).count() >= 2
-                            {
-                                worker.zpty_pid = fields
-                                    .next()
-                                    .and_then(|pid| std::str::from_utf8(pid).ok())
-                                    .and_then(|pid| pid.parse().ok())
-                                    .filter(|pid| *pid > 1);
-                            }
-                        }
-                        match frame_complete(&output) {
-                            Some(true) => return Some(output),
-                            Some(false) => {}
-                            None => return None,
-                        }
-                    }
-                    Err(channel::RecvTimeoutError::Timeout) => {
-                        if worker.child.try_wait().ok()?.is_some() {
-                            return None;
-                        }
-                    }
-                    Err(channel::RecvTimeoutError::Disconnected) => return None,
-                }
+            Exchange::Broken => {
+                slot.take();
+                None
             }
-        })();
-        if result.is_none() {
-            slot.take();
-        }
+        };
         tracing::debug!(
             elapsed_ms = started.elapsed().as_millis() as u64,
             success = result.is_some(),
+            cold,
             "native completion worker request"
         );
         result
@@ -170,6 +237,36 @@ fn frame_complete(bytes: &[u8]) -> Option<bool> {
             }
         }
     }
+}
+
+/// Record the worker's process id from the response header once.
+fn note_pid(shared: &Mutex<Shared>, output: &[u8]) {
+    let mut shared = shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if shared.zpty_pid.is_some() {
+        return;
+    }
+    let mut fields = output.split(|byte| *byte == 0);
+    if fields.next() == Some(b"P") && output.iter().filter(|byte| **byte == 0).count() >= 2 {
+        shared.zpty_pid = fields
+            .next()
+            .and_then(|pid| std::str::from_utf8(pid).ok())
+            .and_then(|pid| pid.parse().ok())
+            .filter(|pid| *pid > 1);
+    }
+}
+
+fn kill_tree(child_pid: u32, zpty_pid: Option<i32>) {
+    #[cfg(unix)]
+    unsafe {
+        if let Some(pid) = zpty_pid {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+        libc::kill(-(child_pid as i32), libc::SIGKILL);
+    }
+    #[cfg(not(unix))]
+    let _ = (child_pid, zpty_pid);
 }
 
 impl Worker {
@@ -218,20 +315,149 @@ impl Worker {
             job: Some(job),
             input,
             output,
-            zpty_pid: None,
+            shared: Arc::default(),
         })
+    }
+
+    /// Wait for an abandoned response to finish before sending new input.
+    fn settle(
+        &mut self,
+        payload: &[u8],
+        deadline: Instant,
+        cancellation: &RequestCancellationToken,
+    ) -> Settled {
+        loop {
+            {
+                let mut shared = self
+                    .shared
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match &shared.drain {
+                    Drain::Idle => return Settled::Ready,
+                    Drain::Dead => return Settled::Dead,
+                    Drain::Late { .. } => {
+                        if let Drain::Late {
+                            payload: late,
+                            output,
+                        } = std::mem::take(&mut shared.drain)
+                        {
+                            return if late == payload {
+                                Settled::Adopted(output)
+                            } else {
+                                Settled::Ready
+                            };
+                        }
+                    }
+                    Drain::Draining => {}
+                }
+            }
+            if cancellation.is_cancelled() || Instant::now() >= deadline {
+                return Settled::Busy;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn exchange(
+        &mut self,
+        payload: Vec<u8>,
+        deadline: Instant,
+        cancellation: &RequestCancellationToken,
+    ) -> Exchange {
+        if self.input.try_send(payload).is_err() {
+            return Exchange::Broken;
+        }
+        let mut output = Vec::new();
+        loop {
+            if cancellation.is_cancelled() || Instant::now() >= deadline {
+                return Exchange::Abandoned(output);
+            }
+            match self.output.recv_timeout(Duration::from_millis(5)) {
+                Ok(chunk) => {
+                    output.extend_from_slice(&chunk);
+                    if output.len() > MAX_FRAME {
+                        return Exchange::Broken;
+                    }
+                    note_pid(&self.shared, &output);
+                    match frame_complete(&output) {
+                        Some(true) => return Exchange::Complete(output),
+                        Some(false) => {}
+                        None => return Exchange::Broken,
+                    }
+                }
+                Err(channel::RecvTimeoutError::Timeout) => match self.child.try_wait() {
+                    Ok(None) => {}
+                    Ok(Some(_)) | Err(_) => return Exchange::Broken,
+                },
+                Err(channel::RecvTimeoutError::Disconnected) => return Exchange::Broken,
+            }
+        }
+    }
+
+    /// Finish an abandoned response in the background, keeping it for an
+    /// identical request. A worker that cannot finish within `cap` is killed.
+    fn drain(&self, payload: Vec<u8>, mut output: Vec<u8>, cap: Duration) {
+        let shared = self.shared.clone();
+        shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .drain = Drain::Draining;
+        let receiver = self.output.clone();
+        let child_pid = self.child.id();
+        let deadline = Instant::now() + cap;
+        let thread = std::thread::Builder::new()
+            .name("shucked-completion-drain".into())
+            .spawn(move || {
+                let outcome = loop {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break Drain::Dead;
+                    }
+                    match receiver.recv_timeout((deadline - now).min(Duration::from_millis(5))) {
+                        Ok(chunk) => {
+                            output.extend_from_slice(&chunk);
+                            if output.len() > MAX_FRAME {
+                                break Drain::Dead;
+                            }
+                            note_pid(&shared, &output);
+                            match frame_complete(&output) {
+                                Some(true) => break Drain::Late { payload, output },
+                                Some(false) => {}
+                                None => break Drain::Dead,
+                            }
+                        }
+                        Err(channel::RecvTimeoutError::Timeout) => {}
+                        Err(channel::RecvTimeoutError::Disconnected) => break Drain::Dead,
+                    }
+                };
+                let mut shared = shared
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if matches!(outcome, Drain::Dead) {
+                    tracing::debug!(
+                        "native completion worker did not finish an abandoned response"
+                    );
+                    kill_tree(child_pid, shared.zpty_pid);
+                }
+                shared.drain = outcome;
+            });
+        if thread.is_err() {
+            self.shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .drain = Drain::Dead;
+        }
     }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        unsafe {
-            if let Some(pid) = self.zpty_pid {
-                libc::kill(-pid, libc::SIGKILL);
-            }
-            libc::kill(-(self.child.id() as i32), libc::SIGKILL);
-        }
+        let zpty_pid = self
+            .shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .zpty_pid;
+        kill_tree(self.child.id(), zpty_pid);
         #[cfg(windows)]
         self.job.take();
         let _ = self.child.kill();

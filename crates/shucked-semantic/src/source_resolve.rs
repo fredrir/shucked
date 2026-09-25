@@ -10,6 +10,46 @@ use std::path::{Path, PathBuf};
 
 use crate::{SourceRef, SourceRefKind};
 
+/// The current user's home directory as the process environment reports it.
+///
+/// `HOME` is authoritative for every Unix shell; `USERPROFILE` covers shells
+/// running under Windows. Callers that need a deterministic value (tests,
+/// editor providers) inject their own through
+/// [`SourcePathFileProvider::home_dir`](crate::SourcePathFileProvider::home_dir).
+pub fn home_dir() -> Option<PathBuf> {
+    ["HOME", "USERPROFILE"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .find(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The text after the tilde when `candidate` is `~` or starts with `~/`.
+///
+/// Only the current user's tilde qualifies: `~user` needs a password-database
+/// lookup and is left as written, and a tilde followed by anything other than
+/// a slash is not a tilde-prefix at all.
+pub fn home_tilde_suffix(candidate: &str) -> Option<&str> {
+    let suffix = candidate.strip_prefix('~')?;
+    (suffix.is_empty() || suffix.starts_with('/')).then_some(suffix)
+}
+
+/// Expands a leading `~` or `~/` in `candidate` against `home`, the way the
+/// shell does for an unquoted `source ~/.fzf.zsh` operand.
+///
+/// Returns `None` when the candidate has no tilde-prefix or the home
+/// directory is unknown; callers then fall back to their usual search.
+pub fn expand_home_tilde(candidate: &str, home: Option<&Path>) -> Option<PathBuf> {
+    let suffix = home_tilde_suffix(candidate)?;
+    let home = home?;
+    let suffix = suffix.trim_start_matches('/');
+    Some(if suffix.is_empty() {
+        home.to_path_buf()
+    } else {
+        home.join(suffix)
+    })
+}
+
 /// Resolves the on-disk target of a single source reference.
 ///
 /// Only *determinable* references resolve: a literal path or a directive path
@@ -71,12 +111,20 @@ pub fn resolve_candidate_targets(
 }
 
 /// Candidate paths in configured search order.
+///
+/// An absolute operand names exactly one file. So does a `~/`-anchored one
+/// once the home directory is known (see [`expand_home_tilde`]); without a
+/// home directory it is searched like any other relative path so the miss
+/// still shows up in the candidate list.
 pub fn candidate_paths(
     source_path: &Path,
     candidate: &str,
     roots: &[String],
     root_base: &Path,
 ) -> Vec<PathBuf> {
+    if let Some(expanded) = expand_home_tilde(candidate, home_dir().as_deref()) {
+        return vec![expanded];
+    }
     let candidate_path = PathBuf::from(candidate);
     if candidate_path.is_absolute() {
         return vec![candidate_path];
@@ -200,6 +248,24 @@ mod tests {
             base,
         );
         assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn home_tilde_expands_only_the_current_user_prefix() {
+        let home = Path::new("/home/me");
+        assert_eq!(
+            expand_home_tilde("~/.fzf.zsh", Some(home)),
+            Some(PathBuf::from("/home/me/.fzf.zsh"))
+        );
+        assert_eq!(expand_home_tilde("~", Some(home)), Some(home.to_path_buf()));
+        assert_eq!(expand_home_tilde("~other/.zshrc", Some(home)), None);
+        assert_eq!(expand_home_tilde("~-/x", Some(home)), None);
+        assert_eq!(expand_home_tilde("lib/~/x", Some(home)), None);
+        assert_eq!(
+            expand_home_tilde("~/.fzf.zsh", None),
+            None,
+            "an unknown home directory leaves the operand for the fallback search"
+        );
     }
 
     #[test]

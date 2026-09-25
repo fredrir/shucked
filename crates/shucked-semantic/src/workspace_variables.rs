@@ -74,6 +74,9 @@ pub struct WorkspaceVariableExplanation {
     pub references: Vec<WorkspaceVariableOccurrence>,
     /// Some source effects could not be followed.
     pub incomplete: bool,
+    /// Source operations that could observe the selected bindings but whose
+    /// target file is unresolved or not indexed, so reads inside it are unknown.
+    pub unfollowed_sources: Vec<WorkspaceVariableOccurrence>,
     /// Conditional execution contributes possible uses.
     pub conditional: bool,
 }
@@ -713,6 +716,7 @@ impl WorkspaceVariableIndex {
             .collect();
         let family = self.environment_paths_from(&paths, is_cancelled)?;
         let mut references = Vec::new();
+        let mut unfollowed_sources = Vec::new();
         let mut conditional = seeds.len() > 1;
         for path in family {
             let Some(facts) = self.files.get(&path) else {
@@ -720,13 +724,23 @@ impl WorkspaceVariableIndex {
                 continue;
             };
             conditional |= facts.source_effects.iter().any(|effect| effect.conditional);
-            incomplete |= facts.source_effects.iter().any(|effect| {
-                effect.persistent
-                    && effect
-                        .path
-                        .as_ref()
-                        .is_none_or(|path| !self.files.contains_key(path))
-            });
+            for (index, effect) in facts.source_effects.iter().enumerate() {
+                if self.unfollowed_source_may_read(
+                    &path,
+                    facts,
+                    index,
+                    effect,
+                    &target.name,
+                    &seeds,
+                    is_cancelled,
+                )? {
+                    incomplete = true;
+                    unfollowed_sources.push(WorkspaceVariableOccurrence {
+                        path: path.clone(),
+                        span: effect.span,
+                    });
+                }
+            }
             for reference in facts
                 .references
                 .iter()
@@ -761,13 +775,66 @@ impl WorkspaceVariableIndex {
             return None;
         }
         sort_dedup_occurrences(&mut references);
+        sort_dedup_occurrences(&mut unfollowed_sources);
         Some(WorkspaceVariableExplanation {
             name: target.name.clone(),
             definitions,
             references,
             incomplete,
+            unfollowed_sources,
             conditional,
         })
+    }
+
+    /// Whether a source operation whose target cannot be inspected could observe
+    /// one of the seed bindings when it runs.
+    ///
+    /// Only such operations can hide reads of the selected variable: a source
+    /// that runs before the binding exists, after a later definite write, or
+    /// whose loader shadows the name cannot see the selected value.
+    #[allow(clippy::too_many_arguments)]
+    fn unfollowed_source_may_read(
+        &self,
+        path: &Path,
+        facts: &FileVariableFacts,
+        index: usize,
+        effect: &CallFactSourceEffect,
+        name: &Name,
+        seeds: &BTreeSet<(PathBuf, WorkspaceConsumedBinding)>,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Option<bool> {
+        if !effect.persistent
+            || effect
+                .path
+                .as_ref()
+                .is_some_and(|target| self.files.contains_key(target))
+        {
+            return Some(false);
+        }
+        if facts
+            .source_shadows
+            .get(&index)
+            .is_some_and(|names| names.contains(name))
+        {
+            return Some(false);
+        }
+        // A source inside a function may run at any later point, so the value
+        // visible at the end of the file is the conservative choice.
+        let cutoff = if effect.enclosing_function.is_some() {
+            usize::MAX
+        } else {
+            effect.span.start.offset()
+        };
+        let reaching = self.reaching_variable_paths(
+            path,
+            name,
+            cutoff,
+            None,
+            true,
+            &mut BTreeSet::new(),
+            is_cancelled,
+        )?;
+        Some(!seeds.is_disjoint(&reaching.bindings))
     }
 
     /// Returns `None` when source effects are ambiguous or the query is cancelled.

@@ -6,6 +6,7 @@ mod code_action_resolve;
 mod completion;
 mod completion_resolve;
 mod cross_file_rename;
+mod declaration;
 mod definition;
 mod diagnostic;
 mod document_highlight;
@@ -16,6 +17,7 @@ mod folding_range;
 mod format;
 mod format_range;
 mod hover;
+mod implementation;
 mod inlay_hint;
 mod prepare_rename;
 mod references;
@@ -38,6 +40,7 @@ pub(super) use code_action::CodeActions;
 pub(super) use code_action_resolve::CodeActionResolve;
 pub(super) use completion::Completion;
 pub(super) use completion_resolve::CompletionResolve;
+pub(super) use declaration::Declaration;
 pub(super) use definition::Definition;
 pub(super) use diagnostic::DocumentDiagnostic;
 pub(super) use document_highlight::DocumentHighlight;
@@ -48,6 +51,7 @@ pub(super) use folding_range::FoldingRanges;
 pub(super) use format::Format;
 pub(super) use format_range::FormatRange;
 pub(super) use hover::Hover;
+pub(super) use implementation::Implementation;
 pub(super) use inlay_hint::InlayHint;
 pub(super) use prepare_rename::PrepareRename;
 pub(super) use references::References;
@@ -61,3 +65,7 @@ pub(super) use workspace_symbol::WorkspaceSymbols;
 #[cfg(test)]
 #[path = "../../../tests/requests/workspace_explain.rs"]
 mod workspace_explain_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/requests/navigation.rs"]
+mod navigation_tests;

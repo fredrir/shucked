@@ -21,6 +21,15 @@ export function registerConfigWatcher(
           "Configuration change detected for 'shucked.server'. Restarting language server...",
         );
         await clientManager.restart();
+      } else if (
+        event.affectsConfiguration("shucked.trace.logLevel") ||
+        event.affectsConfiguration("shucked.trace.logFile")
+      ) {
+        // The server configures its log subscriber once at start-up.
+        outputChannel.info(
+          "Configuration change detected for 'shucked.trace'. Restarting language server...",
+        );
+        await clientManager.restart();
       }
     }),
   );

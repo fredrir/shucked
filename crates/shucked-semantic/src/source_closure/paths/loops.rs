@@ -42,8 +42,15 @@ impl LoopWord {
                     if part.span.slice(source).contains('\\') {
                         return None;
                     }
-                    self.parts
-                        .push(LoopPart::Pattern(text.as_str(source, part.span).to_owned()));
+                    let text = text.as_str(source, part.span);
+                    if self.parts.is_empty()
+                        && let Some(rest) = crate::source_resolve::home_tilde_suffix(text)
+                        && (!rest.is_empty() || word.parts.len() == 1)
+                    {
+                        self.push_home_tilde(rest);
+                    } else {
+                        self.parts.push(LoopPart::Pattern(text.to_owned()));
+                    }
                 }
                 WordPart::ZshQualifiedGlob(glob) if zsh => {
                     if let Some(qualifiers) = &glob.qualifiers {
@@ -59,9 +66,18 @@ impl LoopWord {
                         for part in &pattern.parts {
                             match &part.kind {
                                 PatternPart::Word(word) => self.word(word, source, bash, zsh)?,
-                                PatternPart::Literal(text) => self.parts.push(LoopPart::Pattern(
-                                    text.as_str(source, part.span).to_owned(),
-                                )),
+                                PatternPart::Literal(text) => {
+                                    let text = text.as_str(source, part.span);
+                                    if self.parts.is_empty()
+                                        && let Some(rest) =
+                                            crate::source_resolve::home_tilde_suffix(text)
+                                        && !rest.is_empty()
+                                    {
+                                        self.push_home_tilde(rest);
+                                    } else {
+                                        self.parts.push(LoopPart::Pattern(text.to_owned()));
+                                    }
+                                }
                                 PatternPart::AnyString => {
                                     self.parts.push(LoopPart::Pattern("*".into()))
                                 }
@@ -89,6 +105,102 @@ impl LoopWord {
             }
         }
         Some(())
+    }
+
+    /// An unquoted leading `~`/`~/` is the shell's `$HOME`, which the path
+    /// analyzer seeds; the rest of the word stays a pattern.
+    fn push_home_tilde(&mut self, rest: &str) {
+        self.parts
+            .push(LoopPart::Value(SourcePathTemplate::Interpolated(vec![
+                TemplatePart::Variable(Name::from("HOME")),
+            ])));
+        if !rest.is_empty() {
+            self.parts.push(LoopPart::Pattern(rest.to_owned()));
+        }
+    }
+
+    /// Files a `source` body loads for this loop word when the body's path
+    /// `template` mentions the loop `variable`.
+    ///
+    /// A literal word (after brace expansion) is substituted for the variable
+    /// and the rendered path must be absolute; a file that does not exist is
+    /// skipped, as the shell's `source` would fail on it, but stays a
+    /// dependency so its creation re-resolves the loop. A glob word is only
+    /// supported by a plain `source "$f"` body and matches the directory
+    /// listing.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn expand_sources(
+        &self,
+        variable: &Name,
+        template: &[TemplatePart],
+        from: &Path,
+        values: &FxHashMap<Name, String>,
+        args: &[Option<compact_str::CompactString>],
+        provider: &dyn SourcePathFileProvider,
+        result: &mut ResolvedSourcePaths,
+    ) -> Option<Vec<PathBuf>> {
+        let Some(literal_values) = self.literal_values(from, values, args, result) else {
+            return matches!(template, [TemplatePart::Variable(name)] if name == variable)
+                .then(|| self.expand(from, values, args, provider, result))
+                .flatten();
+        };
+        let mut paths = Vec::new();
+        for value in literal_values {
+            let parts = template
+                .iter()
+                .map(|part| match part {
+                    TemplatePart::Variable(name) if name == variable => {
+                        TemplatePart::Literal(value.clone())
+                    }
+                    other => other.clone(),
+                })
+                .collect();
+            let rendered =
+                evaluate_expression(&SourcePathTemplate::Interpolated(parts), from, values, args)?;
+            let path = PathBuf::from(rendered);
+            if !path.is_absolute() {
+                return None;
+            }
+            result.dependencies.insert(path.clone());
+            if provider.is_file(&path) {
+                paths.push(path);
+            }
+            if paths.len() > MAX_EXPANSIONS || provider.is_cancelled() {
+                result.incomplete = true;
+                return None;
+            }
+        }
+        Some(paths)
+    }
+
+    /// The literal strings this word expands to, after brace expansion.
+    ///
+    /// Pattern text must be free of glob metacharacters: a glob here would
+    /// match against the unknown working directory, not a known one.
+    fn literal_values(
+        &self,
+        from: &Path,
+        values: &FxHashMap<Name, String>,
+        args: &[Option<compact_str::CompactString>],
+        result: &mut ResolvedSourcePaths,
+    ) -> Option<Vec<String>> {
+        let mut pattern = String::new();
+        for part in &self.parts {
+            match part {
+                LoopPart::Pattern(text) => pattern.push_str(text),
+                LoopPart::Value(template) => pattern.push_str(&globset::escape(
+                    &evaluate_expression(template, from, values, args)?,
+                )),
+            }
+        }
+        if pattern.len() > MAX_SOURCE_PATH_TEMPLATE_LITERAL_BYTES {
+            result.incomplete = true;
+            return None;
+        }
+        expand_braces(&pattern, &mut result.incomplete)?
+            .into_iter()
+            .map(|pattern| literal_text(&pattern))
+            .collect()
     }
 
     pub(super) fn expand(
@@ -158,6 +270,16 @@ impl LoopWord {
 }
 
 fn literal_directory(pattern: &str) -> Option<PathBuf> {
+    let text = literal_text(pattern)?;
+    Some(PathBuf::from(if text.is_empty() {
+        "/".to_owned()
+    } else {
+        text
+    }))
+}
+
+/// Unescapes `pattern` when it contains no active glob metacharacters.
+fn literal_text(pattern: &str) -> Option<String> {
     let mut text = String::new();
     let mut chars = pattern.chars();
     while let Some(ch) = chars.next() {
@@ -167,11 +289,7 @@ fn literal_directory(pattern: &str) -> Option<PathBuf> {
             _ => text.push(ch),
         }
     }
-    Some(PathBuf::from(if text.is_empty() {
-        "/".to_owned()
-    } else {
-        text
-    }))
+    Some(text)
 }
 
 fn expand_braces(pattern: &str, incomplete: &mut bool) -> Option<Vec<String>> {

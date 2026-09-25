@@ -150,6 +150,14 @@ fn render_semantic_hover(
             hover.symbol.definition_span.start.line(),
             hover.symbol.definition_span.start.column()
         ));
+        if crate::handlers::commands::dialect(snapshot) == "zsh"
+            && let Some(doc) = zsh::configuration_parameter_doc(hover.symbol.name.as_str())
+        {
+            markdown.push_str(&format!(
+                "\n\n**Read by the zsh runtime** ({}): {}",
+                doc.param_type, doc.markdown
+            ));
+        }
     }
 
     markdown.push_str(&format!(

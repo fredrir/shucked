@@ -312,6 +312,192 @@ pub struct ZshParameterDoc {
     pub markdown: &'static str,
 }
 
+/// Documentation for a parameter that scripts assign but the zsh runtime reads.
+///
+/// These names never have a source-level consumer, so navigation from their
+/// assignment finds no references; hover explains who reads the value instead.
+pub fn configuration_parameter_doc(name: &str) -> Option<ZshParameterDoc> {
+    let doc = |param_type, markdown| {
+        Some(ZshParameterDoc {
+            param_type,
+            markdown,
+        })
+    };
+    match name {
+        "HISTFILE" => doc(
+            "Scalar (path)",
+            "File where the shell saves command history when a session ends (or after each \
+             command with `INC_APPEND_HISTORY`/`SHARE_HISTORY`). Unset by default: history \
+             is only kept in memory until this is assigned.",
+        ),
+        "HISTSIZE" => doc(
+            "Integer",
+            "Maximum number of history entries kept in memory for the running session. \
+             Keep it at least as large as `SAVEHIST` so entries are not discarded before \
+             they are written to `HISTFILE`.",
+        ),
+        "SAVEHIST" => doc(
+            "Integer",
+            "Maximum number of history entries written to `HISTFILE`. Nothing is saved \
+             while it is 0 or `HISTFILE` is unset.",
+        ),
+        "HISTORY_IGNORE" => doc(
+            "Scalar (pattern)",
+            "Pattern for commands that are dropped when history is written to `HISTFILE`; \
+             they still stay in the in-memory session history.",
+        ),
+        "HISTCHARS" | "histchars" => doc(
+            "Scalar (three characters)",
+            "Characters used for history expansion: the `!`-style trigger, the quick \
+             substitution character (`^`), and the comment character (`#`).",
+        ),
+        "ZDOTDIR" => doc(
+            "Scalar (directory)",
+            "Directory searched for the personal startup files `.zshenv`, `.zprofile`, \
+             `.zshrc`, `.zlogin` and `.zlogout` instead of `$HOME`. It must be set in \
+             `/etc/zshenv` or `$HOME/.zshenv` to affect the remaining startup files.",
+        ),
+        "WORDCHARS" => doc(
+            "Scalar",
+            "Non-alphanumeric characters that line-editor word motions and deletions \
+             treat as part of a word.",
+        ),
+        "KEYTIMEOUT" => doc(
+            "Integer (hundredths of a second)",
+            "How long the line editor waits for the next character of a multi-key binding \
+             before treating the keys typed so far as complete.",
+        ),
+        "PS1" => doc(
+            "Scalar (prompt)",
+            "Primary prompt, expanded with prompt escapes before each command line. \
+             `PROMPT` is the same parameter under another name.",
+        ),
+        "PS2" => doc(
+            "Scalar (prompt)",
+            "Continuation prompt shown while the shell waits for more input to finish a \
+             command.",
+        ),
+        "PS3" => doc(
+            "Scalar (prompt)",
+            "Prompt printed by the `select` loop when it asks for a choice.",
+        ),
+        "PS4" => doc(
+            "Scalar (prompt)",
+            "Prefix printed before each traced command while the `XTRACE` option is set.",
+        ),
+        "SPROMPT" => doc(
+            "Scalar (prompt)",
+            "Prompt used by spelling correction (`CORRECT`/`CORRECT_ALL`) to ask whether \
+             to accept a suggested command.",
+        ),
+        "FPATH" => doc(
+            "Scalar (colon-separated directories, tied to $fpath)",
+            "Directories searched for autoloadable functions, including completion \
+             definitions. `fpath` is the array form of the same value.",
+        ),
+        "CDPATH" => doc(
+            "Scalar (colon-separated directories, tied to $cdpath)",
+            "Directories searched by `cd` and `pushd` for a relative directory name that \
+             does not exist in the current directory.",
+        ),
+        "MANPATH" | "manpath" => doc(
+            "Scalar (colon-separated directories)",
+            "Directories searched by `man`; the `manpath` array is its tied form.",
+        ),
+        "MAILCHECK" => doc(
+            "Integer (seconds)",
+            "Interval between checks for new mail in the files named by `MAIL` or \
+             `MAILPATH`. Zero disables the check.",
+        ),
+        "REPORTTIME" => doc(
+            "Integer (seconds)",
+            "Commands whose combined user and system CPU time exceeds this value have \
+             timing statistics printed automatically, as with `time`.",
+        ),
+        "TMOUT" => doc(
+            "Integer (seconds)",
+            "Idle time after which the shell sends itself `SIGALRM`; without a trap for it \
+             the shell exits.",
+        ),
+        "LISTMAX" => doc(
+            "Integer",
+            "Number of completion matches above which the shell asks before listing them. \
+             Zero always asks; a negative value never asks.",
+        ),
+        "DIRSTACKSIZE" => doc(
+            "Integer",
+            "Maximum number of entries kept on the directory stack used by `pushd` and \
+             `popd`.",
+        ),
+        "LOGCHECK" => doc(
+            "Integer (seconds)",
+            "Interval between checks of the login and logout activity described by \
+             `WATCH`.",
+        ),
+        "WATCH" | "watch" => doc(
+            "Scalar or array of user names",
+            "Users whose logins and logouts the shell reports; `all` and `notme` are \
+             recognised as well.",
+        ),
+        "precmd_functions"
+        | "preexec_functions"
+        | "chpwd_functions"
+        | "periodic_functions"
+        | "zshaddhistory_functions"
+        | "zshexit_functions" => doc(
+            "Array of function names",
+            "Functions called by the shell in addition to the hook of the same name: before \
+             each prompt, before each command, after a directory change, every `PERIOD` \
+             seconds, when a history line is added, or on exit.",
+        ),
+        "PERIOD" => doc(
+            "Integer (seconds)",
+            "Interval at which the `periodic` hook and the functions in \
+             `periodic_functions` run, checked before each prompt.",
+        ),
+        "ZLE_RPROMPT_INDENT" => doc(
+            "Integer",
+            "Number of spaces left between the right-hand prompt and the terminal edge. \
+             Zero lets the prompt reach the last column.",
+        ),
+        "module_path" | "MODULE_PATH" => doc(
+            "Array (tied to $MODULE_PATH)",
+            "Directories searched for dynamically loadable modules by `zmodload`.",
+        ),
+        "COLUMNS" | "LINES" => doc(
+            "Integer",
+            "Terminal width or height as understood by the line editor. Normally updated \
+             from the terminal on `SIGWINCH`; assigning a value overrides that.",
+        ),
+        "LANG" | "LC_ALL" | "LC_CTYPE" | "LC_COLLATE" | "LC_NUMERIC" | "LC_TIME"
+        | "LC_MESSAGES" => doc(
+            "Scalar (locale name)",
+            "Locale category consulted by the shell and by child processes. `LC_ALL` \
+             overrides every other category and `LANG` supplies the default.",
+        ),
+        "TERM" => doc(
+            "Scalar",
+            "Terminal type used to look up terminal capabilities for the line editor and \
+             for programs started from the shell.",
+        ),
+        "EDITOR" | "VISUAL" => doc(
+            "Scalar (command)",
+            "Program used to edit command lines (`edit-command-line`) and by tools that \
+             open an editor; `VISUAL` takes priority over `EDITOR`.",
+        ),
+        "PAGER" => doc(
+            "Scalar (command)",
+            "Program used by tools such as `man` and `git` to page long output.",
+        ),
+        "PATH" => doc(
+            "Scalar (colon-separated directories, tied to $path)",
+            "Directories searched, in order, for external commands. `path` is the array \
+             form; changing either updates the other.",
+        ),
+        _ => None,
+    }
+}
+
 /// Retrieve type and Markdown documentation for a special Zsh runtime parameter.
 pub fn special_parameter_doc(name: &str) -> Option<ZshParameterDoc> {
     match name {

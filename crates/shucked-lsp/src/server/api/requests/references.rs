@@ -101,15 +101,9 @@ fn references(
             return Ok(None);
         }
         if details.incomplete {
-            client.show_message(
-                format!(
-                    "Workspace references are incomplete: {}.",
-                    index
-                        .incomplete_reason()
-                        .unwrap_or_else(|| "some source effects could not be followed".into())
-                ),
-                types::MessageType::WARNING,
-            )?;
+            let (key, message) =
+                crate::handlers::workspace_explain::incomplete_references_notice(&details, &index);
+            client.show_message_once(key, message, types::MessageType::WARNING)?;
         }
         let mut locations = details.references;
         if params.context.include_declaration {
@@ -136,8 +130,23 @@ fn references(
     }
     let (mut locations, incomplete) = index.function_references(&resolution.definitions);
     if incomplete || resolution.incomplete || resolution.may_be_absent {
-        client.show_message(
-            "Workspace function references include possible calls; resolution is incomplete.",
+        let names = resolution
+            .definitions
+            .iter()
+            .map(|definition| definition.definition.name.to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ");
+        let reason = index
+            .incomplete_reason()
+            .unwrap_or_else(|| "some calls run through effects that cannot be followed".into());
+        client.show_message_once(
+            format!(
+                "workspace-function-references-incomplete:{}:{names}:{reason}",
+                path.display()
+            ),
+            format!("References to `{names}` include possible calls; {reason}."),
             types::MessageType::WARNING,
         )?;
     }

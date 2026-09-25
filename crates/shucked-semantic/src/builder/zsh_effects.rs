@@ -104,23 +104,15 @@ pub(super) fn recorded_simple_command_info_with(
         .is_some_and(|resolved| resolved.ignored_root);
     let source_path_template = resolved_source_path_template.map(|resolved| resolved.template);
 
+    // Quoting policy (which unquoted expansions stay one word) lives with the
+    // template builder, per dialect.
     let source_path_expression = normalized
         .literal_name
         .as_deref()
         .filter(|name| matches!(*name, "source" | "."))
         .and_then(|_| command.args.first())
-        .filter(|word| {
-            word.parts.iter().all(|part| {
-                matches!(
-                    part.kind,
-                    shucked_ast::WordPart::Literal(_)
-                        | shucked_ast::WordPart::SingleQuoted { .. }
-                        | shucked_ast::WordPart::DoubleQuoted { .. }
-                )
-            })
-        })
         .and_then(|word| {
-            crate::source_closure::source_path_expression(
+            crate::source_closure::source_operand_path_expression(
                 word,
                 source,
                 bash_runtime_vars_enabled,

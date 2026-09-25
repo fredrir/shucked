@@ -22,7 +22,7 @@ use shucked_linter::ShellDialect;
 use shucked_semantic::{
     CallFactSourceEdge, CallNodeKind, CrossFileCall, ExactFunctionRename, ExactFunctionRenameError,
     FileCallFacts, FileVariableFacts, SemanticModel, SourcePathFileProvider, SourceRefKind,
-    VisibleSourcedFunction, WorkspaceCallIndex, source_ref_candidate_paths,
+    VisibleSourcedFunction, WorkspaceCallIndex,
 };
 
 use crate::PositionEncoding;
@@ -293,7 +293,35 @@ pub(crate) struct WorkspaceVariableDetails {
     pub(crate) definitions: Vec<types::Location>,
     pub(crate) references: Vec<types::Location>,
     pub(crate) incomplete: bool,
+    /// Source operations that could read the selected bindings but whose
+    /// target file could not be inspected.
+    pub(crate) unfollowed_sources: Vec<UnfollowedSource>,
     pub(crate) conditional: bool,
+}
+
+/// A source operation whose target could not be followed by the index.
+#[derive(Clone)]
+pub(crate) struct UnfollowedSource {
+    pub(crate) location: types::Location,
+    pub(crate) reason: Option<SourceResolutionReason>,
+    /// Source text of the operation, trimmed to one line.
+    pub(crate) text: String,
+}
+
+impl UnfollowedSource {
+    /// Short human-readable reason suitable for a message.
+    pub(crate) fn reason_text(&self) -> &'static str {
+        match self.reason {
+            Some(SourceResolutionReason::Resolved) => "target not indexed",
+            Some(SourceResolutionReason::Missing) => "file not found",
+            Some(SourceResolutionReason::Dynamic) => "runtime expression",
+            Some(SourceResolutionReason::UnknownValue) => "unknown value",
+            Some(SourceResolutionReason::AnalysisLimit) => "analysis limit",
+            Some(SourceResolutionReason::Ignored) => "ignored by directive",
+            Some(SourceResolutionReason::Unreadable) => "unreadable file",
+            None => "not followed",
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -721,6 +749,30 @@ impl WorkspaceFunctionIndex {
             .unwrap_or_default()
     }
 
+    /// Every indexed definition of the function called `name`, in path order.
+    ///
+    /// Used by implementation requests, where each redefinition (for example a
+    /// per-platform override sourced later) is a candidate body.
+    pub(crate) fn function_definitions_named(
+        &self,
+        name: &str,
+    ) -> Vec<shucked_semantic::WorkspaceFunctionDefinition> {
+        self.files
+            .iter()
+            .flat_map(|(path, file)| {
+                file.projection
+                    .calls
+                    .definitions
+                    .iter()
+                    .filter(|definition| definition.name.as_str() == name)
+                    .map(|definition| shucked_semantic::WorkspaceFunctionDefinition {
+                        path: path.clone(),
+                        definition: definition.clone(),
+                    })
+            })
+            .collect()
+    }
+
     pub(crate) fn function_locations(
         &self,
         definitions: &[shucked_semantic::WorkspaceFunctionDefinition],
@@ -808,19 +860,34 @@ impl WorkspaceFunctionIndex {
             })
     }
 
+    /// Definitions for navigation.
+    ///
+    /// Exact reaching definitions are preferred. When source effects make the
+    /// exact answer ambiguous, or the workspace index is partial, the possible
+    /// definitions known to the index are returned instead of nothing: a
+    /// navigation target that may be one of several is more useful than no
+    /// target, and mutation features apply their own stricter checks.
     pub(crate) fn variable_definition_locations(
         &self,
         from_path: &Path,
         target: &WorkspaceVariableTarget,
         cancellation: &RequestCancellationToken,
     ) -> Option<Vec<types::Location>> {
-        if !self.complete || cancellation.is_cancelled() {
+        if cancellation.is_cancelled() {
             return None;
         }
-        let occurrences = self
-            .variables
-            .definitions(from_path, target, &|| cancellation.is_cancelled())?;
-        self.variable_locations(occurrences, cancellation)
+        let is_cancelled = || cancellation.is_cancelled();
+        if self.complete
+            && let Some(occurrences) = self.variables.definitions(from_path, target, &is_cancelled)
+            && !occurrences.is_empty()
+        {
+            return self.variable_locations(occurrences, cancellation);
+        }
+        if cancellation.is_cancelled() {
+            return None;
+        }
+        let explanation = self.variables.explain(from_path, target, &is_cancelled)?;
+        self.variable_locations(explanation.definitions, cancellation)
     }
 
     pub(crate) fn variable_details(
@@ -832,11 +899,48 @@ impl WorkspaceFunctionIndex {
         let explanation = self
             .variables
             .explain(from_path, target, &|| cancellation.is_cancelled())?;
+        let unfollowed_sources = explanation
+            .unfollowed_sources
+            .iter()
+            .map(|occurrence| {
+                let details = self.source_details(&occurrence.path, occurrence.span.start.offset());
+                let text = self
+                    .files
+                    .get(&occurrence.path)
+                    .and_then(|file| {
+                        file.source()
+                            .get(occurrence.span.start.offset()..occurrence.span.end.offset())
+                    })
+                    .map(|text| text.lines().next().unwrap_or_default().trim().to_owned())
+                    .unwrap_or_default();
+                (
+                    occurrence.clone(),
+                    details.map(|details| details.reason),
+                    text,
+                )
+            })
+            .collect::<Vec<_>>();
+        let unfollowed_locations = self.variable_locations(
+            unfollowed_sources
+                .iter()
+                .map(|(occurrence, _, _)| occurrence.clone())
+                .collect(),
+            cancellation,
+        )?;
         Some(WorkspaceVariableDetails {
             name: explanation.name.to_string(),
             definitions: self.variable_locations(explanation.definitions, cancellation)?,
             references: self.variable_locations(explanation.references, cancellation)?,
             incomplete: explanation.incomplete || !self.complete,
+            unfollowed_sources: unfollowed_locations
+                .into_iter()
+                .zip(unfollowed_sources)
+                .map(|(location, (_, reason, text))| UnfollowedSource {
+                    location,
+                    reason,
+                    text,
+                })
+                .collect(),
             conditional: explanation.conditional,
         })
     }
@@ -1287,6 +1391,27 @@ impl<'a> WorkspacePathProvider<'a> {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Home directory override for tests on this thread; see [`with_test_home_dir`].
+    static TEST_HOME_DIR: std::cell::RefCell<Option<PathBuf>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with `home` as the home directory that workspace source
+/// resolution on this thread sees (`~/...` operands and the seeded `HOME`).
+///
+/// Tests use this instead of assigning `HOME`: the environment is process
+/// wide and the test runner is parallel, so an environment change would race
+/// with every other test reading it.
+#[cfg(test)]
+pub(crate) fn with_test_home_dir<T>(home: &Path, f: impl FnOnce() -> T) -> T {
+    let previous = TEST_HOME_DIR.with(|cell| cell.replace(Some(home.to_path_buf())));
+    let result = f();
+    TEST_HOME_DIR.with(|cell| *cell.borrow_mut() = previous);
+    result
+}
+
 impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
     fn candidates(&self, from: &Path, candidate: &str) -> Vec<PathBuf> {
         let resolution = self.source_paths.borrow_mut().resolve(from, self.context);
@@ -1296,6 +1421,15 @@ impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
             &resolution.roots,
             &resolution.project_root,
         )
+    }
+
+    /// Production builds keep the trait default (the process environment);
+    /// tests can pin the home directory per thread.
+    #[cfg(test)]
+    fn home_dir(&self) -> Option<PathBuf> {
+        TEST_HOME_DIR
+            .with(|cell| cell.borrow().clone())
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
     }
 
     fn read_source(&self, path: &Path) -> Option<String> {
@@ -1477,12 +1611,7 @@ fn project_file(
             let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
                 candidate.map(PathBuf::from).into_iter().collect()
             } else {
-                source_ref_candidate_paths(
-                    path,
-                    source_ref,
-                    &source_paths.roots,
-                    &source_paths.project_root,
-                )
+                path_provider.source_ref_candidates(path, source_ref)
             };
             if resolved_paths.candidate(source_ref).is_none()
                 && candidates.is_empty()
@@ -1725,7 +1854,7 @@ mod tests {
     }
 
     #[test]
-    fn incomplete_indexes_do_not_return_variable_definitions() {
+    fn incomplete_indexes_still_navigate_to_known_variable_definitions() {
         let tempdir = tempfile::tempdir().unwrap();
         let workspace = std::fs::canonicalize(tempdir.path()).unwrap();
         populate_workspace(&workspace);
@@ -1743,11 +1872,14 @@ mod tests {
         let target = crate::workspace_variables::variable_target(&model, &symbol)
             .expect("the assignment should be a file variable");
 
-        assert!(
-            built
-                .variable_definition_locations(&path, &target, &context.cancellation)
-                .is_none()
-        );
+        // A partial workspace index limits cross-file certainty, but it must
+        // not fail closed: the query answers with what the index knows (here
+        // nothing, because the indexed buffer does not contain the assignment)
+        // and the request handler then falls back to the document's own binding.
+        let locations = built
+            .variable_definition_locations(&path, &target, &context.cancellation)
+            .expect("navigation should not fail closed on a partial index");
+        assert!(locations.is_empty(), "{locations:?}");
     }
 
     #[test]

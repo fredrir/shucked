@@ -40,6 +40,16 @@ impl Native {
         }
     }
 
+    /// Whether an engine is still occupied by an earlier request, so that a
+    /// request that returned nothing may be retried rather than reported failed.
+    pub(super) fn busy(&self) -> bool {
+        self.zsh.as_ref().is_some_and(NativeZsh::busy)
+            || [&self.bash, &self.fish]
+                .into_iter()
+                .flatten()
+                .any(shell::ManagedShell::busy)
+    }
+
     pub(super) fn invalidate(&self) {
         for index in self
             .installed
@@ -112,6 +122,7 @@ impl Native {
         if let Some(executable) = environment.executable_path(command, directory) {
             bound_words[0] = executable.to_string_lossy().into_owned();
         }
+        let budget = warm_budget_ms(name);
         if personal
             && dialect == "zsh"
             && let Some(zsh) = &self.zsh
@@ -121,7 +132,7 @@ impl Native {
                 prefix,
                 suffix,
                 directory,
-                1500,
+                budget,
                 true,
                 cancellation,
                 execution_path,
@@ -166,7 +177,7 @@ impl Native {
                         prefix,
                         suffix,
                         directory,
-                        1500,
+                        budget,
                         false,
                         cancellation,
                         execution_path,
@@ -295,7 +306,7 @@ impl Native {
             std::collections::BTreeMap::new();
         let mut fingerprint = std::collections::hash_map::DefaultHasher::new();
         for engine in ["zsh", "bash", "fish"] {
-            for directory in assets::completion_directories(execution_path, engine) {
+            for directory in assets::discovery_directories(execution_path, engine) {
                 directory.hash(&mut fingerprint);
                 let Ok(entries) = std::fs::read_dir(&directory) else {
                     continue;
@@ -392,6 +403,19 @@ struct Installed {
     created: Instant,
     fingerprint: u64,
     commands: std::collections::BTreeMap<String, Vec<Registration>>,
+}
+
+/// Budget for a warm worker request. Completers that enumerate subcommands or
+/// packages by running the tool itself need longer than the fixed-grammar
+/// ones; the editor stays responsive because the result arrives through
+/// `shucked/completionReady` either way.
+pub(super) fn warm_budget_ms(name: &str) -> usize {
+    match name {
+        "brew" | "docker" | "docker-compose" | "podman" | "kubectl" | "helm" | "gcloud" | "aws"
+        | "az" | "terraform" | "gh" | "npm" | "pnpm" | "yarn" | "cargo" | "pip" | "pip3"
+        | "conda" | "nix" | "port" | "apt" | "apt-get" | "dnf" | "pacman" => 4000,
+        _ => 1500,
+    }
 }
 
 fn load_registry() -> std::collections::BTreeMap<String, Vec<Registration>> {

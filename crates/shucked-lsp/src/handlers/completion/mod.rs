@@ -66,7 +66,7 @@ pub(crate) fn directory_preview(
     if facts.name() != Some(site.words[0].as_str())
         || facts.visible_function.is_some()
         || !facts.aliases.is_empty()
-        || facts.environment_uncertain.is_some()
+        || uncertainty_blocks(facts, true)
         || facts
             .effective_words
             .iter()
@@ -85,7 +85,7 @@ pub(crate) fn directory_preview(
             .sites
             .iter()
             .rfind(|(facts, _)| facts.span.start.offset() <= offset)?;
-        if !grammar_allowed(facts, resolution) {
+        if !completion_allowed(facts, resolution, &command.environment) {
             return None;
         }
     }
@@ -185,8 +185,9 @@ pub(super) fn extend(
                 .offset()
                 .saturating_sub(facts.span.start.offset())
         });
-    let grammar_allowed =
-        command_site.is_none_or(|(facts, resolution)| grammar_allowed(facts, resolution));
+    let grammar_allowed = command_site.is_none_or(|(facts, resolution)| {
+        completion_allowed(facts, resolution, &command_analysis.environment)
+    });
     let effective_words = command_site.and_then(|(facts, resolution)| {
         let shucked_command::CommandResolution::Resolved(resolved) = resolution else {
             return None;
@@ -247,8 +248,12 @@ pub(super) fn extend(
         && local
         && command_analysis.context.mode == shucked_command::ExecutionMode::InteractiveSession
         && command_site.is_some_and(|(facts, _)| {
-            facts.environment_uncertain.is_none()
-                && facts.effective_words.iter().all(|word| word.text.is_some())
+            !uncertainty_blocks(
+                facts,
+                facts
+                    .name()
+                    .is_some_and(|name| command_analysis.environment.builtins.contains(name)),
+            ) && facts.effective_words.iter().all(|word| word.text.is_some())
         });
     let mut native_arguments = false;
     let mut provider_active = false;
@@ -396,6 +401,9 @@ pub(super) fn path_fallback(
         || (!command && !provider_active && !prefix.is_empty())
 }
 
+/// Strict gate: any environment uncertainty or unknown resolution withholds
+/// provider grammar. Retained for the Fish frontend, whose uncertainty facts
+/// are not classified.
 fn grammar_allowed(
     facts: &shucked_semantic::CommandSiteFacts,
     resolution: &shucked_command::CommandResolution,
@@ -408,6 +416,71 @@ fn grammar_allowed(
             }
             shucked_command::CommandResolution::Missing(_) => facts.aliases.is_empty(),
         }
+}
+
+/// Whether the site's environment uncertainty can change which program its
+/// name denotes, so that host grammar would be a guess about a different tool.
+/// Builtins keep their identity through PATH changes.
+fn uncertainty_blocks(facts: &shucked_semantic::CommandSiteFacts, builtin: bool) -> bool {
+    use shucked_semantic::EnvironmentUncertainty;
+    let Some(reason) = facts.uncertainty() else {
+        return false;
+    };
+    let Some(name) = facts.name() else {
+        return true;
+    };
+    match reason {
+        EnvironmentUncertainty::PathReplaced | EnvironmentUncertainty::SearchPathOverride
+            if builtin =>
+        {
+            false
+        }
+        _ => reason.changes_host_lookup(name),
+    }
+}
+
+/// Whether a provider may complete arguments at this site.
+///
+/// Diagnostics need certainty; suggestions need the best available guess, and
+/// a suggestion never establishes invalidity. A name keeps its provider
+/// grammar inside a function body, after a `source`, after an extended PATH,
+/// under the portable policy, and when the PATH inventory is incomplete
+/// because of relative, empty, or unreadable entries; the provider layer then
+/// decides by the bundled and installed definitions for that name. Only a
+/// known function or alias for that exact name, a replaced PATH, or a name
+/// that cannot be known statically withholds it.
+pub(super) fn completion_allowed(
+    facts: &shucked_semantic::CommandSiteFacts,
+    resolution: &shucked_command::CommandResolution,
+    environment: &shucked_command::EnvironmentSnapshot,
+) -> bool {
+    use shucked_command::{CommandKind, CommandResolution, UnknownReason};
+    let Some(name) = facts.name() else {
+        return false;
+    };
+    if uncertainty_blocks(facts, environment.builtins.contains(name)) {
+        return false;
+    }
+    match resolution {
+        CommandResolution::Resolved(command) => command.kind != CommandKind::Function,
+        CommandResolution::Missing(_) => facts.aliases.is_empty(),
+        CommandResolution::Unknown(unknown) => match unknown.reason {
+            UnknownReason::DynamicCommand
+            | UnknownReason::WrongTarget
+            | UnknownReason::OpaqueAlias
+            | UnknownReason::RecursiveAlias => false,
+            // A workspace function binding for the name is a possible shadow.
+            UnknownReason::DynamicEnvironment
+                if unknown.detail != shucked_command::DYNAMIC_ENVIRONMENT_DETAIL
+                    && unknown.detail != shucked_command::LAUNCH_DIRECTORY_DETAIL =>
+            {
+                false
+            }
+            // Absent, unverifiable, or context-dependent, but nothing is known
+            // to shadow the name.
+            _ => facts.visible_function.is_none() && facts.aliases.is_empty(),
+        },
+    }
 }
 
 fn command_names(
@@ -663,3 +736,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/completion/preview.rs"]
 mod preview_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/completion/gating.rs"]
+mod gating_tests;

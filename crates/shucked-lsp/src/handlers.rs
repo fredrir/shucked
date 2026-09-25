@@ -12,6 +12,8 @@ pub(crate) mod folding;
 pub(crate) mod format;
 pub(crate) mod inlay_hints;
 pub(crate) mod lint;
+pub(crate) mod login_shell;
+pub(crate) mod navigation;
 pub(crate) mod refactor;
 pub(crate) mod resolve;
 pub(crate) mod selection;

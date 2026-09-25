@@ -3,6 +3,7 @@ use shucked_semantic::EditorSymbolTarget;
 
 use crate::edit::PositionExt;
 use crate::editor_features;
+use crate::handlers::navigation;
 use crate::session::{Client, DocumentSnapshot, RequestCancellationToken, Session};
 use crate::workspace_functions::{
     WorkspaceFunctionContext, canonical_path, workspace_function_index,
@@ -51,7 +52,7 @@ impl super::super::traits::BackgroundRequestHandler for Definition {
     }
 }
 
-fn definition(
+pub(super) fn definition(
     snapshot: DocumentSnapshot,
     workspace: WorkspaceFunctionContext,
     client: &Client,
@@ -66,9 +67,6 @@ fn definition(
         analysis.line_index(),
         snapshot.encoding(),
     );
-    let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
-        return editor_features::definition(snapshot, client, params);
-    };
     let Some(path) = snapshot
         .query()
         .file_url()
@@ -76,6 +74,18 @@ fn definition(
         .ok()
         .map(|path| canonical_path(&path))
     else {
+        return editor_features::definition(snapshot, client, params);
+    };
+    let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
+        // Not a symbol: the operand of `source`, or an external command name.
+        if let Some(index) = workspace_function_index(&workspace)
+            && let Some(locations) = navigation::source_operand_locations(&index, &path, offset)
+        {
+            return Ok(navigation::response(locations));
+        }
+        if let Some(location) = navigation::command_script_location(&snapshot, offset) {
+            return Ok(Some(types::GotoDefinitionResponse::Scalar(location)));
+        }
         return editor_features::definition(snapshot, client, params);
     };
     let workspace_variable = variable_target(analysis.semantic(), &target);
@@ -97,6 +107,11 @@ fn definition(
                 } else {
                     types::GotoDefinitionResponse::Array(locations)
                 }));
+            }
+            // No function body: an external command implemented by a script
+            // is still worth opening.
+            if let Some(location) = navigation::command_script_location(&snapshot, offset) {
+                return Ok(Some(types::GotoDefinitionResponse::Scalar(location)));
             }
 
             // A partial workspace index may omit an otherwise proven local binding.
@@ -123,7 +138,9 @@ fn definition(
             let Some(locations) =
                 index.variable_definition_locations(&path, &target, &workspace.cancellation)
             else {
-                return Ok(None);
+                // The workspace query was cancelled or failed; the document's own
+                // binding is still a valid navigation target.
+                return editor_features::definition(snapshot, client, params);
             };
             Ok(match locations.as_slice() {
                 [] => return editor_features::definition(snapshot, client, params),

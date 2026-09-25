@@ -1,8 +1,158 @@
 //! Source-backed command facts for environment intelligence. No host lookup is performed here.
 use crate::cfg::{CommandId, RecordedCommandKind, RecordedCommandRange, RecordedListOperator};
-use crate::{BindingId, SemanticModel, ShellDialect};
+use crate::{
+    Binding, BindingAttributes, BindingId, BindingKind, ReferenceKind, SemanticModel, ShellDialect,
+};
 use shucked_ast::{Name, Position, Span, Word, static_word_text};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::fmt;
+
+/// Why host absence cannot establish a missing command at a site.
+///
+/// Diagnostics treat every reason alike: none of them may claim that a command
+/// is missing. Suggestion features distinguish them, because most reasons leave
+/// a name that resolves on the host as the best available guess.
+///
+/// [`CommandSiteFacts::environment_uncertain`] carries the message text of the
+/// reason; [`CommandSiteFacts::uncertainty`] recovers the structured value from
+/// it, so existing consumers of the message keep working unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EnvironmentUncertainty {
+    /// The site is inside a function body whose callers decide the environment.
+    InFunction,
+    /// An earlier `source`, `.`, or `eval` may define or redefine commands.
+    SourceOrEval,
+    /// An earlier `autoload` may define functions.
+    Autoload,
+    /// An earlier `cd`, `pushd`, or `popd` changes relative command lookup.
+    WorkingDirectoryChange,
+    /// An earlier assignment replaced PATH without keeping its previous value.
+    PathReplaced,
+    /// An earlier assignment extended PATH, or an earlier command ran under a
+    /// transient PATH override that does not persist.
+    PathExtended,
+    /// The command itself runs under a PATH override.
+    SearchPathOverride,
+    /// Dynamic or conditional alias changes may affect any later name.
+    DynamicAlias,
+    /// The alias applied to this exact name is dynamic, compound, or cyclic.
+    OpaqueAlias,
+    /// The command name requires runtime expansion.
+    DynamicName,
+    /// Wrapper options change the execution context.
+    WrapperOptions,
+    /// A reason recorded by another frontend or an unrecognized message.
+    Other,
+}
+
+impl EnvironmentUncertainty {
+    const ALL: [Self; 12] = [
+        Self::InFunction,
+        Self::SourceOrEval,
+        Self::Autoload,
+        Self::WorkingDirectoryChange,
+        Self::PathReplaced,
+        Self::PathExtended,
+        Self::SearchPathOverride,
+        Self::DynamicAlias,
+        Self::OpaqueAlias,
+        Self::DynamicName,
+        Self::WrapperOptions,
+        Self::Other,
+    ];
+
+    /// The stable message carried by [`CommandSiteFacts::environment_uncertain`].
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::InFunction => "Function execution context depends on its callers",
+            Self::SourceOrEval => "An earlier source or eval may define or redefine commands",
+            Self::Autoload => "An earlier autoload may define functions",
+            Self::WorkingDirectoryChange => {
+                "An earlier directory change may alter relative command lookup"
+            }
+            Self::PathReplaced => "An earlier PATH assignment replaces the command search path",
+            Self::PathExtended => {
+                "An earlier PATH change extends or temporarily overrides the command search path"
+            }
+            Self::SearchPathOverride => "The command changes its execution PATH",
+            Self::DynamicAlias => "Dynamic or conditional alias changes may alter command lookup",
+            Self::OpaqueAlias => "The alias for this name is dynamic, compound, or cyclic",
+            Self::DynamicName => "Command name requires runtime expansion",
+            Self::WrapperOptions => "Wrapper options change execution context",
+            Self::Other => "The execution environment is not statically known",
+        }
+    }
+
+    /// Inverts [`Self::message`]; any other text maps to [`Self::Other`].
+    pub fn from_message(message: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|reason| reason.message() == message)
+            .unwrap_or(Self::Other)
+    }
+
+    /// Whether the reason can change which program `name` denotes on the host.
+    /// For the other reasons the host executable remains the best guess:
+    /// a function body, an earlier `source`, or a PATH extension can shadow a
+    /// name but cannot make its host grammar wrong, and a directory change only
+    /// affects names that contain a path separator.
+    pub fn changes_host_lookup(self, name: &str) -> bool {
+        match self {
+            Self::InFunction
+            | Self::SourceOrEval
+            | Self::Autoload
+            | Self::PathExtended
+            | Self::DynamicAlias => false,
+            Self::WorkingDirectoryChange => name.contains('/'),
+            Self::PathReplaced
+            | Self::SearchPathOverride
+            | Self::OpaqueAlias
+            | Self::DynamicName
+            | Self::WrapperOptions
+            | Self::Other => true,
+        }
+    }
+
+    /// Stronger reasons replace weaker ones when several apply to one site.
+    fn rank(self) -> u8 {
+        match self {
+            Self::InFunction
+            | Self::SourceOrEval
+            | Self::Autoload
+            | Self::PathExtended
+            | Self::DynamicAlias => 0,
+            Self::WorkingDirectoryChange => 1,
+            Self::PathReplaced
+            | Self::SearchPathOverride
+            | Self::OpaqueAlias
+            | Self::DynamicName
+            | Self::WrapperOptions
+            | Self::Other => 2,
+        }
+    }
+}
+
+impl fmt::Display for EnvironmentUncertainty {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.message())
+    }
+}
+
+/// Record `reason` unless a reason at least as strong is already recorded.
+fn weaken(slot: &mut Option<EnvironmentUncertainty>, reason: EnvironmentUncertainty) {
+    if slot.is_none_or(|old| reason.rank() > old.rank()) {
+        *slot = Some(reason);
+    }
+}
+
+fn weaken_message(slot: &mut Option<String>, reason: EnvironmentUncertainty) {
+    let mut current = slot.as_deref().map(EnvironmentUncertainty::from_message);
+    let before = current;
+    weaken(&mut current, reason);
+    if current != before {
+        *slot = current.map(|reason| reason.to_string());
+    }
+}
 
 /// One original or alias-injected shell word.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +218,8 @@ pub struct CommandSiteFacts {
     pub visible_function: Option<BindingId>,
     /// Lookup namespace selected by wrappers.
     pub namespace: CommandNamespace,
-    /// A reason why host absence cannot establish a missing command.
+    /// A reason why host absence cannot establish a missing command. The text
+    /// is the message of an [`EnvironmentUncertainty`]; see [`Self::uncertainty`].
     pub environment_uncertain: Option<String>,
     /// Availability established in this dominated region by a supported check.
     pub guarded_available: bool,
@@ -77,6 +228,12 @@ impl CommandSiteFacts {
     /// The statically known effective command name.
     pub fn name(&self) -> Option<&str> {
         self.effective_words.first()?.text.as_deref()
+    }
+    /// The structured reason behind [`Self::environment_uncertain`].
+    pub fn uncertainty(&self) -> Option<EnvironmentUncertainty> {
+        self.environment_uncertain
+            .as_deref()
+            .map(EnvironmentUncertainty::from_message)
     }
     /// The token to highlight or replace, retaining original source coordinates.
     pub fn name_span(&self) -> Span {
@@ -136,7 +293,7 @@ impl SemanticModel {
         let mut pending_alias_changes = VecDeque::new();
         let mut aliases_enabled = self.shell_profile().dialect != ShellDialect::Bash;
         let mut pending_alias_option = None;
-        let mut environment_uncertain = None;
+        let mut environment_uncertain: Option<EnvironmentUncertainty> = None;
         let mut result = Vec::new();
         let guards = if cursor.is_none() {
             self.command_availability_guards()
@@ -185,15 +342,18 @@ impl SemanticModel {
                 aliases: vec![],
                 visible_function: None,
                 namespace: CommandNamespace::Shell,
-                environment_uncertain: environment_uncertain.clone(),
+                environment_uncertain: environment_uncertain.map(|reason| reason.to_string()),
                 guarded_available: false,
             };
             if info.changes_search_path {
-                site.environment_uncertain = Some("The command changes its execution PATH".into());
+                let reason = self.search_path_override_reason(&site);
+                weaken_message(&mut site.environment_uncertain, reason);
             }
             if flow.in_function {
-                site.environment_uncertain =
-                    Some("Function execution context depends on its callers".into());
+                weaken_message(
+                    &mut site.environment_uncertain,
+                    EnvironmentUncertainty::InFunction,
+                );
             }
             if aliases_enabled {
                 let mut seen = BTreeSet::new();
@@ -212,15 +372,19 @@ impl SemanticModel {
                     }
                     if !seen.insert(name.clone()) {
                         if seen.len() > 1 {
-                            site.environment_uncertain =
-                                Some("Alias definitions form a cycle".into());
+                            weaken_message(
+                                &mut site.environment_uncertain,
+                                EnvironmentUncertainty::OpaqueAlias,
+                            );
                             site.effective_words[0].text = None;
                         }
                         break;
                     }
                     let Some(expansion) = &alias.words else {
-                        site.environment_uncertain =
-                            Some("Alias expansion is dynamic or compound".into());
+                        weaken_message(
+                            &mut site.environment_uncertain,
+                            EnvironmentUncertainty::OpaqueAlias,
+                        );
                         site.effective_words[0].text = None;
                         break;
                     };
@@ -239,7 +403,10 @@ impl SemanticModel {
                         }),
                     );
                     if seen.len() > 32 {
-                        site.environment_uncertain = Some("Alias expansion limit reached".into());
+                        weaken_message(
+                            &mut site.environment_uncertain,
+                            EnvironmentUncertainty::OpaqueAlias,
+                        );
                         break;
                     }
                 }
@@ -279,8 +446,10 @@ impl SemanticModel {
                 for word in site.effective_words.iter().skip(1) {
                     if word.text.is_none() {
                         pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
-                        environment_uncertain =
-                            Some("Dynamic alias definitions may change command lookup".into());
+                        weaken(
+                            &mut environment_uncertain,
+                            EnvironmentUncertainty::DynamicAlias,
+                        );
                     }
                     if let Some((name, expansion)) =
                         word.text.as_deref().and_then(|t| t.split_once('='))
@@ -303,8 +472,10 @@ impl SemanticModel {
                 }
             } else if raw_name == Some("unalias") {
                 if conditional {
-                    environment_uncertain =
-                        Some("Conditional alias removal changes command lookup".into());
+                    weaken(
+                        &mut environment_uncertain,
+                        EnvironmentUncertainty::DynamicAlias,
+                    );
                     if site
                         .effective_words
                         .iter()
@@ -343,8 +514,10 @@ impl SemanticModel {
                     .any(|w| w.text.as_deref() == Some("expand_aliases"))
             {
                 if conditional {
-                    environment_uncertain =
-                        Some("Conditional alias option changes command lookup".into());
+                    weaken(
+                        &mut environment_uncertain,
+                        EnvironmentUncertainty::DynamicAlias,
+                    );
                 } else {
                     pending_alias_option = Some((
                         site.effective_words
@@ -382,30 +555,51 @@ impl SemanticModel {
             if matches!(raw_name, Some("source" | "." | "eval")) {
                 pending_alias_changes.push_back((alias_change_line, AliasChange::Clear));
             }
-            if matches!(
-                raw_name,
-                Some("source" | "." | "eval" | "cd" | "pushd" | "popd" | "autoload")
-            ) || info.changes_search_path
-            {
-                environment_uncertain = Some(
-                    "Earlier source, directory, or PATH changes may alter command lookup".into(),
-                );
+            let effect = match raw_name {
+                Some("source" | "." | "eval") => Some(EnvironmentUncertainty::SourceOrEval),
+                Some("autoload") => Some(EnvironmentUncertainty::Autoload),
+                Some("cd" | "pushd" | "popd") => {
+                    Some(EnvironmentUncertainty::WorkingDirectoryChange)
+                }
+                // A prefix assignment does not outlive its command.
+                _ if info.changes_search_path => Some(EnvironmentUncertainty::PathExtended),
+                _ => None,
+            };
+            if let Some(effect) = effect {
+                weaken(&mut environment_uncertain, effect);
             }
             if cursor.is_none() {
                 result.push(site);
             }
         }
         // Standalone assignments and declaration clauses are not simple commands.
-        let first_path_assignment = self
+        let mut first_path_extension = None;
+        let mut first_path_replacement = None;
+        for binding in self
             .bindings
             .iter()
             .filter(|binding| matches!(binding.name.as_str(), "PATH" | "path"))
-            .map(|binding| binding.span.start.offset())
-            .min();
+        {
+            let offset = binding.span.start.offset();
+            let slot = match self.path_assignment_reason(binding) {
+                None => continue,
+                Some(EnvironmentUncertainty::PathReplaced) => &mut first_path_replacement,
+                Some(_) => &mut first_path_extension,
+            };
+            *slot = Some(slot.map_or(offset, |first: usize| first.min(offset)));
+        }
         for site in &mut result {
-            if first_path_assignment.is_some_and(|offset| offset < site.span.start.offset()) {
-                site.environment_uncertain
-                    .get_or_insert_with(|| "Earlier PATH assignment changes command lookup".into());
+            let start = site.span.start.offset();
+            if first_path_replacement.is_some_and(|offset| offset < start) {
+                weaken_message(
+                    &mut site.environment_uncertain,
+                    EnvironmentUncertainty::PathReplaced,
+                );
+            } else if first_path_extension.is_some_and(|offset| offset < start) {
+                weaken_message(
+                    &mut site.environment_uncertain,
+                    EnvironmentUncertainty::PathExtended,
+                );
             }
         }
         apply_alias_changes(&mut aliases, &mut pending_alias_changes, cursor_parse_line);
@@ -429,6 +623,76 @@ impl SemanticModel {
             Vec::new()
         };
         (result, visible)
+    }
+    /// Whether the source between `start` and `end` reads the previous PATH.
+    fn reads_search_path(&self, start: usize, end: usize) -> bool {
+        self.references.iter().any(|reference| {
+            reference.span.start.offset() >= start
+                && reference.span.end.offset() <= end
+                && matches!(reference.name.as_str(), "PATH" | "path")
+                && matches!(
+                    reference.kind,
+                    ReferenceKind::Expansion
+                        | ReferenceKind::ParameterExpansion
+                        | ReferenceKind::ArrayAccess
+                        | ReferenceKind::ImplicitRead
+                        | ReferenceKind::ArithmeticRead
+                )
+        })
+    }
+    /// A prefix assignment (`PATH=... command`) that keeps the previous PATH
+    /// leaves every host executable reachable; a replacement does not.
+    fn search_path_override_reason(&self, site: &CommandSiteFacts) -> EnvironmentUncertainty {
+        let name_start = site
+            .words
+            .first()
+            .map_or(site.span.end.offset(), |word| word.span.start.offset());
+        if self.reads_search_path(site.span.start.offset(), name_start) {
+            EnvironmentUncertainty::PathExtended
+        } else {
+            EnvironmentUncertainty::SearchPathOverride
+        }
+    }
+    /// How a standalone PATH binding affects later lookups, or `None` for a
+    /// declaration without a value. Binding spans cover the name only, so the
+    /// value is the rest of the innermost recorded command up to the next binding.
+    fn path_assignment_reason(&self, binding: &Binding) -> Option<EnvironmentUncertainty> {
+        if matches!(binding.kind, BindingKind::Declaration(_))
+            && !binding
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        {
+            return None;
+        }
+        if binding.kind == BindingKind::AppendAssignment {
+            return Some(EnvironmentUncertainty::PathExtended);
+        }
+        let start = binding.span.end.offset();
+        let command_end = self
+            .commands_in_source_order()
+            .iter()
+            .map(|&id| self.command_syntax_span(id))
+            .filter(|span| {
+                span.start.offset() <= binding.span.start.offset() && span.end.offset() >= start
+            })
+            .map(|span| span.end.offset())
+            .min();
+        let next_binding = self
+            .bindings
+            .iter()
+            .filter(|other| other.id != binding.id && other.span.start.offset() >= start)
+            .map(|other| other.span.start.offset())
+            .min();
+        let end = command_end
+            .into_iter()
+            .chain(next_binding)
+            .min()
+            .unwrap_or(usize::MAX);
+        Some(if self.reads_search_path(start, end) {
+            EnvironmentUncertainty::PathExtended
+        } else {
+            EnvironmentUncertainty::PathReplaced
+        })
     }
     fn command_availability_guards(&self) -> Vec<(String, Span, crate::ScopeId)> {
         let program = &self.recorded_program;
@@ -763,8 +1027,10 @@ fn literal_words(value: &str, alias: bool) -> Option<Vec<String>> {
 fn unwrap_command(site: &mut CommandSiteFacts) {
     loop {
         let Some(name) = site.name() else {
-            site.environment_uncertain
-                .get_or_insert_with(|| "Command name requires runtime expansion".into());
+            weaken_message(
+                &mut site.environment_uncertain,
+                EnvironmentUncertainty::DynamicName,
+            );
             return;
         };
         match name {
@@ -794,7 +1060,10 @@ fn unwrap_command(site: &mut CommandSiteFacts) {
             .name()
             .is_some_and(|n| n.starts_with('-') || n.contains('='))
         {
-            site.environment_uncertain = Some("Wrapper options change execution context".into());
+            weaken_message(
+                &mut site.environment_uncertain,
+                EnvironmentUncertainty::WrapperOptions,
+            );
             return;
         }
     }

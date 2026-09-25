@@ -16,6 +16,8 @@ pub(crate) type ClientResponseHandler =
 pub struct Client {
     main_loop_sender: MainLoopSender,
     client_sender: ConnectionSender,
+    /// Keys of one-time notices already shown to the user in this session.
+    shown_notices: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl Client {
@@ -29,6 +31,7 @@ impl Client {
         Self {
             main_loop_sender,
             client_sender,
+            shown_notices: Default::default(),
         }
     }
 
@@ -190,6 +193,27 @@ impl Client {
                 message: message.to_string(),
             },
         )
+    }
+
+    /// Show `message` the first time `key` is seen in this session; later
+    /// repetitions only reach the client log so a repeated navigation request
+    /// does not produce a stream of identical notices.
+    pub(crate) fn show_message_once(
+        &self,
+        key: impl Into<String>,
+        message: impl Display,
+        message_type: lsp_types::MessageType,
+    ) -> crate::Result<()> {
+        let first = self
+            .shown_notices
+            .lock()
+            .map(|mut shown| shown.insert(key.into()))
+            .unwrap_or(true);
+        if first {
+            self.show_message(message, message_type)
+        } else {
+            self.log_message(message, message_type)
+        }
     }
 
     pub(crate) fn log_message(

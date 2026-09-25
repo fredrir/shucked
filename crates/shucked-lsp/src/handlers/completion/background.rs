@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use lsp_types::Position;
 
@@ -12,6 +13,11 @@ use crate::session::{Client, DocumentSnapshot};
 use crate::workspace_functions::{
     WorkspaceFunctionContext, cached_workspace_function_index, completion_workspace_function_index,
 };
+
+/// Longest a provider job keeps retrying while its engine finishes an earlier
+/// response; longer than the worker's own drain cap so a stuck worker is
+/// replaced before the job gives up.
+const BUSY_RETRY_CAP: Duration = Duration::from_secs(12);
 
 /// Keep workspace discovery and command analysis off the completion response path.
 pub(crate) fn prepare(
@@ -161,7 +167,7 @@ fn warm(
                         .iter()
                         .rfind(|(facts, _)| facts.span.start.offset() <= offset)
                         .is_none_or(|(facts, resolution)| {
-                            super::grammar_allowed(facts, resolution)
+                            super::completion_allowed(facts, resolution, &command.environment)
                         });
                     if permitted && (refresh || site.prefix.is_empty() || site.prefix == "-") {
                         candidates(
@@ -259,16 +265,33 @@ pub(super) fn candidates(
                     )
                 })
             } else {
-                worker_environment.native.complete_at(
-                    &worker_environment,
-                    &words,
-                    &prefix,
-                    &directory,
-                    cancel,
-                    false,
-                    &dialect,
-                    &suffix,
-                )
+                let run = || {
+                    worker_environment.native.complete_at(
+                        &worker_environment,
+                        &words,
+                        &prefix,
+                        &directory,
+                        cancel,
+                        false,
+                        &dialect,
+                        &suffix,
+                    )
+                };
+                let mut result = run();
+                // A worker still finishing an earlier response is not a
+                // failure: the request stays pending, so the editor keeps the
+                // list incomplete until the adopted or fresh result arrives.
+                let retry_until = Instant::now() + BUSY_RETRY_CAP;
+                while result.is_none()
+                    && !cancel.is_cancelled()
+                    && worker_environment.native.busy()
+                    && Instant::now() < retry_until
+                {
+                    tracing::debug!("completion provider busy; retrying");
+                    std::thread::sleep(Duration::from_millis(25));
+                    result = run();
+                }
+                result
             };
             if cancel.is_cancelled() {
                 return None;
