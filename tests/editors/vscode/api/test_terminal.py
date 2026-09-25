@@ -27,12 +27,20 @@ def test_terminal_startup_alias_resolves_in_the_editor(zsh_document: tuple[Edito
     assert "Resolution: Builtin" in hover
 
 
-def test_live_completer_reads_current_shell_state(zsh_document: tuple[EditorSession, str]) -> None:
-    editor, uri = zsh_document
-    terminal = editor.create_terminal("zsh")
+@pytest.mark.parametrize(
+    "shell",
+    [
+        "zsh",
+        pytest.param("bash", marks=pytest.mark.xfail(strict=True, reason="bash defers signal traps while readline waits at an idle prompt")),
+    ],
+)
+def test_live_completer_reads_current_shell_state(editor: EditorSession, require_shell: Callable[[str], str], shell: str) -> None:
+    require_shell(shell)
+    uri = editor.open(f"live.{'zsh' if shell == 'zsh' else 'sh'}", f"#!/bin/{shell}\nshucked_smoke_alias hello\n")
+    terminal = editor.create_terminal(shell)
     editor.wait_for_hover(uri, 1, 4, r"InteractiveSession", timeout=30)
     editor.edit(uri, "custom_fixture live_")
-    editor.wait_for_completion(uri, 0, len("custom_fixture live_"), "live_fixture_value")
+    editor.wait_for_completion(uri, 0, len("custom_fixture live_"), "live_fixture_value", timeout=10)
     # Authored input simulates the user changing shell state; the extension never sends text.
     editor.bridge.terminal_send_text(terminal["name"], "my_completion_value=live_fixture_changed")
     editor.wait_for_completion(uri, 0, len("custom_fixture live_"), "live_fixture_changed")
