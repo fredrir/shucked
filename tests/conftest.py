@@ -15,6 +15,9 @@ if str(_repo_root) not in sys.path:
 
 from tests.lsp.client import LspClient
 
+# Options and test selection for the VS Code extension suites.
+pytest_plugins = ("editors.vscode.plugin",)
+
 
 @pytest.fixture(scope="session")
 def repo_root() -> Path:

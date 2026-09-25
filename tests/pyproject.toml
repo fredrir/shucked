@@ -5,12 +5,27 @@ description = "Test suite for Shucked LSP server and packaging"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "pexpect>=4.9.0",
+    "playwright>=1.63.0",
+    "psutil>=7.2.2",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "syrupy>=6.1.1",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["."]
 pythonpath = ["."]
+# Fixture setup (building, downloading VS Code) is excluded from the limit.
+timeout = 180
+timeout_func_only = true
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.40.1",
+    "ruff>=0.16.9",
+]
 
