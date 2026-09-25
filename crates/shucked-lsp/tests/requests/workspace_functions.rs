@@ -306,3 +306,68 @@ fn file_limit_keeps_known_function_references_and_explains_partial_discovery() {
     );
     assert!(is_function(&session, &uri, "helper"));
 }
+
+#[test]
+fn startup_file_outside_the_roots_that_loads_the_workspace_supplies_definitions() {
+    // `HOME` is pinned per thread instead of through the environment: the
+    // test runner is parallel and the process environment is shared.
+    let home = tempfile::tempdir().unwrap();
+    let home_path = std::fs::canonicalize(home.path()).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let lib = root_path.join("lib.zsh");
+    let other = root_path.join("other.zsh");
+    std::fs::write(&lib, "greet world\n").unwrap();
+    std::fs::write(&other, "greet nobody\n").unwrap();
+    let zshrc = home_path.join(".zshrc");
+    std::fs::write(
+        &zshrc,
+        format!(
+            "greet() {{ print \"hi $1\"; }}\nsource {}/lib.zsh\ngreet again\n",
+            root_path.display()
+        ),
+    )
+    .unwrap();
+    crate::handlers::workspace_functions::with_test_home_dir(&home_path, || {
+        let (mut session, client, messages) = session(&root_path);
+        let lib_uri = open(&mut session, &lib, "greet world\n");
+        let other_uri = open(&mut session, &other, "greet nobody\n");
+        assert!(is_function(&session, &lib_uri, "greet"));
+        assert!(!is_function(&session, &other_uri, "greet"));
+
+        let selected = position(&lib_uri, 0, 2);
+        let definitions = definition(&session, &client, selected.clone());
+        assert_eq!(definitions.len(), 1, "{definitions:?}");
+        assert_eq!(definitions[0].uri.to_file_path().unwrap(), zshrc);
+        assert_eq!(definitions[0].range.start.line, 0);
+
+        let details = hover(&session, &client, selected.clone());
+        let text = markdown(&details);
+        assert!(text.contains(".zshrc:1"), "{text}");
+        assert!(text.contains("Workspace call sites: 2"), "{text}");
+        assert!(!text.contains("Incomplete results"), "{text}");
+
+        let mut references = references(&session, &client, selected, false)
+            .into_iter()
+            .map(|location| {
+                (
+                    location.uri.to_file_path().unwrap(),
+                    location.range.start.line,
+                )
+            })
+            .collect::<Vec<_>>();
+        references.sort();
+        let mut expected = vec![(zshrc.clone(), 2), (lib.clone(), 0)];
+        expected.sort();
+        assert_eq!(references, expected);
+        // Nothing was incomplete, so no notice was shown.
+        assert!(
+            !messages
+                .try_iter()
+                .any(|message| matches!(message, lsp_server::Message::Notification(n) if n.method == "window/showMessage"))
+        );
+
+        // The unsourced file keeps its own, unresolved, view.
+        assert!(definition(&session, &client, position(&other_uri, 0, 2)).is_empty());
+    });
+}

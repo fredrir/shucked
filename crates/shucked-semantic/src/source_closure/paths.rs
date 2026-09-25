@@ -539,6 +539,48 @@ impl SourcePathAnalyzer {
         result
     }
 
+    /// The directory Zsh reads the user's startup files from.
+    ///
+    /// This is `ZDOTDIR` from the process environment, otherwise the absolute
+    /// value the user's `~/.zshenv` assigns to it, otherwise the home
+    /// directory. Nothing is executed: `.zshenv` is evaluated by the same
+    /// bounded path analysis that resolves source operands.
+    pub fn zsh_startup_directory(
+        &mut self,
+        provider: &dyn SourcePathFileProvider,
+    ) -> Option<PathBuf> {
+        let home = provider.home_dir()?;
+        let mut environment = PathEnvironment::default();
+        seed_process_environment(ParseShellDialect::Zsh, &home, provider, &mut environment);
+        let zdotdir = Name::from("ZDOTDIR");
+        let seeded = environment
+            .values
+            .get(&zdotdir)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.clone());
+        let zshenv = seeded.join(".zshenv");
+        self.halted = false;
+        self.incomplete = false;
+        let mut remaining = MAX_EVENTS;
+        let mut result = ResolvedSourcePaths::default();
+        self.zsh_dotdir_from_startup_file(
+            &zshenv,
+            &zshenv,
+            provider,
+            &mut environment,
+            &mut remaining,
+            &mut result,
+        );
+        Some(
+            environment
+                .values
+                .get(&zdotdir)
+                .map(PathBuf::from)
+                .filter(|directory| directory.is_absolute())
+                .unwrap_or(seeded),
+        )
+    }
+
     /// Applies the Zsh startup files that run before `path`.
     ///
     /// The user's `.zshenv` is evaluated in full only for a startup file: one

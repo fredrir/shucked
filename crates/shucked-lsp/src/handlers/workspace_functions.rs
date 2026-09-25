@@ -3,8 +3,11 @@
 //! The index projects each shell file into compact semantic function and
 //! variable facts, resolves determinable `source` edges, and retains just
 //! enough source metadata to turn byte spans back into LSP ranges. Open
-//! buffers shadow disk content. File analysis survives workspace invalidation;
-//! source effects are reused only while their content and dependencies match.
+//! buffers shadow disk content. Shell startup files outside the workspace
+//! roots that source a workspace file join the index as loaders, so the
+//! definitions they establish before the `source` line resolve inside the
+//! workspace. File analysis survives workspace invalidation; source effects
+//! are reused only while their content and dependencies match.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -34,6 +37,13 @@ use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget
 
 const MAX_RETAINED_MODELS: usize = 128;
 const MAX_RETAINED_MODEL_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+/// Upper bound on files that are indexed only because a shell startup file
+/// outside the workspace roots loads a workspace file: the loaders themselves
+/// plus everything reached through them. The workspace file limit still
+/// applies on top.
+const MAX_LOADER_FILES: usize = 64;
+/// Startup files larger than this are not inspected as loader candidates.
+const MAX_LOADER_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Immutable session state needed to build or query the cross-file symbol index.
 #[derive(Clone)]
@@ -594,22 +604,112 @@ impl WorkspaceFunctionIndex {
             );
         }
 
+        // Startup files outside the roots that load a workspace file are part
+        // of its execution context: their definitions are visible inside the
+        // workspace file, so they join the index as loaders.
+        let workspace_roots = context
+            .workspace_roots
+            .iter()
+            .map(|root| canonical_path(root))
+            .collect::<Vec<_>>();
+        let mut loader_origin = BTreeSet::new();
+        let mut loader_budget = MAX_LOADER_FILES;
+        let mut skipped = BTreeSet::new();
+        for candidate in startup_loader_candidates(&path_provider, &mut path_analyzer) {
+            if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
+            {
+                return None;
+            }
+            let key = canonical_path(&candidate);
+            if files.contains_key(&key)
+                || workspace_roots.iter().any(|root| key.starts_with(root))
+                || graph.file_count() >= max_files
+                || loader_budget == 0
+            {
+                continue;
+            }
+            let Some(metadata) = std::fs::metadata(&candidate).ok().filter(|m| m.is_file()) else {
+                continue;
+            };
+            if metadata.len() > MAX_LOADER_FILE_BYTES {
+                tracing::debug!(
+                    "workspace functions: startup file {} exceeds the loader size limit",
+                    candidate.display()
+                );
+                continue;
+            }
+            let Some(source) = path_provider.source(&candidate) else {
+                continue;
+            };
+            let Ok(uri) = types::Url::from_file_path(&candidate) else {
+                continue;
+            };
+            let resolution = path_provider
+                .source_paths
+                .borrow_mut()
+                .resolve(&candidate, context);
+            let prepared = prepare_file(
+                previous.as_deref(),
+                WorkspaceFileInput {
+                    path: &candidate,
+                    uri,
+                    source: &source,
+                    version: None,
+                },
+                &resolution,
+                &mut path_analyzer,
+                &path_provider,
+            );
+            let loads_workspace = prepared
+                .file
+                .projection
+                .calls
+                .source_edges
+                .iter()
+                .any(|edge| {
+                    files.contains_key(&edge.path)
+                        || workspace_roots
+                            .iter()
+                            .any(|root| edge.path.starts_with(root))
+                });
+            if !loads_workspace {
+                continue;
+            }
+            tracing::debug!(
+                "workspace functions: indexing {} as a loader of workspace files",
+                candidate.display()
+            );
+            complete &= resolution.complete;
+            if !resolution.complete {
+                issues.insert(WorkspaceIssue::Configuration);
+            }
+            loader_origin.insert(prepared.key.clone());
+            loader_budget -= 1;
+            complete &= commit_file(&mut graph, &mut variables, &mut files, prepared);
+        }
+
         'expand: loop {
             if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
             {
                 return None;
             }
-            let missing = graph
-                .files()
-                .flat_map(|(_, facts)| facts.source_edges.iter().map(|edge| edge.path.clone()))
-                .filter(|target| !graph.contains(target))
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+            // Missing targets, with whether a workspace file (rather than only
+            // a loader) requests them; loader-only targets count against the
+            // loader budget instead of joining the workspace closure freely.
+            let mut missing = BTreeMap::<PathBuf, bool>::new();
+            for (source, facts) in graph.files() {
+                let from_workspace = !loader_origin.contains(source);
+                for edge in &facts.source_edges {
+                    if graph.contains(&edge.path) || skipped.contains(&edge.path) {
+                        continue;
+                    }
+                    *missing.entry(edge.path.clone()).or_default() |= from_workspace;
+                }
+            }
             if missing.is_empty() {
                 break;
             }
-            for target in missing {
+            for (target, from_workspace) in missing {
                 if context.cancellation.is_cancelled()
                     || context.cache.current_epoch() != context.epoch
                 {
@@ -623,6 +723,19 @@ impl WorkspaceFunctionIndex {
                          limit; cross-file results may be incomplete"
                     );
                     break 'expand;
+                }
+                if !from_workspace {
+                    if loader_budget == 0 {
+                        tracing::debug!(
+                            "workspace functions: loader closure limit ({MAX_LOADER_FILES}) \
+                             reached; not indexing {}",
+                            target.display()
+                        );
+                        skipped.insert(target);
+                        continue;
+                    }
+                    loader_budget -= 1;
+                    loader_origin.insert(target.clone());
                 }
                 let Some(open) = open_docs
                     .iter()
@@ -1432,6 +1545,17 @@ impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
     }
 
+    /// A pinned test home directory stands in for the whole process
+    /// environment, so `ZDOTDIR` or `XDG_*` values of the machine running the
+    /// tests cannot leak into the expectations.
+    #[cfg(test)]
+    fn environment_variable(&self, name: &str) -> Option<String> {
+        if TEST_HOME_DIR.with(|cell| cell.borrow().is_some()) {
+            return None;
+        }
+        std::env::var(name).ok().filter(|value| !value.is_empty())
+    }
+
     fn read_source(&self, path: &Path) -> Option<String> {
         self.source(path).map(|source| source.to_string())
     }
@@ -1461,6 +1585,12 @@ struct WorkspaceFileInput<'a> {
     version: Option<DocumentVersion>,
 }
 
+/// A file analysed and projected for the index but not yet inserted.
+struct PreparedWorkspaceFile {
+    key: PathBuf,
+    file: IndexedWorkspaceFile,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert_file(
     graph: &mut WorkspaceCallIndex,
@@ -1472,6 +1602,20 @@ fn insert_file(
     path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
     path_provider: &WorkspacePathProvider<'_>,
 ) -> bool {
+    let prepared = prepare_file(previous, input, source_paths, path_analyzer, path_provider);
+    commit_file(graph, variables, files, prepared)
+}
+
+/// Analyses and projects one file, reusing the previous build's work when the
+/// content and every dependency are unchanged. The compact projection is
+/// retained across builds whether or not the file ends up in the index.
+fn prepare_file(
+    previous: Option<&WorkspaceFunctionIndex>,
+    input: WorkspaceFileInput<'_>,
+    source_paths: &SourcePathResolution,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    path_provider: &WorkspacePathProvider<'_>,
+) -> PreparedWorkspaceFile {
     let key = canonical_path(input.path);
     let open_uri = input.version.is_some().then(|| input.uri.clone());
     let uri = std::fs::canonicalize(input.path)
@@ -1536,9 +1680,6 @@ fn insert_file(
             ))
         });
     let analysis = path_provider.retain_analysis(analysis);
-    let complete = projection.complete;
-    variables.insert_facts(key.clone(), projection.variables.clone());
-    graph.insert(key.clone(), projection.calls.clone());
     let file = IndexedWorkspaceFile {
         analysis,
         projection,
@@ -1562,6 +1703,21 @@ fn insert_file(
             retained.pop_first();
         }
     }
+    PreparedWorkspaceFile { key, file }
+}
+
+/// Inserts a prepared file into the graph, the variable index and the file
+/// table, returning whether its source analysis was complete.
+fn commit_file(
+    graph: &mut WorkspaceCallIndex,
+    variables: &mut WorkspaceVariableIndex,
+    files: &mut BTreeMap<PathBuf, IndexedWorkspaceFile>,
+    prepared: PreparedWorkspaceFile,
+) -> bool {
+    let PreparedWorkspaceFile { key, file } = prepared;
+    let complete = file.projection.complete;
+    variables.insert_facts(key.clone(), file.projection.variables.clone());
+    graph.insert(key.clone(), file.projection.calls.clone());
     files.insert(key, file);
     complete
 }
@@ -1703,6 +1859,37 @@ fn project_file(
         variables,
         complete: resolved_paths.is_complete(),
     }
+}
+
+/// Shell startup files that may load workspace files: the user's zsh
+/// startup files in the resolved `ZDOTDIR` (and `~/.zshenv`, which selects
+/// it) plus the bash and POSIX login and interactive files in the home
+/// directory. Only these well-known names are inspected; whatever they source
+/// joins through the normal source-edge expansion under the loader budget.
+fn startup_loader_candidates(
+    provider: &WorkspacePathProvider<'_>,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+) -> Vec<PathBuf> {
+    let Some(home) = provider.home_dir() else {
+        return Vec::new();
+    };
+    let zdotdir = path_analyzer
+        .zsh_startup_directory(provider)
+        .unwrap_or_else(|| home.clone());
+    let mut candidates = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !candidates.contains(&path) {
+            candidates.push(path);
+        }
+    };
+    push(home.join(".zshenv"));
+    for name in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+        push(zdotdir.join(name));
+    }
+    for name in [".bash_profile", ".bash_login", ".profile", ".bashrc"] {
+        push(home.join(name));
+    }
+    candidates
 }
 
 struct ClosedFileDiscovery {
@@ -2242,3 +2429,7 @@ mod tests {
 #[cfg(test)]
 #[path = "../../tests/unit/workspace_incremental.rs"]
 mod incremental_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/workspace_loaders.rs"]
+mod loader_tests;
