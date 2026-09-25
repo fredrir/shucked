@@ -180,9 +180,75 @@ pub(in crate::source_closure) fn sorted_dependency_paths(
     sorted
 }
 
+/// Framework bootstrap statements (`source $ZSH/oh-my-zsh.sh`) in `file`, in
+/// order; see [`crate::zsh_framework_bootstraps`].
+pub(super) fn bootstraps(
+    file: &File,
+    source: &str,
+    source_path: &Path,
+    home_dir: Option<&Path>,
+) -> Vec<crate::ZshFrameworkBootstrap> {
+    let mut path_templates = FxHashMap::<Name, SourcePathTemplate>::default();
+    let mut bootstraps = Vec::new();
+    for stmt in &file.body.stmts {
+        for assignment in top_level_assignments(stmt) {
+            if assignment.target.subscript.is_none()
+                && let Some(template) =
+                    assignment_path_template(assignment, source, &path_templates, home_dir)
+            {
+                path_templates.insert(assignment.target.name.clone(), template);
+            }
+        }
+        if let Some(bootstrap) =
+            detect_plugin_bootstrap(stmt, source, source_path, &path_templates, home_dir)
+        {
+            bootstraps.push(crate::ZshFrameworkBootstrap {
+                framework: bootstrap.framework,
+                span: bootstrap.span,
+                root_hint: bootstrap.root_hint,
+            });
+        }
+    }
+    bootstraps
+}
+
+/// Rendered static values of the named top-level path variables; see
+/// [`crate::zsh_framework_path_variables`].
+pub(super) fn static_path_variables(
+    file: &File,
+    source: &str,
+    source_path: &Path,
+    home_dir: Option<&Path>,
+    names: &[&str],
+) -> std::collections::BTreeMap<String, PathBuf> {
+    let mut path_templates = FxHashMap::<Name, SourcePathTemplate>::default();
+    let mut values = std::collections::BTreeMap::new();
+    for stmt in &file.body.stmts {
+        for assignment in top_level_assignments(stmt) {
+            if assignment.target.subscript.is_some() || assignment.append {
+                continue;
+            }
+            let Some(template) =
+                assignment_path_template(assignment, source, &path_templates, home_dir)
+            else {
+                continue;
+            };
+            path_templates.insert(assignment.target.name.clone(), template.clone());
+            let name = assignment.target.name.as_str();
+            if names.contains(&name)
+                && let Some(path) = render_source_path_template(&template, source_path)
+                && path.is_absolute()
+            {
+                values.insert(name.to_owned(), path);
+            }
+        }
+    }
+    values
+}
+
 fn collect_oh_my_zsh_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<PluginRequest> {
     let mut path_templates = FxHashMap::<Name, SourcePathTemplate>::default();
-    let home_dir = env::var_os("HOME").map(PathBuf::from);
+    let home_dir = context.home_dir.clone();
     let mut plugin_state = PluginListState::Unset;
     let mut theme_name = None::<String>;
     let mut requests = Vec::new();

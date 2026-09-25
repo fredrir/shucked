@@ -110,6 +110,21 @@ impl ResolvedSourcePaths {
             .map(|path| path.as_deref())
     }
 
+    /// Records the ordered files a source site loads, replacing whatever the
+    /// analysis found for it.
+    ///
+    /// Consumers that know a site's effect from outside the shell text (a
+    /// plugin framework's bootstrap, whose loads follow the framework's
+    /// contract rather than the resolvable operand) use this to make the
+    /// projection reflect that knowledge. An empty list marks the site as
+    /// loading nothing that is not accounted for elsewhere.
+    pub fn insert_sequence(&mut self, reference: &SourceRef, paths: Vec<PathBuf>) {
+        let key = SpanKey::new(reference.span);
+        self.uncertain_sequences.remove(&key);
+        self.candidates.remove(&key);
+        self.sequences.insert(key, paths);
+    }
+
     /// Ordered files loaded by a bounded source loop at this site.
     pub fn sequence(&self, reference: &SourceRef) -> Option<&[PathBuf]> {
         self.sequences

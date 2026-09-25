@@ -25,5 +25,6 @@ pub(crate) mod workspace_explain;
 pub(crate) mod workspace_functions;
 pub(crate) mod workspace_variables;
 pub(crate) mod zsh;
+pub(crate) mod zsh_frameworks;
 
 pub use self::lint::{diagnostic_tags_for_rule, generate_diagnostics};

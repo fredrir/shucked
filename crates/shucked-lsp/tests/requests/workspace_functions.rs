@@ -371,3 +371,185 @@ fn startup_file_outside_the_roots_that_loads_the_workspace_supplies_definitions(
         assert!(definition(&session, &client, position(&other_uri, 0, 2)).is_empty());
     });
 }
+
+fn implementation(
+    session: &Session,
+    client: &Client,
+    position: types::TextDocumentPositionParams,
+) -> Vec<types::Location> {
+    use crate::server::api::requests::Implementation;
+    let params = types::GotoDefinitionParams {
+        text_document_position_params: position,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    let snapshot =
+        Implementation::snapshot(session, &params, RequestCancellationToken::default()).unwrap();
+    match Implementation::run_with_snapshot(snapshot, client, params).unwrap() {
+        Some(types::GotoDefinitionResponse::Scalar(location)) => vec![location],
+        Some(types::GotoDefinitionResponse::Array(locations)) => locations,
+        None => Vec::new(),
+        _ => panic!("unexpected implementation response"),
+    }
+}
+
+fn shown_messages(messages: &crossbeam::channel::Receiver<lsp_server::Message>) -> Vec<String> {
+    messages
+        .try_iter()
+        .filter_map(|message| match message {
+            lsp_server::Message::Notification(notification)
+                if notification.method == "window/showMessage" =>
+            {
+                Some(notification.params.to_string())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn oh_my_zsh_bootstrap_resolves_the_framework_lib_and_plugin_files() {
+    let home = tempfile::tempdir().unwrap();
+    let home_path = std::fs::canonicalize(home.path()).unwrap();
+    let omz = home_path.join(".oh-my-zsh");
+    std::fs::create_dir_all(omz.join("lib")).unwrap();
+    std::fs::create_dir_all(omz.join("plugins/git")).unwrap();
+    std::fs::create_dir_all(omz.join("plugins/docker")).unwrap();
+    std::fs::create_dir_all(omz.join("custom/plugins")).unwrap();
+    // The real bootstrap globs its lib directory and iterates `$plugins`;
+    // neither is statically followable, which is what the framework
+    // contract stands in for.
+    std::fs::write(
+        omz.join("oh-my-zsh.sh"),
+        "for config_file (\"$ZSH\"/lib/*.zsh); do\n  source \"$config_file\"\ndone\n\
+         for plugin ($plugins); do\n  if [[ -f \"$ZSH_CUSTOM/plugins/$plugin/$plugin.plugin.zsh\" ]]; then\n    source \"$ZSH_CUSTOM/plugins/$plugin/$plugin.plugin.zsh\"\n  elif [[ -f \"$ZSH/plugins/$plugin/$plugin.plugin.zsh\" ]]; then\n    source \"$ZSH/plugins/$plugin/$plugin.plugin.zsh\"\n  fi\ndone\n",
+    )
+    .unwrap();
+    std::fs::write(omz.join("lib/git.zsh"), "git_current_branch() { :; }\n").unwrap();
+    std::fs::write(
+        omz.join("plugins/git/git.plugin.zsh"),
+        "gst() { git status; }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        omz.join("plugins/docker/docker.plugin.zsh"),
+        "dps() { docker ps; }\n",
+    )
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let zshrc = root_path.join(".zshrc");
+    let source = "export EDITOR=vim\nexport ZSH=\"$HOME/.oh-my-zsh\"\nplugins=(git)\nsource $ZSH/oh-my-zsh.sh\ngst\ngit_current_branch\ndps\necho \"$EDITOR\"\n";
+    std::fs::write(&zshrc, source).unwrap();
+    crate::handlers::workspace_functions::with_test_home_dir(&home_path, || {
+        let (mut session, client, messages) = session(&root_path);
+        let uri = open(&mut session, &zshrc, source);
+        assert!(is_function(&session, &uri, "gst"));
+        assert!(is_function(&session, &uri, "git_current_branch"));
+        // A plugin that is installed but not selected is not loaded.
+        assert!(!is_function(&session, &uri, "dps"));
+
+        let definitions = definition(&session, &client, position(&uri, 4, 1));
+        assert_eq!(definitions.len(), 1, "{definitions:?}");
+        assert_eq!(
+            definitions[0].uri.to_file_path().unwrap(),
+            omz.join("plugins/git/git.plugin.zsh")
+        );
+        let definitions = definition(&session, &client, position(&uri, 5, 3));
+        assert_eq!(definitions.len(), 1, "{definitions:?}");
+        assert_eq!(
+            definitions[0].uri.to_file_path().unwrap(),
+            omz.join("lib/git.zsh")
+        );
+
+        let text = hover(&session, &client, position(&uri, 4, 1));
+        let text = markdown(&text);
+        assert!(text.contains("git.plugin.zsh:1"), "{text}");
+        assert!(text.contains("Loaded through"), "{text}");
+        assert!(text.contains(".zshrc"), "{text}");
+        assert!(!text.contains("Incomplete results"), "{text}");
+
+        // The bootstrap operand opens the whole framework sequence, bootstrap first.
+        let loaded = implementation(&session, &client, position(&uri, 3, 12))
+            .into_iter()
+            .map(|location| location.uri.to_file_path().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            loaded,
+            vec![
+                omz.join("oh-my-zsh.sh"),
+                omz.join("lib/git.zsh"),
+                omz.join("plugins/git/git.plugin.zsh"),
+            ]
+        );
+        let text = hover(&session, &client, position(&uri, 3, 12));
+        assert!(
+            markdown(&text).contains("Files loaded through oh-my-zsh"),
+            "{}",
+            markdown(&text)
+        );
+
+        // A value visible across the bootstrap: the framework load is
+        // followed, so nothing is reported as incomplete.
+        let uses = references(&session, &client, position(&uri, 0, 8), false);
+        assert_eq!(uses.len(), 1, "{uses:?}");
+        assert_eq!(uses[0].range.start.line, 7);
+        assert!(
+            shown_messages(&messages).is_empty(),
+            "{:?}",
+            shown_messages(&messages)
+        );
+    });
+}
+
+#[test]
+fn prezto_module_loads_resolve_to_module_init_files() {
+    let home = tempfile::tempdir().unwrap();
+    let home_path = std::fs::canonicalize(home.path()).unwrap();
+    let prezto = home_path.join(".zprezto");
+    std::fs::create_dir_all(prezto.join("modules/utility")).unwrap();
+    std::fs::create_dir_all(prezto.join("runcoms")).unwrap();
+    std::fs::write(
+        prezto.join("init.zsh"),
+        "zstyle -a ':prezto:load' pmodule 'pmodules'\n\
+         for pmodule in \"$pmodules[@]\"; do\n  source \"${ZDOTDIR:-$HOME}/.zprezto/modules/$pmodule/init.zsh\"\ndone\n",
+    )
+    .unwrap();
+    std::fs::write(
+        prezto.join("modules/utility/init.zsh"),
+        "mkdcd() { mkdir -p \"$1\" && cd \"$1\"; }\n",
+    )
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    // A dotfiles-repository layout: `zshrc` is still zsh, but unlike a file
+    // named `.zshrc` it does not make its own directory the `ZDOTDIR`.
+    let zshrc = root_path.join("zshrc");
+    let source = "zstyle ':prezto:load' pmodule 'environment' 'utility'\nsource \"${ZDOTDIR:-$HOME}/.zprezto/init.zsh\"\nmkdcd build\n";
+    std::fs::write(&zshrc, source).unwrap();
+    crate::handlers::workspace_functions::with_test_home_dir(&home_path, || {
+        let (mut session, client, messages) = session(&root_path);
+        let uri = open(&mut session, &zshrc, source);
+        assert!(is_function(&session, &uri, "mkdcd"));
+        let definitions = definition(&session, &client, position(&uri, 2, 1));
+        assert_eq!(definitions.len(), 1, "{definitions:?}");
+        assert_eq!(
+            definitions[0].uri.to_file_path().unwrap(),
+            prezto.join("modules/utility/init.zsh")
+        );
+        let text = hover(&session, &client, position(&uri, 2, 1));
+        assert!(
+            !markdown(&text).contains("Incomplete results"),
+            "{}",
+            markdown(&text)
+        );
+        // The module statement itself leads to the installed module; the
+        // missing `environment` module is simply absent.
+        let loaded = implementation(&session, &client, position(&uri, 0, 3))
+            .into_iter()
+            .map(|location| location.uri.to_file_path().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(loaded, vec![prezto.join("modules/utility/init.zsh")]);
+        assert!(shown_messages(&messages).is_empty());
+    });
+}

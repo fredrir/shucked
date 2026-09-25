@@ -285,6 +285,10 @@ pub(crate) struct WorkspaceSourceDetails {
     pub(crate) reason: SourceResolutionReason,
     pub(crate) conditional: bool,
     pub(crate) in_function: bool,
+    /// The plugin framework whose contract produced `sequence`, when the
+    /// statement is a framework bootstrap or plugin load rather than a plain
+    /// `source` operand.
+    pub(crate) framework: Option<shucked_semantic::PluginFramework>,
 }
 
 #[derive(Clone, Copy)]
@@ -296,6 +300,9 @@ pub(crate) enum SourceResolutionReason {
     AnalysisLimit,
     Ignored,
     Unreadable,
+    /// A load inside a plugin framework's own bootstrap file: its effect is
+    /// attached to the statement that sources the framework.
+    Framework,
 }
 
 pub(crate) struct WorkspaceVariableDetails {
@@ -329,6 +336,7 @@ impl UnfollowedSource {
             Some(SourceResolutionReason::AnalysisLimit) => "analysis limit",
             Some(SourceResolutionReason::Ignored) => "ignored by directive",
             Some(SourceResolutionReason::Unreadable) => "unreadable file",
+            Some(SourceResolutionReason::Framework) => "modelled by the framework",
             None => "not followed",
         }
     }
@@ -1673,6 +1681,7 @@ fn prepare_file(
             });
             Arc::new(project_file(
                 &model,
+                input.source,
                 input.path,
                 source_paths,
                 path_analyzer,
@@ -1724,117 +1733,200 @@ fn commit_file(
 
 fn project_file(
     model: &SemanticModel,
+    source: &str,
     path: &Path,
     source_paths: &SourcePathResolution,
     path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
     path_provider: &WorkspacePathProvider<'_>,
 ) -> WorkspaceFileProjection {
     let mut dependencies = vec![path.to_path_buf()];
-    let resolved_paths = path_analyzer.resolve(model, path, path_provider);
+    let mut resolved_paths = path_analyzer.resolve(model, path, path_provider);
     dependencies.extend(resolved_paths.dependency_paths().cloned());
+
+    // Framework loads: a bootstrap `source` loads the framework's own files,
+    // and plugin or module statements load their entrypoints. Both are known
+    // from the framework's layout rather than from the operand text.
+    let framework_loads =
+        crate::handlers::zsh_frameworks::framework_loads(model, source, path, path_provider);
+    let mut framework_sequences = BTreeMap::new();
+    let mut framework_edges = Vec::new();
     let mut sources = Vec::new();
-    let edges = model
-        .source_refs()
-        .iter()
-        .flat_map(|source_ref| {
-            let scope = model.scope_at(source_ref.span.start.offset());
-            if let Some(sequence) = resolved_paths.sequence(source_ref) {
-                let sequence = sequence
-                    .iter()
-                    .map(|path| canonical_path(path))
-                    .collect::<Vec<_>>();
-                sources.push(WorkspaceSourceDetails {
-                    span: source_ref.span,
-                    path_span: source_ref.path_span,
-                    directive_span: source_ref.directive_path_span,
-                    target: None,
-                    candidates: Vec::new(),
-                    sequence: Some(sequence.clone()),
-                    reason: SourceResolutionReason::Resolved,
-                    conditional: true,
-                    in_function: model.enclosing_function_scope(scope).is_some(),
-                });
-                return sequence
-                    .into_iter()
-                    .map(|path| CallFactSourceEdge {
-                        path,
-                        span: source_ref.span,
-                        conditional: true,
-                        completion_visible: false,
-                    })
-                    .collect::<Vec<_>>();
+    let mut complete = true;
+    for load in framework_loads {
+        dependencies.extend(load.dependencies.iter().cloned());
+        complete &= !load.truncated;
+        let files = load
+            .files
+            .iter()
+            .map(|file| canonical_path(file))
+            .collect::<Vec<_>>();
+        if let Some(source_ref) = model
+            .source_refs()
+            .iter()
+            .find(|source_ref| source_ref.span.start.offset() == load.span.start.offset())
+        {
+            resolved_paths.insert_sequence(source_ref, files);
+            framework_sequences.insert(source_ref.span.start.offset(), load.framework);
+            continue;
+        }
+        let scope = model.scope_at(load.span.start.offset());
+        let conditional = model.flow_context_at(&load.span).is_some_and(|context| {
+            context.in_block || context.loop_depth > 0 || context.in_subshell
+        });
+        sources.push(WorkspaceSourceDetails {
+            span: load.span,
+            path_span: load.span,
+            directive_span: None,
+            target: None,
+            candidates: Vec::new(),
+            sequence: Some(files.clone()),
+            reason: SourceResolutionReason::Resolved,
+            conditional,
+            in_function: model.enclosing_function_scope(scope).is_some(),
+            framework: Some(load.framework),
+        });
+        framework_edges.extend(files.into_iter().map(|file| {
+            CallFactSourceEdge {
+                path: file,
+                span: load.span,
+                conditional,
+                completion_visible: !conditional
+                    && model.enclosing_function_scope(scope).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(scope)
+                        .is_none(),
             }
-            let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
-                candidate.map(PathBuf::from).into_iter().collect()
-            } else {
-                path_provider.source_ref_candidates(path, source_ref)
-            };
-            if resolved_paths.candidate(source_ref).is_none()
-                && candidates.is_empty()
-                && let Some(candidate) = model.current_file_source_candidate(source_ref, path)
-            {
-                candidates.push(candidate);
-            }
-            let mut checked = Vec::new();
-            let target = candidates
-                .into_iter()
-                .inspect(|candidate| {
-                    dependencies.push(candidate.clone());
-                    checked.push(candidate.clone());
-                })
-                .find_map(|candidate| {
-                    let snapshot = path_provider.snapshot(&candidate);
-                    snapshot.is_file.then(|| snapshot.canonical_path.clone())
-                });
-            let reason = if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull) {
-                SourceResolutionReason::Ignored
-            } else if let Some(target) = &target {
-                if path_provider.source(target).is_some() {
-                    SourceResolutionReason::Resolved
-                } else {
-                    SourceResolutionReason::Unreadable
-                }
-            } else if !resolved_paths.is_complete() {
-                SourceResolutionReason::AnalysisLimit
-            } else if matches!(resolved_paths.candidate(source_ref), Some(None))
-                || (checked.is_empty()
-                    && matches!(
-                        source_ref.kind,
-                        SourceRefKind::SingleVariableStaticTail { .. }
-                    ))
-            {
-                SourceResolutionReason::UnknownValue
-            } else if checked.is_empty() {
-                SourceResolutionReason::Dynamic
-            } else {
-                SourceResolutionReason::Missing
-            };
+        }));
+    }
+    // Inside a framework's own bootstrap the dynamic loads are the
+    // framework's contract, already attached to the statement that sources
+    // it; they must not invalidate the environment a second time.
+    let bootstrap_contract = crate::handlers::zsh_frameworks::bootstrap_file_framework(path);
+
+    let mut edges = framework_edges;
+    for source_ref in model.source_refs() {
+        let scope = model.scope_at(source_ref.span.start.offset());
+        let in_function = model.enclosing_function_scope(scope).is_some();
+        let completion_visible = !source_ref.conditionally_executed
+            && !in_function
+            && model
+                .innermost_transient_scope_within_function(scope)
+                .is_none();
+        if let Some(sequence) = resolved_paths.sequence(source_ref) {
+            let sequence = sequence
+                .iter()
+                .map(|path| canonical_path(path))
+                .collect::<Vec<_>>();
+            let framework = framework_sequences
+                .get(&source_ref.span.start.offset())
+                .cloned();
+            // A loop's iterations are conditional; a framework bootstrap is
+            // as conditional as the statement itself.
+            let conditional = framework.is_none() || source_ref.conditionally_executed;
             sources.push(WorkspaceSourceDetails {
                 span: source_ref.span,
                 path_span: source_ref.path_span,
                 directive_span: source_ref.directive_path_span,
-                target: target.clone(),
-                candidates: checked,
-                sequence: None,
-                reason,
-                conditional: source_ref.conditionally_executed,
-                in_function: model.enclosing_function_scope(scope).is_some(),
+                target: None,
+                candidates: Vec::new(),
+                sequence: Some(sequence.clone()),
+                reason: SourceResolutionReason::Resolved,
+                conditional,
+                in_function,
+                framework,
             });
-            target
-                .into_iter()
-                .map(|target| CallFactSourceEdge {
-                    path: target,
-                    span: source_ref.span,
-                    conditional: source_ref.conditionally_executed,
-                    completion_visible: !source_ref.conditionally_executed
-                        && model.enclosing_function_scope(scope).is_none()
-                        && model
-                            .innermost_transient_scope_within_function(scope)
-                            .is_none(),
-                })
-                .collect()
-        })
-        .collect::<Vec<_>>();
+            edges.extend(sequence.into_iter().map(|path| CallFactSourceEdge {
+                path,
+                span: source_ref.span,
+                conditional,
+                completion_visible: completion_visible && !conditional,
+            }));
+            continue;
+        }
+        let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
+            candidate.map(PathBuf::from).into_iter().collect()
+        } else {
+            path_provider.source_ref_candidates(path, source_ref)
+        };
+        if resolved_paths.candidate(source_ref).is_none()
+            && candidates.is_empty()
+            && let Some(candidate) = model.current_file_source_candidate(source_ref, path)
+        {
+            candidates.push(candidate);
+        }
+        let mut checked = Vec::new();
+        let target = candidates
+            .into_iter()
+            .inspect(|candidate| {
+                dependencies.push(candidate.clone());
+                checked.push(candidate.clone());
+            })
+            .find_map(|candidate| {
+                let snapshot = path_provider.snapshot(&candidate);
+                snapshot.is_file.then(|| snapshot.canonical_path.clone())
+            });
+        let ignored = matches!(source_ref.kind, SourceRefKind::DirectiveDevNull);
+        if target.is_none()
+            && !ignored
+            && let Some(framework) = &bootstrap_contract
+        {
+            resolved_paths.insert_sequence(source_ref, Vec::new());
+            sources.push(WorkspaceSourceDetails {
+                span: source_ref.span,
+                path_span: source_ref.path_span,
+                directive_span: source_ref.directive_path_span,
+                target: None,
+                candidates: checked,
+                sequence: Some(Vec::new()),
+                reason: SourceResolutionReason::Framework,
+                conditional: source_ref.conditionally_executed,
+                in_function,
+                framework: Some(framework.clone()),
+            });
+            continue;
+        }
+        let reason = if ignored {
+            SourceResolutionReason::Ignored
+        } else if let Some(target) = &target {
+            if path_provider.source(target).is_some() {
+                SourceResolutionReason::Resolved
+            } else {
+                SourceResolutionReason::Unreadable
+            }
+        } else if !resolved_paths.is_complete() {
+            SourceResolutionReason::AnalysisLimit
+        } else if matches!(resolved_paths.candidate(source_ref), Some(None))
+            || (checked.is_empty()
+                && matches!(
+                    source_ref.kind,
+                    SourceRefKind::SingleVariableStaticTail { .. }
+                ))
+        {
+            SourceResolutionReason::UnknownValue
+        } else if checked.is_empty() {
+            SourceResolutionReason::Dynamic
+        } else {
+            SourceResolutionReason::Missing
+        };
+        sources.push(WorkspaceSourceDetails {
+            span: source_ref.span,
+            path_span: source_ref.path_span,
+            directive_span: source_ref.directive_path_span,
+            target: target.clone(),
+            candidates: checked,
+            sequence: None,
+            reason,
+            conditional: source_ref.conditionally_executed,
+            in_function,
+            framework: None,
+        });
+        edges.extend(target.into_iter().map(|target| CallFactSourceEdge {
+            path: target,
+            span: source_ref.span,
+            conditional: source_ref.conditionally_executed,
+            completion_visible,
+        }));
+    }
     let call_facts = FileCallFacts::project_with_source_edges(model, edges);
     let variables = FileVariableFacts::project(
         model,
@@ -1857,7 +1949,7 @@ fn project_file(
         calls: call_facts,
         sources,
         variables,
-        complete: resolved_paths.is_complete(),
+        complete: complete && resolved_paths.is_complete(),
     }
 }
 

@@ -130,8 +130,11 @@ pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 pub use shucked_parser::{
     OptionValue, ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState,
 };
-/// Zsh plugin framework layout helpers.
-pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
+/// Zsh plugin framework layout helpers and per-file plugin load discovery.
+pub use source_closure::{
+    ZshFrameworkBootstrap, layout_for_plugin_framework, zsh_framework_bootstraps,
+    zsh_framework_path_variables, zsh_plugin_frameworks, zsh_plugin_requests,
+};
 /// Source-reference records and resolution state.
 pub use source_ref::{
     SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,

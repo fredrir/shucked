@@ -203,9 +203,21 @@ pub(crate) fn source(details: &WorkspaceSourceDetails, index: &WorkspaceFunction
         SourceResolutionReason::Unreadable => {
             "Source file found, but its contents could not be read."
         }
+        SourceResolutionReason::Framework => {
+            "Load inside the framework: the files it brings in are attached to the \
+             statement that sources the framework, so it is not followed here."
+        }
     });
-    if let Some(sequence) = &details.sequence {
-        text.push_str("\n\nFiles matched by the source loop (in load order):\n");
+    if let Some(sequence) = &details.sequence
+        && !matches!(details.reason, SourceResolutionReason::Framework)
+    {
+        match &details.framework {
+            Some(framework) => text.push_str(&format!(
+                "\n\nFiles loaded through {} (in load order):\n",
+                crate::handlers::zsh_frameworks::framework_label(framework)
+            )),
+            None => text.push_str("\n\nFiles matched by the source loop (in load order):\n"),
+        }
         for path in sequence.iter().take(MAX_LINKS) {
             if let Ok(uri) = types::Url::from_file_path(path) {
                 let uri = index.file(path).map_or(&uri, |file| file.editor_uri());

@@ -212,6 +212,21 @@ impl Projection<'_> {
         }
         match command.kind {
             RecordedCommandKind::Linear => {
+                // Loads attached to a command that is not a `source` (a plugin
+                // manager's module load, resolved by the caller) run in place.
+                if !self.model.source_refs().iter().any(|r| r.span == span) {
+                    let loaded = self
+                        .calls
+                        .source_edges
+                        .iter()
+                        .filter(|edge| edge.span == span)
+                        .map(|edge| edge.path.clone())
+                        .collect::<Vec<_>>();
+                    if !loaded.is_empty() {
+                        self.file.targets.extend(loaded.iter().cloned());
+                        events.push(Event::Source(Some(loaded)));
+                    }
+                }
                 if let Some(reference) = self.model.source_refs().iter().find(|r| r.span == span) {
                     let targets =
                         if matches!(reference.kind, crate::SourceRefKind::DirectiveDevNull) {
