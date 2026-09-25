@@ -62,18 +62,49 @@ the environment-aware command intelligence programme.
 
 ### Source resolution
 
-- `~/` expansion, unquoted `$VAR/tail` for zsh, `HOME`/`XDG_*`/`ZDOTDIR` seeding
-  for every zsh and bash file, and `${ZDOTDIR:-$HOME}`-style defaults.
+- `~/x` operands resolve to `$HOME/x` in the analyzer, CLI and LSP (`~user/x`
+  is still left alone).
+- For zsh, unquoted `$VAR`, `${VAR}`, `$VAR/tail`, `~/x` and
+  `${VAR:-default}` operands are modelled like their quoted forms, because zsh
+  does not field-split or glob them by default. Bash keeps the conservative
+  rule: only quoted or literal operands resolve.
+- Every file is seeded with `HOME` and the XDG base directories; zsh files also
+  get `ZDOTDIR` from the environment, from `~/.zshenv`, or from the directory
+  of a startup file edited in place. `${ZDOTDIR:-$HOME}` and
+  `${XDG_CONFIG_HOME:-$HOME/.config}` resolve; other defaults stay unresolved.
+- `for f in a.zsh b.zsh; do source "$dir/$f"; done` with a literal word list
+  (including brace expansion and `~`) loads each named file in order.
 
 ### Highlighting
 
-- Semantic tokens cover every compound command, redirects, test operators and
-  brackets, expansion operators and delimiters, numbers, special parameters,
-  options (`shellOption`), zsh modifiers, wrapper words; strings no longer paint
-  over expansions; overlap resolution is deterministic; fish gets comments,
-  keywords and numbers. Scopes for builtins and options are mapped in the
-  extension, and semantic highlighting is enabled for the `bash`, `zsh`, `sh` and
-  `ksh` language ids.
+- `AstCollector` visits every compound command (including `[[ ]]`, `select`,
+  `time`, `coproc`, zsh `always`/`repeat`/`foreach`), redirects (operators, fd
+  numbers, `{fd}` targets, heredoc delimiters), `break`/`continue`, process
+  substitutions, subscripts, case patterns and arithmetic lvalues.
+- Double-quoted strings and heredoc bodies are painted minus every embedded
+  expansion, so `$(...)`, `${...}` and `$var` inside them keep their own
+  tokens instead of being flattened to `string`.
+- New coverage: `operator` for test operators, brackets, `&&`/`||`/`|`/`;`/`&`/`!`,
+  expansion operators and `${`/`}`/`$(`/`)` delimiters, zsh modifiers and
+  glob qualifiers; `number` for numeric words; `parameter` + `defaultLibrary`
+  for `$? $$ $! $- $_ $0 $# $@ $*`; a new `shellOption` token type for
+  `-x`/`--long`/`+x` words (also `setopt`/`shopt` names); `keyword` +
+  `defaultLibrary` for `command`/`builtin`/`exec`/`env` wrappers; `alias NAME=`,
+  `unalias`, `autoload`, `unfunction`, `typeset -f` names; a `static` modifier
+  for exported bindings.
+- Keywords come from AST spans; the remaining gap searches skip comments.
+  Overlaps resolve by a fixed priority order, so output is deterministic.
+- Fish gets comments, keywords, strings with `$var` holes, options, numbers,
+  `set`/`for` targets and test operators; multi-line strings are split per line
+  instead of dropped.
+- The extension declares `shellOption` and `static`, maps builtins to
+  `support.function.builtin.shell`, options to `variable.parameter.option.shell`
+  and operators to `keyword.operator.shell`, and enables semantic highlighting
+  for the `bash`, `zsh`, `sh` and `ksh` language ids as well.
+- Golden-file snapshot tests (`crates/shucked-lsp/tests/semantic_tokens/`)
+  render every token as `line:col len type[mods] "text"` for bash, zsh and fish
+  fixtures, plus invariant tests (sorted, non-overlapping, in bounds,
+  deterministic).
 
 ### Environment
 
