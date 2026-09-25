@@ -236,5 +236,8 @@ bitflags! {
         const EXTERNALLY_CONSUMED    = 0b0001_0000_0000_0000_0000;
         /// This exact binding is read by another workspace file.
         const WORKSPACE_CONSUMED     = 0b0010_0000_0000_0000_0000;
+        /// A function declared by zsh `autoload`: its body lives in a file on
+        /// `$fpath` and is read on first call.
+        const AUTOLOAD               = 0b0100_0000_0000_0000_0000;
     }
 }

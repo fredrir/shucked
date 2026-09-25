@@ -77,11 +77,15 @@ pub(super) fn definition(
         return editor_features::definition(snapshot, client, params);
     };
     let Some(target) = analysis.semantic().editor_query().target_at_offset(offset) else {
-        // Not a symbol: the operand of `source`, or an external command name.
-        if let Some(index) = workspace_function_index(&workspace)
-            && let Some(locations) = navigation::source_operand_locations(&index, &path, offset)
-        {
-            return Ok(navigation::response(locations));
+        // Not a symbol: the operand of `source`, a widget named by `bindkey`,
+        // or an external command name.
+        if let Some(index) = workspace_function_index(&workspace) {
+            if let Some(locations) = navigation::source_operand_locations(&index, &path, offset) {
+                return Ok(navigation::response(locations));
+            }
+            if let Some(locations) = navigation::widget_locations(&index, &path, offset) {
+                return Ok(navigation::response(locations));
+            }
         }
         if let Some(location) = navigation::command_script_location(&snapshot, offset) {
             return Ok(Some(types::GotoDefinitionResponse::Scalar(location)));
@@ -95,12 +99,8 @@ pub(super) fn definition(
                 return editor_features::definition(snapshot, client, params);
             };
             let resolution = index.function_resolution(&path, call.name_span);
-            let mut locations = index.function_locations(&resolution.definitions);
-            for (location, target) in locations.iter_mut().zip(&resolution.definitions) {
-                if let Some(range) = index.range_of(&target.path, target.definition.def_span) {
-                    location.range = range;
-                }
-            }
+            let locations =
+                navigation::function_definition_locations(&index, &resolution.definitions, false);
             if !locations.is_empty() {
                 return Ok(Some(if locations.len() == 1 {
                     types::GotoDefinitionResponse::Scalar(locations[0].clone())
@@ -129,6 +129,19 @@ pub(super) fn definition(
         EditorSymbolTarget::Binding(_)
         | EditorSymbolTarget::Reference(_)
         | EditorSymbolTarget::RuntimeName(_) => {
+            // The operand of `autoload` leads to the function file on `$fpath`.
+            if let EditorSymbolTarget::Binding(binding) = &target
+                && analysis
+                    .semantic()
+                    .binding(*binding)
+                    .attributes
+                    .contains(shucked_semantic::BindingAttributes::AUTOLOAD)
+                && let Some(index) = workspace_function_index(&workspace)
+                && let Some(locations) =
+                    navigation::autoload_operand_locations(&index, &path, offset, false)
+            {
+                return Ok(navigation::response(locations));
+            }
             let Some(target) = workspace_variable else {
                 return editor_features::definition(snapshot, client, params);
             };

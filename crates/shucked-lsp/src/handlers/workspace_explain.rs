@@ -278,15 +278,32 @@ pub(crate) fn function(
         .map(|d| d.definition.name.as_str())
         .unwrap_or_default();
     let mut text = format!("**Workspace function {}**\n\nDefinitions:\n", escaped(name));
-    for location in index
+    for (location, definition) in index
         .function_locations(&resolution.definitions)
         .iter()
+        .zip(&resolution.definitions)
         .take(MAX_LINKS)
     {
+        let autoload = index.autoload_declaration(definition).is_some();
         text.push_str(&format!(
-            "\n- {}",
-            link(&location.uri, Some(location.range.start.line))
+            "\n- {}{}",
+            link(&location.uri, Some(location.range.start.line)),
+            if autoload { " (autoload)" } else { "" }
         ));
+        if autoload {
+            let files = index.autoload_files(&definition.path, definition.definition.name.as_str());
+            if files.is_empty() {
+                text.push_str(
+                    "\n  - no file with this name on the known `$fpath` (declared \
+                     directories and the host's function directories)",
+                );
+            }
+            for file in files.iter().take(MAX_LINKS) {
+                if let Ok(uri) = types::Url::from_file_path(file) {
+                    text.push_str(&format!("\n  - loaded from {}", link(&uri, None)));
+                }
+            }
+        }
     }
     if !resolution.loaders.is_empty() {
         text.push_str("\n\nLoaded through:\n");

@@ -207,6 +207,25 @@ impl Projection<'_> {
                         .bodies
                         .insert(definition.def_span.start.offset(), body);
                     events.push(Event::Define(definition.clone()));
+                    continue;
+                }
+                // An `autoload` declaration binds the name without a body:
+                // calling it neither defines nor removes other functions.
+                let binding = self.model.binding(*binding);
+                if binding
+                    .attributes
+                    .contains(crate::BindingAttributes::AUTOLOAD)
+                    && let Some(definition) = self
+                        .calls
+                        .definitions
+                        .iter()
+                        .find(|d| d.name == binding.name && d.selection_span == binding.span)
+                {
+                    self.file
+                        .bodies
+                        .entry(definition.def_span.start.offset())
+                        .or_default();
+                    events.push(Event::Define(definition.clone()));
                 }
             }
         }

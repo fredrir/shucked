@@ -15,6 +15,10 @@ mod zinit;
 use super::*;
 use crate::ZshPluginFramework;
 
+pub(crate) use oh_my_zsh::{
+    assignment_path_template, expand_static_home_path, render_source_path_template,
+    top_level_assignments,
+};
 pub(super) use oh_my_zsh::{dedup_plugin_requests, sorted_dependency_paths};
 
 pub(super) struct PluginManagerContext<'a> {

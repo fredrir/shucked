@@ -34,6 +34,10 @@ pub use plugin_managers::{
     zsh_framework_path_variables, zsh_plugin_frameworks, zsh_plugin_requests,
 };
 
+pub(crate) use plugin_managers::{
+    assignment_path_template, expand_static_home_path, render_source_path_template,
+    top_level_assignments,
+};
 use plugin_managers::{
     collect_plugin_requests, deferred_zsh_entrypoint_required_reads, sorted_dependency_paths,
 };

@@ -553,3 +553,124 @@ fn prezto_module_loads_resolve_to_module_init_files() {
         assert!(shown_messages(&messages).is_empty());
     });
 }
+
+fn declaration(
+    session: &Session,
+    client: &Client,
+    position: types::TextDocumentPositionParams,
+) -> Vec<types::Location> {
+    use crate::server::api::requests::Declaration;
+    let params = types::GotoDefinitionParams {
+        text_document_position_params: position,
+        work_done_progress_params: Default::default(),
+        partial_result_params: Default::default(),
+    };
+    let snapshot =
+        Declaration::snapshot(session, &params, RequestCancellationToken::default()).unwrap();
+    match Declaration::run_with_snapshot(snapshot, client, params).unwrap() {
+        Some(types::GotoDefinitionResponse::Scalar(location)) => vec![location],
+        Some(types::GotoDefinitionResponse::Array(locations)) => locations,
+        None => Vec::new(),
+        _ => panic!("unexpected declaration response"),
+    }
+}
+
+fn paths(locations: &[types::Location]) -> Vec<(std::path::PathBuf, u32)> {
+    locations
+        .iter()
+        .map(|location| {
+            (
+                location.uri.to_file_path().unwrap(),
+                location.range.start.line,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn autoload_declarations_navigate_to_the_function_file_on_fpath() {
+    let home = tempfile::tempdir().unwrap();
+    let home_path = std::fs::canonicalize(home.path()).unwrap();
+    let functions = home_path.join("functions");
+    std::fs::create_dir_all(&functions).unwrap();
+    std::fs::write(
+        functions.join("myfunc"),
+        "# myfunc: an autoloadable function\nprint hi\n",
+    )
+    .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let zshrc = root_path.join(".zshrc");
+    let source = "fpath=($HOME/functions $fpath)\nautoload -Uz myfunc\nautoload -Uz missing_fn\nmyfunc\nmissing_fn\n";
+    std::fs::write(&zshrc, source).unwrap();
+    crate::handlers::workspace_functions::with_test_home_dir(&home_path, || {
+        let (mut session, client, _messages) = session(&root_path);
+        let uri = open(&mut session, &zshrc, source);
+        // Declared functions are commands, whether or not their file exists.
+        assert!(is_function(&session, &uri, "myfunc"));
+        assert!(is_function(&session, &uri, "missing_fn"));
+        assert!(!missing(&session, &uri, "myfunc"));
+        assert!(!missing(&session, &uri, "missing_fn"));
+
+        let file = functions.join("myfunc");
+        // From the call site.
+        assert_eq!(
+            paths(&definition(&session, &client, position(&uri, 3, 2))),
+            vec![(file.clone(), 0)]
+        );
+        assert_eq!(
+            paths(&implementation(&session, &client, position(&uri, 3, 2))),
+            vec![(file.clone(), 0)]
+        );
+        // The declaration is the `autoload` line.
+        assert_eq!(
+            paths(&declaration(&session, &client, position(&uri, 3, 2))),
+            vec![(zshrc.clone(), 1)]
+        );
+        // From the `autoload` operand.
+        assert_eq!(
+            paths(&definition(&session, &client, position(&uri, 1, 15))),
+            vec![(file.clone(), 0)]
+        );
+        assert_eq!(
+            paths(&implementation(&session, &client, position(&uri, 1, 15))),
+            vec![(file.clone(), 0)]
+        );
+        // Without a file on the search path, the declaration itself is the target.
+        assert_eq!(
+            paths(&definition(&session, &client, position(&uri, 4, 2))),
+            vec![(zshrc.clone(), 2)]
+        );
+
+        let text = hover(&session, &client, position(&uri, 3, 2));
+        let text = markdown(&text);
+        assert!(text.contains("(autoload)"), "{text}");
+        assert!(text.contains("loaded from"), "{text}");
+        assert!(text.contains("functions/myfunc"), "{text}");
+        let text = hover(&session, &client, position(&uri, 4, 2));
+        assert!(
+            markdown(&text).contains("no file with this name"),
+            "{}",
+            markdown(&text)
+        );
+    });
+}
+
+#[test]
+fn bindkey_widget_names_lead_to_the_registration_and_its_function() {
+    let root = tempfile::tempdir().unwrap();
+    let root_path = std::fs::canonicalize(root.path()).unwrap();
+    let zshrc = root_path.join(".zshrc");
+    let source = "my_widget_fn() { zle reset-prompt; }\nzle -N my-widget my_widget_fn\nbindkey '^X^E' my-widget\nbindkey -M viins '^R' other-widget\n";
+    std::fs::write(&zshrc, source).unwrap();
+    let (mut session, client, _messages) = session(&root_path);
+    let uri = open(&mut session, &zshrc, source);
+    let targets = paths(&definition(&session, &client, position(&uri, 2, 17)));
+    assert_eq!(targets, vec![(zshrc.clone(), 1), (zshrc.clone(), 0)]);
+    assert_eq!(
+        paths(&implementation(&session, &client, position(&uri, 2, 17))),
+        targets
+    );
+    // An unregistered widget has nothing to offer.
+    assert!(definition(&session, &client, position(&uri, 3, 24)).is_empty());
+}

@@ -328,7 +328,7 @@ fn collect_oh_my_zsh_plugin_requests(context: &PluginManagerContext<'_>) -> Vec<
     requests
 }
 
-fn top_level_assignments(stmt: &shucked_ast::Stmt) -> Vec<&Assignment> {
+pub(crate) fn top_level_assignments(stmt: &shucked_ast::Stmt) -> Vec<&Assignment> {
     match &stmt.command {
         Command::Simple(command) => command.assignments.iter().collect(),
         Command::Decl(command) => command
@@ -343,7 +343,7 @@ fn top_level_assignments(stmt: &shucked_ast::Stmt) -> Vec<&Assignment> {
     }
 }
 
-fn assignment_path_template(
+pub(crate) fn assignment_path_template(
     assignment: &Assignment,
     source: &str,
     known_templates: &FxHashMap<Name, SourcePathTemplate>,
@@ -381,7 +381,7 @@ fn resolve_variable_source_template(
     known_templates.get(name).cloned()
 }
 
-fn expand_static_home_path(text: &str, home_dir: Option<&Path>) -> Option<String> {
+pub(crate) fn expand_static_home_path(text: &str, home_dir: Option<&Path>) -> Option<String> {
     if let Some(home_dir) = home_dir {
         let home = path_to_template_string(home_dir);
         if text == "~" {
@@ -534,7 +534,7 @@ fn bootstrap_argument_path(
     render_source_path_template(&template.template, source_path)
 }
 
-fn render_source_path_template(
+pub(crate) fn render_source_path_template(
     template: &SourcePathTemplate,
     source_path: &Path,
 ) -> Option<PathBuf> {

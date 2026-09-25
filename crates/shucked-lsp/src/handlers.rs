@@ -1,6 +1,7 @@
 //! Request and notification handlers for the Shucked language server.
 
 pub(crate) mod analysis;
+pub(crate) mod autoload;
 pub(crate) mod call_hierarchy;
 pub(crate) mod commands;
 pub(crate) mod commands_actions;

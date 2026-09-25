@@ -241,6 +241,8 @@ struct WorkspaceFileProjection {
     functions: Arc<shucked_semantic::FileFunctionEffects>,
     sources: Vec<WorkspaceSourceDetails>,
     variables: FileVariableFacts,
+    /// Autoload declarations, `fpath` directories and widget facts.
+    zsh: crate::handlers::autoload::ZshNavigationFacts,
     complete: bool,
 }
 
@@ -362,6 +364,8 @@ pub(crate) struct WorkspaceFunctionIndex {
     complete: bool,
     issues: BTreeSet<WorkspaceIssue>,
     file_limit: usize,
+    /// Conventional host function directories, probed once per index.
+    default_function_directories: OnceLock<Vec<PathBuf>>,
 }
 
 struct CompletionFunctions {
@@ -429,21 +433,7 @@ impl WorkspaceFunctionIndex {
         }
         // Include incoming loaders, their other imports, and recursively sourced
         // files: module visibility depends on their execution order together.
-        let mut connected = BTreeSet::from([path.to_path_buf()]);
-        loop {
-            let before = connected.len();
-            for (source, facts) in self.graph.files() {
-                for edge in &facts.source_edges {
-                    if connected.contains(source) || connected.contains(&edge.path) {
-                        connected.insert(source.to_path_buf());
-                        connected.insert(edge.path.clone());
-                    }
-                }
-            }
-            if connected.len() == before {
-                break;
-            }
-        }
+        let connected = self.connected_component(path);
         let complete = connected.iter().all(|path| {
             self.files.get(path).is_some_and(|file| {
                 file.projection.complete && file.projection.source_paths.complete
@@ -831,7 +821,133 @@ impl WorkspaceFunctionIndex {
             files,
             encoding: context.encoding,
             complete,
+            default_function_directories: OnceLock::new(),
         })
+    }
+
+    /// The files connected to `path` through source edges in either
+    /// direction: its loaders, what they load, and what it loads.
+    fn connected_component(&self, path: &Path) -> BTreeSet<PathBuf> {
+        let mut connected = BTreeSet::from([path.to_path_buf()]);
+        loop {
+            let before = connected.len();
+            for (source, facts) in self.graph.files() {
+                for edge in &facts.source_edges {
+                    if connected.contains(source) || connected.contains(&edge.path) {
+                        connected.insert(source.to_path_buf());
+                        connected.insert(edge.path.clone());
+                    }
+                }
+            }
+            if connected.len() == before {
+                break;
+            }
+        }
+        connected
+    }
+
+    /// The `autoload` declaration behind a function definition, when the
+    /// definition is one.
+    pub(crate) fn autoload_declaration(
+        &self,
+        definition: &shucked_semantic::WorkspaceFunctionDefinition,
+    ) -> Option<&crate::handlers::autoload::AutoloadDeclaration> {
+        self.files
+            .get(&definition.path)?
+            .projection
+            .zsh
+            .autoloads
+            .iter()
+            .find(|declaration| {
+                declaration.name == definition.definition.name.as_str()
+                    && declaration.name_span == definition.definition.selection_span
+            })
+    }
+
+    /// The `autoload` declaration whose operand contains `offset` in `path`.
+    pub(crate) fn autoload_declaration_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Option<&crate::handlers::autoload::AutoloadDeclaration> {
+        self.files
+            .get(path)?
+            .projection
+            .zsh
+            .autoloads
+            .iter()
+            .find(|declaration| {
+                declaration.name_span.start.offset() <= offset
+                    && offset < declaration.name_span.end.offset()
+            })
+    }
+
+    /// Files named `name` on the function search path visible from `path`:
+    /// the `fpath` directories declared by the file and its family (the file
+    /// first), then the host's conventional function directories.
+    pub(crate) fn autoload_files(&self, path: &Path, name: &str) -> Vec<PathBuf> {
+        let mut directories = Vec::new();
+        for member in std::iter::once(path.to_path_buf()).chain(self.connected_component(path)) {
+            if let Some(file) = self.files.get(&member) {
+                for directory in &file.projection.zsh.function_path {
+                    if !directories.contains(directory) {
+                        directories.push(directory.clone());
+                    }
+                }
+            }
+        }
+        for directory in self
+            .default_function_directories
+            .get_or_init(crate::handlers::autoload::default_function_directories)
+        {
+            if !directories.contains(directory) {
+                directories.push(directory.clone());
+            }
+        }
+        crate::handlers::autoload::function_files(&directories, name)
+    }
+
+    /// The `bindkey` widget operand containing `offset` in `path`.
+    pub(crate) fn key_binding_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Option<&shucked_semantic::ZshKeyBinding> {
+        self.files
+            .get(path)?
+            .projection
+            .zsh
+            .widgets
+            .bindings
+            .iter()
+            .find(|binding| {
+                binding.widget_span.start.offset() <= offset
+                    && offset < binding.widget_span.end.offset()
+            })
+    }
+
+    /// Every `zle -N` registration of `widget` in the family of `path`,
+    /// with the file that holds it.
+    pub(crate) fn widget_registrations(
+        &self,
+        path: &Path,
+        widget: &str,
+    ) -> Vec<(PathBuf, &shucked_semantic::ZshWidgetRegistration)> {
+        let mut registrations = Vec::new();
+        for member in std::iter::once(path.to_path_buf()).chain(self.connected_component(path)) {
+            if let Some(file) = self.files.get(&member) {
+                for registration in &file.projection.zsh.widgets.registrations {
+                    if registration.widget.as_str() == widget
+                        && !registrations
+                            .iter()
+                            .any(|(existing, _): &(PathBuf, _)| *existing == member)
+                    {
+                        registrations.push((member.clone(), registration));
+                    }
+                }
+            }
+        }
+        registrations
     }
 
     pub(crate) fn function_resolution(
@@ -1932,7 +2048,14 @@ fn project_file(
         model,
         &resolved_paths.variable_effects(&call_facts.source_effects),
     );
+    let zsh = if model.shell_profile().dialect == shucked_parser::ShellDialect::Zsh {
+        let zdotdir = zsh_startup_directory_for(path, path_analyzer, path_provider);
+        crate::handlers::autoload::project(model, source, path, path_provider, zdotdir.as_deref())
+    } else {
+        Default::default()
+    };
     WorkspaceFileProjection {
+        zsh,
         source_paths: source_paths.clone(),
         dependencies: dependencies
             .into_iter()
@@ -1951,6 +2074,34 @@ fn project_file(
         variables,
         complete: complete && resolved_paths.is_complete(),
     }
+}
+
+/// The directory zsh reads startup files from when running `path`, in the
+/// order the path analysis seeds `ZDOTDIR`: the environment, then the
+/// directory of a startup file edited in place, then the value `~/.zshenv`
+/// assigns, then the home directory.
+fn zsh_startup_directory_for(
+    path: &Path,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    provider: &WorkspacePathProvider<'_>,
+) -> Option<PathBuf> {
+    if let Some(directory) = provider
+        .environment_variable("ZDOTDIR")
+        .map(PathBuf::from)
+        .filter(|directory| directory.is_absolute())
+    {
+        return Some(directory);
+    }
+    let startup_names = [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| startup_names.contains(&name))
+        && let Some(parent) = path.parent().filter(|parent| parent.is_absolute())
+    {
+        return Some(parent.to_path_buf());
+    }
+    path_analyzer.zsh_startup_directory(provider)
 }
 
 /// Shell startup files that may load workspace files: the user's zsh
