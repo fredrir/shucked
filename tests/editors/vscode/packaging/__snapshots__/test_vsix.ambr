@@ -10,6 +10,7 @@
     'extension/bin/shucked',
     'extension/bin/shucked-server',
     'extension/dist/extension.js',
+    'extension/language-configuration/fish.json',
     'extension/package.json',
     'extension/readme.md',
     'extension/shell-integration/bash.sh',
@@ -20,5 +21,6 @@
     'extension/shell-integration/live-helper.cjs',
     'extension/shell-integration/live-zsh.zsh',
     'extension/shell-integration/zsh.zsh',
+    'extension/syntaxes/fish.tmLanguage.json',
   ])
 # ---

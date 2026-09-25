@@ -356,7 +356,15 @@
         "extensions": [
           ".fish"
         ],
-        "firstLine": "^#!.*\\bfish\\b"
+        "firstLine": "^#!.*\\bfish\\b",
+        "configuration": "./language-configuration/fish.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fish",
+        "scopeName": "source.fish",
+        "path": "./syntaxes/fish.tmLanguage.json"
       }
     ],
     "semanticTokenTypes": [

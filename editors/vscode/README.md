@@ -164,7 +164,7 @@ Other editors initialize trusted native execution with `{"nativeExecutionAllowed
 | Windows | Process-tree cancellation implemented; compatible private shell runtime distribution remains outstanding |
 | Unix helpers | Some definitions require standard POSIX utilities from the host |
 | Tool validation | Brew/Git inventories and selected exact-version flag grammars; unsupported versions remain Unknown |
-| Fish | Dedicated syntax/command frontend; not full Bash/Zsh lint-rule or formatting parity |
+| Fish | Dedicated syntax/command frontend; bundled TextMate grammar and language configuration (comment toggling, bracket and quote pairs, block folding); not full Bash/Zsh lint-rule or formatting parity |
 | Themes | Standard warning diagnostics plus semantic classifications; token color depends on theme |
 | Clients without refresh support | Completed results are served on the next diagnostic/token request; immediate no-edit updates require negotiated refresh support |
 | Remote validation | Workspace-host architecture; real SSH/WSL/container acceptance runs remain required |
