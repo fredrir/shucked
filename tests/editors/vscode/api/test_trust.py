@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from ..harness.instance import VSCodeInstance
-from ..harness.session import EditorFactory, EditorSession
+from ..harness.session import EditorFactory, EditorSession, artifact_name, keep_artifacts, scratch_directory
 from ..harness.waiting import stays_false, wait_until
 
 MARKER = "workspace-server-ran"
@@ -26,16 +26,23 @@ def untrusted_editor(editor_factory: EditorFactory, marker_root: Path) -> Iterat
     hostile = marker_root / "hostile-server"
     hostile.write_text(f"#!/bin/sh\ntouch '{marker_root / MARKER}'\nexec sleep 30\n")
     hostile.chmod(0o755)
-    settings = {"shucked.server.path": str(hostile), "shucked.server.extraArgs": ["--hostile-argument"], "shucked.history.files": True}
-    instance = editor_factory.launch("untrusted", trusted=False, files={".vscode/settings.json": json.dumps(settings)})
+    workspace_settings = {"shucked.server.path": str(hostile), "shucked.server.extraArgs": ["--hostile-argument"]}
+    # History is a machine setting, so it is enabled for the user; trust alone must still keep it off.
+    instance = editor_factory.launch(
+        "untrusted",
+        trusted=False,
+        settings={"shucked.history.files": True},
+        files={".vscode/settings.json": json.dumps(workspace_settings)},
+    )
     yield instance
     editor_factory.stop(instance)
 
 
 @pytest.fixture
-def untrusted(request: pytest.FixtureRequest, untrusted_editor: VSCodeInstance) -> Iterator[EditorSession]:
-    session = EditorSession(untrusted_editor, untrusted_editor.spec.workspace / "tests" / request.node.name)
+def untrusted(request: pytest.FixtureRequest, untrusted_editor: VSCodeInstance, artifacts_dir: Path) -> Iterator[EditorSession]:
+    session = EditorSession(untrusted_editor, scratch_directory(untrusted_editor, artifact_name(request.node)))
     yield session
+    keep_artifacts(request.node, untrusted_editor, artifacts_dir)
     session.reset()
 
 
@@ -59,13 +66,8 @@ def test_terminals_require_trust(untrusted: EditorSession, require_shell: Callab
 
 
 def test_history_suggestions_require_trust(untrusted: EditorSession) -> None:
-    (untrusted.home / ".bash_history").write_text("printf shucked_untrusted_history\n")
-    uri = untrusted.open("history.sh", "printf shucked_u")
-
-    def accepted() -> bool:
-        untrusted.bridge.set_cursor(uri, 0, len("printf shucked_u"))
-        untrusted.bridge.execute("editor.action.inlineSuggest.trigger")
-        untrusted.bridge.execute("editor.action.inlineSuggest.commit")
-        return untrusted.bridge.text(uri) != "printf shucked_u"
-
-    assert stays_false(accepted, duration=3)
+    # Same history and prefix as test_history.test_default_history_file_is_read_without_a_terminal.
+    assert untrusted.bridge.setting("shucked", "history.files") is True
+    (untrusted.home / ".zsh_history").write_text(": 1700000000:0;printf shucked_default_history\n")
+    uri = untrusted.open("history.zsh", "printf shucked_d")
+    assert untrusted.no_inline_suggestion(uri, "printf shucked_d")

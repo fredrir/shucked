@@ -8,7 +8,7 @@ packaged VSIX lives here.
 ```bash
 just vscode test                      # unit tests, then contract + shell hook suites
 just vscode test --e2e                # also the editor suites (downloads a pinned VS Code once)
-just vscode test --vsix path.vsix     # editor suites against the installed package, plus packaging checks
+just vscode test --vsix /abs/pkg.vsix # editor suites against the installed package, plus packaging checks
 just vscode test --build-vsix         # build a VSIX (release build, provider runtimes) and inspect it
 just vscode test --e2e -- -k terminal # anything after -- goes to pytest
 ```
@@ -54,6 +54,10 @@ turns that into a failure.
   isolated profile and uses its bundled binaries.
 - **Cleanup.** Editors, servers, and shells are stopped as whole process trees;
   on Linux the test process adopts orphaned helpers so nothing outlives a run.
+- **Local access.** The bridge requires a per-run secret, but the editor's
+  DevTools port (used by Playwright) listens on loopback without one, so any
+  local process could drive a test editor while it runs. Run the editor suites
+  on single-user machines or CI runners.
 
 ## Writing tests
 
@@ -61,9 +65,11 @@ turns that into a failure.
   editor, reset after every test (settings changed through
   `bridge.update_setting` are restored, editors closed, terminals disposed).
 - Use `launch_editor(...)` for anything that changes trust, workspace folders,
-  or start-up settings, or that deliberately breaks the server.
+  or start-up settings, or that deliberately breaks the server. A workspace you
+  pass in is never written to; scratch files go to the editor's private root.
 - Wait for state with `wait_until` and the `EditorSession.wait_for_*` helpers;
-  never sleep for a fixed time to let the editor catch up.
+  never sleep for a fixed time to let the editor catch up. A probe passed to
+  `wait_until` must not assert: failures inside it count as "not yet".
 - Prefer the API (`api/`) when the extension API can observe the behaviour. Use
   `ui/` for what only the workbench shows: key bindings, popups, pickers.
 - A known product bug gets `pytest.mark.xfail(strict=True, reason=...)`, so the
@@ -80,5 +86,5 @@ under `target/vscode-tests/<test name>` (or `--vscode-artifacts DIR`). Add
 ```bash
 uv run --project tests ruff check tests/editors
 uv run --project tests ruff format --check tests/editors
-uv run --project tests basedpyright
+uv run --project tests basedpyright -p tests
 ```

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import signal
 from collections.abc import Callable
 
 import psutil
@@ -29,7 +28,7 @@ def test_restart_replaces_the_server_process(launch_editor: Callable[..., Editor
     before = _server(session).pid
     session.bridge.execute("shucked.restartServer")
     wait_until("new server process", lambda: _server(session).pid != before)
-    assert not processes.is_running(before)
+    wait_until("old server exited", lambda: not processes.is_running(before), timeout=10)
     _lint_works(session, "after.sh")
 
 
@@ -37,7 +36,7 @@ def test_a_crashed_server_is_restarted(launch_editor: Callable[..., EditorSessio
     session = launch_editor("crash")
     _lint_works(session, "before.sh")
     crashed = _server(session)
-    crashed.send_signal(signal.SIGKILL)
+    crashed.kill()
     wait_until("replacement server", lambda: _server(session).pid != crashed.pid, timeout=30)
     _lint_works(session, "after.sh")
 
@@ -54,7 +53,7 @@ def test_repeated_crashes_stop_automatic_restarts(launch_editor: Callable[..., E
             timeout=30,
         )
         killed.add(server.pid)
-        server.send_signal(signal.SIGKILL)
+        server.kill()
     assert stays_false(lambda: any(item.pid not in killed for item in processes.find_language_servers(session.instance.pid)), duration=12)
     assert any("crashed repeatedly" in text for text in session.workbench.notifications())
     session.bridge.execute("shucked.restartServer")

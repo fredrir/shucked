@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -13,6 +14,8 @@ import pytest
 
 from ..harness.shells import SESSION_TOKEN, HookListener
 from ..harness.waiting import wait_until
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the hooks use Unix sockets")
 
 HOOKS = {"bash": "bash.sh", "zsh": "zsh.zsh", "fish": "fish.fish"}
 POSIX_SCRIPT = (
@@ -46,6 +49,10 @@ def test_prompt_metadata_reports_names_but_never_bodies(
     arguments = ["--no-config", "-c", FISH_SCRIPT, str(hook)] if shell == "fish" else ["-c", POSIX_SCRIPT, shell, str(hook)]
     environment = {
         **os.environ,
+        # A private HOME keeps the developer's own startup files (e.g. ~/.zshenv) out of the result.
+        "HOME": str(private_directory),
+        "ZDOTDIR": str(private_directory),
+        "XDG_CONFIG_HOME": str(private_directory),
         "HISTFILE": str(history),
         "fish_history": "custom",
         "XDG_DATA_HOME": str(private_directory),

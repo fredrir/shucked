@@ -22,7 +22,7 @@ from . import processes
 from .bridge import Bridge
 from .display import Display
 from .install import Installation
-from .waiting import wait_until
+from .waiting import WaitAborted, wait_until
 
 if TYPE_CHECKING:
     from playwright.sync_api import Browser, Page, Playwright
@@ -68,6 +68,8 @@ class LaunchSpec:
     settings: dict[str, Any] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
     trace: bool = False
+    # False when the workspace was supplied by the caller and must not be written to.
+    owns_workspace: bool = True
 
 
 class PlaywrightDriver:
@@ -217,7 +219,7 @@ class VSCodeInstance:
 
         def bridge_port() -> int | None:
             if self.process and self.process.poll() is not None:
-                raise RuntimeError(f"VS Code exited with {self.process.returncode} before the bridge started; see {self.log_file}")
+                raise WaitAborted(f"VS Code exited with {self.process.returncode} before the bridge started; see {self.log_file}")
             text = port_file.read_text().strip() if port_file.exists() else ""
             return int(text) if text else None
 
@@ -283,10 +285,6 @@ class VSCodeInstance:
 
     def logs(self) -> Path:
         return self.user_data / "logs"
-
-    def server_log(self) -> str:
-        """Concatenated Shucked output channel logs from this session."""
-        return "\n".join(path.read_text(errors="replace") for path in sorted(self.logs().rglob("*Shucked*.log")))
 
     def capture(self, destination: Path) -> None:
         """Keep a screenshot and logs for a failed test."""

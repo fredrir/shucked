@@ -9,17 +9,15 @@ extension API can observe directly belongs in bridge-level tests instead.
 from __future__ import annotations
 
 import re
-import sys
 from typing import TYPE_CHECKING
 
-from .waiting import wait_until
+from .waiting import WaitTimeout, wait_until
 
 if TYPE_CHECKING:
     from playwright.sync_api import Locator, Page
 
     from .bridge import Bridge
 
-MODIFIER = "Meta" if sys.platform == "darwin" else "Control"
 SUGGEST = ".editor-widget.suggest-widget.visible"
 QUICK_INPUT = ".quick-input-widget"
 
@@ -40,9 +38,6 @@ class Workbench:
 
     def press(self, key: str) -> None:
         self.page.keyboard.press(key)
-
-    def shortcut(self, key: str) -> None:
-        self.page.keyboard.press(f"{MODIFIER}+{key}")
 
     # -- Suggestion popup --------------------------------------------------
 
@@ -103,24 +98,29 @@ class Workbench:
         box.fill(text)
         box.press("Enter")
 
-    def run_command(self, title: str, timeout: float = 15.0) -> None:
-        """Run a command through the command palette by its visible title."""
+    def _palette_row(self, title: str, timeout: float) -> Locator:
+        """Open the command palette filtered to ``title`` and return that command's row."""
         self.press("F1")
         wait_until("command palette", self.quick_input_visible, timeout=timeout)
-        box = self.page.locator(f"{QUICK_INPUT} input")
-        box.fill(f">{title}")
-        row = self.page.locator(f"{QUICK_INPUT} .monaco-list-row", has=self.page.locator(".label-name", has_text=title))
+        self.page.locator(f"{QUICK_INPUT} input").fill(f">{title}")
+        exact = re.compile(rf"^\s*{re.escape(title)}\s*$")
+        row = self.page.locator(f"{QUICK_INPUT} .monaco-list-row", has=self.page.locator(".label-name", has_text=exact))
         wait_until(f"command {title!r} in the palette", lambda: row.count() > 0, timeout=timeout)
-        box.press("Enter")
+        return row.first
 
-    def palette_commands(self, query: str) -> list[str]:
-        self.press("F1")
-        wait_until("command palette", self.quick_input_visible)
-        box = self.page.locator(f"{QUICK_INPUT} input")
-        box.fill(f">{query}")
-        labels = wait_until("palette results", self.quick_input_labels)
-        box.press("Escape")
-        return labels
+    def run_command(self, title: str, timeout: float = 15.0) -> None:
+        """Run a command through the command palette by its exact visible title."""
+        self._palette_row(title, timeout).click()
+
+    def palette_has(self, title: str, timeout: float = 15.0) -> bool:
+        """True when the command palette offers a command with exactly this title."""
+        try:
+            self._palette_row(title, timeout)
+            return True
+        except WaitTimeout:
+            return False
+        finally:
+            self.press("Escape")
 
     # -- Status bar and notifications ---------------------------------------
 

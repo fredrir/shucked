@@ -46,10 +46,6 @@ def range_(start_line: int, start_character: int, end_line: int, end_character: 
     return {"$range": [start_line, start_character, end_line, end_character]}
 
 
-def selection(anchor_line: int, anchor_character: int, active_line: int, active_character: int) -> dict[str, list[int]]:
-    return {"$selection": [anchor_line, anchor_character, active_line, active_character]}
-
-
 def file_uri(path: str | Path) -> str:
     return Path(path).resolve().as_uri()
 
@@ -167,9 +163,6 @@ class Bridge:
     def activate_extension(self, extension_id: str) -> dict[str, JSON]:
         return self.call("activateExtension", id=extension_id)
 
-    def enum(self, name: str) -> dict[str, int]:
-        return self.call("enumValues", name=name)
-
     def evaluate(self, code: str, **args: JSON) -> JSON:
         """Run JavaScript in the extension host; use only when no method fits."""
         return self.call("evaluate", code=code, args=args)
@@ -207,12 +200,6 @@ class Bridge:
     def set_selections(self, document_uri: str | None, *selections: tuple[int, int, int, int]) -> JSON:
         """Place one or more cursors or selections as (anchor line, anchor char, active line, active char)."""
         return self.call("setSelections", uri=document_uri, selections=[list(item) for item in selections])
-
-    def save(self, document_uri: str) -> bool:
-        return self.call("saveDocument", uri=document_uri)
-
-    def set_language(self, document_uri: str, language_id: str) -> dict[str, JSON]:
-        return self.call("setLanguage", uri=document_uri, languageId=language_id)
 
     def set_cursor(self, document_uri: str | None, line: int, character: int) -> JSON:
         return self.call("setSelection", uri=document_uri, anchor=[line, character])
@@ -292,7 +279,7 @@ class Bridge:
             section, key, target, scope, value = self._configuration_changes.pop()
             self.call("updateConfiguration", section=section, key=key, value=value, target=target, scope=scope)
 
-    # -- Terminals and clipboard ------------------------------------------
+    # -- Terminals ----------------------------------------------------------
 
     def terminals(self) -> list[dict[str, JSON]]:
         return self.call("terminals")
@@ -302,6 +289,3 @@ class Bridge:
 
     def dispose_terminals(self, names: list[str] | None = None) -> None:
         self.call("disposeTerminals", names=names)
-
-    def clipboard(self) -> str:
-        return self.call("clipboard")

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +22,7 @@ import pytest
 from .harness import display as display_server
 from .harness import install, processes
 from .harness.instance import EXTENSION_ID, LaunchSpec, PlaywrightDriver, VSCodeInstance
-from .harness.session import EditorFactory, EditorSession
+from .harness.session import EditorFactory, EditorSession, artifact_name, keep_artifacts, scratch_directory
 
 SUITE = Path(__file__).resolve().parent
 REPOSITORY = SUITE.parents[2]
@@ -153,18 +152,6 @@ def editor_factory(
     factory.stop_all()
 
 
-def _test_name(request: pytest.FixtureRequest) -> str:
-    return re.sub(r"[^\w.-]+", "_", request.node.name)[:96]
-
-
-def _keep_artifacts(request: pytest.FixtureRequest, instance: VSCodeInstance, artifacts: Path) -> None:
-    report = getattr(request.node, "report_call", None) or getattr(request.node, "report_setup", None)
-    if report is not None and report.failed:
-        destination = artifacts / _test_name(request)
-        instance.capture(destination)
-        request.node.add_report_section("teardown", "vscode artifacts", str(destination))
-
-
 @pytest.fixture(scope="session")
 def shared_editor(editor_factory: EditorFactory) -> VSCodeInstance:
     return editor_factory.launch("shared")
@@ -172,9 +159,9 @@ def shared_editor(editor_factory: EditorFactory) -> VSCodeInstance:
 
 @pytest.fixture
 def editor(request: pytest.FixtureRequest, shared_editor: VSCodeInstance, artifacts_dir: Path) -> Iterator[EditorSession]:
-    session = EditorSession(shared_editor, shared_editor.spec.workspace / "tests" / _test_name(request))
+    session = EditorSession(shared_editor, scratch_directory(shared_editor, artifact_name(request.node)))
     yield session
-    _keep_artifacts(request, shared_editor, artifacts_dir)
+    keep_artifacts(request.node, shared_editor, artifacts_dir)
     session.reset()
 
 
@@ -188,12 +175,11 @@ def launch_editor(
     def launch(name: str = "isolated", **overrides: Any) -> EditorSession:
         instance = editor_factory.launch(name, **overrides)
         launched.append(instance)
-        workspace = instance.spec.workspace
-        return EditorSession(instance, (workspace if workspace.is_dir() else workspace.parent) / "tests")
+        return EditorSession(instance, scratch_directory(instance, artifact_name(request.node)))
 
     yield launch
     for instance in launched:
-        _keep_artifacts(request, instance, artifacts_dir)
+        keep_artifacts(request.node, instance, artifacts_dir)
         editor_factory.stop(instance)
 
 

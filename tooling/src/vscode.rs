@@ -91,6 +91,17 @@ pub fn run_vscode_test(options: &TestOptions) -> Result<()> {
     let vscode_dir = repo_root.join("editors/vscode");
     print_section("VS Code Extension: Test");
 
+    // `just` runs from the repository root, so relative paths resolve there.
+    let vsix = options.vsix.map(std::path::absolute).transpose()?;
+    if let Some(path) = &vsix
+        && !path.is_file()
+    {
+        bail!(
+            "VSIX not found: {} (relative paths resolve from the repository root; pass an absolute path)",
+            path.display()
+        );
+    }
+
     if !vscode_dir.join("node_modules").is_dir() {
         bail!(
             "Extension dependencies are missing; run `bun install` in {}",
@@ -125,7 +136,7 @@ pub fn run_vscode_test(options: &TestOptions) -> Result<()> {
         )?;
     }
 
-    let vsix = options.vsix.map(|path| path.display().to_string());
+    let vsix = vsix.map(|path| path.display().to_string());
     let mut args = vec![
         "run",
         "--project",

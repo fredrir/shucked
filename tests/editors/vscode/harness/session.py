@@ -6,13 +6,16 @@ import contextlib
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from .bridge import Bridge, diagnostic_code, file_uri
 from .instance import LaunchSpec, VSCodeInstance
-from .waiting import wait_until
+from .waiting import stays_false, wait_until
 from .workbench import Workbench
 
 
@@ -20,6 +23,26 @@ def prepare_home(source: Path, destination: Path) -> Path:
     shutil.copytree(source, destination, dirs_exist_ok=True)
     destination.chmod(0o700)
     return destination
+
+
+def scratch_directory(instance: VSCodeInstance, name: str) -> Path:
+    """Where a test writes its files: inside a workspace copy, never inside a caller's workspace."""
+    if instance.spec.owns_workspace and instance.spec.workspace.is_dir():
+        return instance.spec.workspace / "tests" / name
+    return instance.root / "scratch" / name
+
+
+def artifact_name(node: pytest.Item) -> str:
+    return re.sub(r"[^\w.-]+", "_", node.name)[:96]
+
+
+def keep_artifacts(node: pytest.Item, instance: VSCodeInstance, artifacts: Path) -> None:
+    """Keep a screenshot and logs when the test using ``instance`` failed."""
+    report = getattr(node, "report_call", None) or getattr(node, "report_setup", None)
+    if report is not None and report.failed:
+        destination = artifacts / artifact_name(node)
+        instance.capture(destination)
+        node.add_report_section("teardown", "vscode artifacts", str(destination))
 
 
 def prepare_workspace(source: Path, destination: Path) -> Path:
@@ -55,11 +78,14 @@ class EditorFactory:
         workspace_source = options.pop("workspace_source")
         if workspace is None:
             workspace = prepare_workspace(workspace_source, root / "workspace")
-        for relative, content in (files or {}).items():
-            target = (workspace if workspace.is_dir() else workspace.parent) / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
-        instance = self._start(LaunchSpec(workspace=workspace, home=home, **options), root)
+            for relative, content in (files or {}).items():
+                target = workspace / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+            owned = True
+        else:
+            owned = False
+        instance = self._start(LaunchSpec(workspace=workspace, home=home, owns_workspace=owned, **options), root)
         self._instances.append(instance)
         return instance
 
@@ -142,10 +168,6 @@ class EditorSession:
 
         return wait_until(f"line {line} of {uri} to change", changed, timeout=timeout)
 
-    def cursor_at_end(self, uri: str) -> tuple[int, int]:
-        lines = self.bridge.text(uri).split("\n")
-        return len(lines) - 1, len(lines[-1])
-
     def wait_for_diagnostic(
         self, uri: str, code: str, line: int | None = None, message: str | None = None, timeout: float = 30.0
     ) -> dict[str, Any]:
@@ -184,13 +206,39 @@ class EditorSession:
             timeout=timeout,
         )
 
+    def trigger_inline_suggestion(self, uri: str, text: str) -> None:
+        """Put the cursor after ``text`` on the first line and ask for an inline suggestion."""
+        self.bridge.show(uri)
+        self.bridge.set_cursor(uri, 0, len(text))
+        self.workbench.focus_editor()
+        self.bridge.execute("editor.action.inlineSuggest.trigger")
+
+    def wait_for_inline_suggestion(self, uri: str, text: str, timeout: float = 30.0) -> str:
+        """Trigger until ghost text appears after ``text``; returns the ghost text."""
+
+        def shown() -> str | None:
+            self.trigger_inline_suggestion(uri, text)
+            deadline = time.monotonic() + 1.5
+            while time.monotonic() < deadline:
+                if ghost := self.workbench.ghost_text():
+                    return ghost
+                time.sleep(0.1)
+            return None
+
+        return wait_until(f"inline suggestion after {text!r}", shown, timeout=timeout, interval=0.1)
+
+    def no_inline_suggestion(self, uri: str, text: str, duration: float = 3.0) -> bool:
+        """True when no ghost text appears after ``text`` for ``duration`` seconds."""
+        self.trigger_inline_suggestion(uri, text)
+        return stays_false(self.workbench.ghost_text, duration=duration)
+
     def create_terminal(self, shell: str, timeout: float = 30.0) -> dict[str, Any]:
         """Create a Shucked terminal attached to the active document."""
-        before = {item["name"] for item in self.bridge.terminals()}
+        before = {item["processId"] for item in self.bridge.terminals()}
         self.bridge.execute("shucked.createTerminal", shell)
         return wait_until(
             f"Shucked {shell} terminal",
-            lambda: next((item for item in self.bridge.terminals() if item["name"] not in before and item["processId"]), None),
+            lambda: next((item for item in self.bridge.terminals() if item["processId"] and item["processId"] not in before), None),
             timeout=timeout,
         )
 
@@ -204,6 +252,7 @@ class EditorSession:
             self.bridge.restore_settings()
         with contextlib.suppress(Exception):
             self.bridge.dispose_terminals()
+            wait_until("terminals closed", lambda: not self.bridge.terminals(), timeout=10)
         with contextlib.suppress(Exception):
             self.bridge.close_all_editors()
         with contextlib.suppress(Exception):

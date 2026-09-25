@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import platform
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -87,23 +89,62 @@ def test_provider_packs_and_runtime_match_the_target(archive: zipfile.ZipFile) -
     assert runtime["target"] == json.loads(archive.read("extension/bin/platform.json"))["target"]
 
 
-def test_binaries_are_executable_and_report_the_workspace_version(archive: zipfile.ZipFile, extension_root: Path) -> None:
+def _target(archive: zipfile.ZipFile) -> str:
+    return json.loads(archive.read("extension/bin/platform.json"))["target"]
+
+
+def _host_target() -> str:
+    """This machine's VSIX target, named as the extension's platform.mjs names it."""
+    cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64", "armv7l": "armhf"}.get(platform.machine().lower(), "")
+    family = "win32" if sys.platform == "win32" else sys.platform
+    if family == "linux" and Path("/etc/alpine-release").exists():
+        family = "alpine"
+    return f"{family}-{cpu}"
+
+
+def _executable_platform(header: bytes) -> str | None:
+    """Operating system and CPU of an executable, read from its header without running it."""
+    if header[:4] == b"\x7fELF":
+        machine = int.from_bytes(header[18:20], "big" if header[5] == 2 else "little")
+        return {62: "linux-x64", 183: "linux-arm64", 40: "linux-armhf"}.get(machine)
+    if int.from_bytes(header[:4], "little") == 0xFEEDFACF:
+        return {0x01000007: "darwin-x64", 0x0100000C: "darwin-arm64"}.get(int.from_bytes(header[4:8], "little"))
+    if header[:2] == b"MZ" and len(header) >= 64:
+        offset = int.from_bytes(header[60:64], "little")
+        if header[offset : offset + 4] == b"PE\0\0":
+            return {0x8664: "win32-x64", 0xAA64: "win32-arm64"}.get(int.from_bytes(header[offset + 4 : offset + 6], "little"))
+    return None
+
+
+def test_binaries_keep_their_executable_bits(archive: zipfile.ZipFile) -> None:
+    if _target(archive).startswith("win32-"):
+        pytest.skip("Windows packages have no executable bits")
+    for name in BINARIES:
+        info = archive.getinfo(_binary(archive, name))
+        assert info.file_size > 1_000_000, f"{info.filename} is too small"
+        mode = info.external_attr >> 16
+        assert mode & stat.S_IXUSR, f"{info.filename} must keep its executable bit, got {oct(mode)}"
+
+
+@pytest.mark.parametrize("name", BINARIES)
+def test_binaries_match_the_platform_target(archive: zipfile.ZipFile, name: str) -> None:
+    with archive.open(_binary(archive, name)) as stream:
+        header = stream.read(4096)
+    # Alpine packages carry Linux executables for the same CPU.
+    assert _executable_platform(header) == _target(archive).replace("alpine-", "linux-"), f"{name} was built for another platform"
+
+
+def test_cli_reports_the_workspace_version(archive: zipfile.ZipFile, extension_root: Path) -> None:
+    if _target(archive) != _host_target():
+        pytest.skip(f"the package targets {_target(archive)}; its binaries cannot run on {_host_target()}")
     cargo = (extension_root.parents[1] / "Cargo.toml").read_text()
     found = re.search(r'\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', cargo, re.MULTILINE | re.DOTALL)
     assert found, "workspace version not found in Cargo.toml"
-    version = found.group(1)
     with tempfile.TemporaryDirectory() as temporary:
-        for name in BINARIES:
-            entry = _binary(archive, name)
-            info = archive.getinfo(entry)
-            assert info.file_size > 1_000_000, f"{entry} is too small"
-            mode = info.external_attr >> 16
-            assert mode & stat.S_IXUSR, f"{entry} must keep its executable bit, got {oct(mode)}"
-            path = Path(archive.extract(entry, temporary))
-            path.chmod(0o755)
-            if name == "shucked":
-                output = subprocess.run([str(path), "--version"], capture_output=True, text=True, check=True, timeout=30).stdout
-                assert output.strip() == f"shucked {version}"
+        path = Path(archive.extract(_binary(archive, "shucked"), temporary))
+        path.chmod(0o755)
+        output = subprocess.run([str(path), "--version"], capture_output=True, text=True, check=True, timeout=30).stdout
+    assert output.strip() == f"shucked {found.group(1)}"
 
 
 def test_target_platform_matches_the_bundled_binaries(archive: zipfile.ZipFile) -> None:
@@ -127,13 +168,3 @@ def test_file_inventory(archive: zipfile.ZipFile, snapshot) -> None:
             name = "/".join(name.split("/")[:4]) + "/**"
         inventory.add(re.sub(r"\.exe$", "", name))
     assert sorted(inventory) == snapshot
-
-
-@pytest.mark.parametrize("name", BINARIES)
-def test_binaries_match_the_platform_target(archive: zipfile.ZipFile, name: str) -> None:
-    target = json.loads(archive.read("extension/bin/platform.json"))["target"]
-    header = archive.read(_binary(archive, name))[:64]
-    expected_format = {"linux": b"\x7fELF", "alpine": b"\x7fELF", "darwin": (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), "win32": b"MZ"}[
-        target.split("-")[0]
-    ]
-    assert header.startswith(expected_format), f"{name} is not a {target} executable"

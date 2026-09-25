@@ -12,6 +12,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -114,14 +115,12 @@ def install(version: str, cache: Path) -> Installation:
                             bundle.extractall(staging, filter="fully_trusted")
                         else:
                             bundle.extractall(staging)
+                elif sys.platform == "darwin":
+                    # zipfile drops the app bundle's framework symlinks and permissions; ditto keeps them.
+                    subprocess.run(["ditto", "-x", "-k", str(archive), str(staging)], check=True)
                 else:
                     with zipfile.ZipFile(archive) as bundle:
                         bundle.extractall(staging)
-                    if sys.platform == "darwin":
-                        # zipfile drops permission bits; restore executables inside the app bundle.
-                        for path in staging.rglob("*"):
-                            if path.is_file() and ("MacOS" in path.parts or path.parent.name == "bin"):
-                                path.chmod(0o755)
                 staging.rename(root)
             (root / ".complete").write_text(resolved)
     executable, cli = _locate(root)

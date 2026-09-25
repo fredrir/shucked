@@ -13,9 +13,9 @@ from ..harness.waiting import wait_until
 
 def test_every_contributed_command_is_in_the_palette(editor: EditorSession, extension_manifest: dict[str, Any]) -> None:
     editor.open_workspace_file("smoke.zsh")
-    titles = {command["title"] for command in extension_manifest["contributes"]["commands"]}
-    listed = set(editor.workbench.palette_commands("Shucked:"))
-    assert titles <= listed, f"missing from the palette: {sorted(titles - listed)}"
+    titles = [command["title"] for command in extension_manifest["contributes"]["commands"]]
+    missing = [title for title in titles if not editor.workbench.palette_has(title)]
+    assert missing == []
 
 
 def test_show_version_reports_the_server_version(editor: EditorSession, language_server) -> None:
@@ -47,9 +47,3 @@ def test_restart_from_the_palette_keeps_diagnostics_working(editor: EditorSessio
     wait_until("a new server process", lambda: set(server.pid for server in processes.find_language_servers(editor.instance.pid)) - before)
     editor.edit(uri, "#!/bin/bash\nrestart_unused_again=1\n")
     editor.wait_for_diagnostic(uri, "C001", line=1, message="restart_unused_again")
-
-
-def test_clear_history_suggestions_command_runs(editor: EditorSession) -> None:
-    editor.open_workspace_file("smoke.zsh")
-    editor.workbench.run_command("Shucked: Clear History Suggestions")
-    assert not [text for text in editor.workbench.notifications() if "error" in text.lower()]

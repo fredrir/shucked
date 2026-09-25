@@ -184,7 +184,7 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Package host VSIX | `npm run vsix` |
 | Unit, contract, and shell hook tests | `just vscode test` |
 | Real editor tests (pinned VS Code, isolated profile) | `just vscode test --e2e` |
-| Installed package and its contents | `just vscode test --vsix /absolute/path/package.vsix` |
+| Installed package and its contents | `just vscode test --vsix /absolute/path/package.vsix` (absolute path) |
 | Existing workspace, ordinary defaults; untitled probes only | `just vscode test --e2e -- --regression-workspace /absolute/workspace` |
 
 Unit tests live in `tests/` next to the sources. Shell hook, editor, and packaging tests are a pytest suite in [`tests/editors/vscode`](../../tests/editors/vscode/README.md).

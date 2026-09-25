@@ -136,7 +136,6 @@ const methods = {
     const editor = await vscode.window.showTextDocument(document, { preview, selection: selection ? decode(selection) : undefined });
     return { uri: editor.document.uri.toString(), selection: encode(editor.selection) };
   },
-  setLanguage: async ({ uri, languageId }) => documentInfo(await vscode.languages.setTextDocumentLanguage(documentFor(uri), languageId)),
   document: ({ uri }) => documentInfo(documentFor(uri)),
   replaceText: async ({ uri, text }) => {
     const document = documentFor(uri);
@@ -149,7 +148,6 @@ const methods = {
     edit.replace(documentFor(uri).uri, new vscode.Range(...range), text);
     return vscode.workspace.applyEdit(edit);
   },
-  saveDocument: async ({ uri }) => documentFor(uri).save(),
   setSelection: ({ uri, anchor, active }) => {
     const editor = editorFor(uri);
     editor.selection = new vscode.Selection(anchor[0], anchor[1], (active ?? anchor)[0], (active ?? anchor)[1]);
@@ -199,9 +197,6 @@ const methods = {
     for (const terminal of vscode.window.terminals) { if (!names || names.includes(terminal.name)) { terminal.dispose(); } }
     return null;
   },
-  clipboard: () => vscode.env.clipboard.readText(),
-  setClipboard: ({ text }) => vscode.env.clipboard.writeText(text),
-  enumValues: ({ name }) => Object.fromEntries(Object.entries(vscode[name]).filter(([key, value]) => typeof value === 'number' && Number.isNaN(Number(key)))),
   // Escape hatch for API surfaces without a dedicated method; prefer the methods above.
   evaluate: ({ code, args = {} }) => {
     const AsyncFunction = Object.getPrototypeOf(async () => undefined).constructor;
@@ -249,6 +244,8 @@ function serve(socket, token, finish) {
 exports.run = function run() {
   const token = process.env.SHUCKED_BRIDGE_TOKEN;
   const portFile = process.env.SHUCKED_BRIDGE_PORT_FILE;
+  // Processes the extension host starts from now on (servers, shells) do not need the secret.
+  delete process.env.SHUCKED_BRIDGE_TOKEN;
   if (!token || !portFile) { return Promise.reject(new Error('The bridge requires SHUCKED_BRIDGE_TOKEN and SHUCKED_BRIDGE_PORT_FILE')); }
   return new Promise((resolve, reject) => {
     const server = net.createServer(socket => serve(socket, token, (code, message) => {

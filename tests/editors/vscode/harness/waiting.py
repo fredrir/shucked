@@ -13,6 +13,10 @@ class WaitTimeout(AssertionError):
     """Raised when a condition never became true before its deadline."""
 
 
+class WaitAborted(RuntimeError):
+    """Raised by a probe when waiting longer cannot help, e.g. the process it watches exited."""
+
+
 def wait_until(
     description: str,
     probe: Callable[[], T | None],
@@ -37,6 +41,8 @@ def wait_until(
             if value:
                 return value
             last_value = value
+        except WaitAborted:
+            raise
         except Exception as error:
             last_error = error
         if time.monotonic() >= deadline:

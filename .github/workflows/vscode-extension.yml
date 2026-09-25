@@ -74,7 +74,7 @@ jobs:
         run: |
           uv run --project tests ruff check tests/editors
           uv run --project tests ruff format --check tests/editors
-          uv run --project tests basedpyright
+          uv run --project tests basedpyright -p tests
 
       - name: Build the language server
         run: cargo build -p shucked-cli -p shucked-server

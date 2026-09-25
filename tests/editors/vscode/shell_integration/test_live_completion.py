@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import os
 import signal
+import sys
 
 import pytest
 
 from ..harness import processes
 from ..harness.shells import ShellSession, interactive
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the hooks use Unix signals and sockets")
 
 BASH_IDLE_PROMPT = pytest.mark.xfail(
     strict=True,
@@ -23,8 +26,21 @@ BASH_IDLE_PROMPT = pytest.mark.xfail(
 )
 
 
-def _shells(*names: str) -> list:
-    return [pytest.param(name, marks=BASH_IDLE_PROMPT) if name == "bash" else name for name in names]
+def _deliveries(*names: str) -> list:
+    """Each shell with the editor's delivery: a signal while the prompt is idle.
+
+    Bash only runs its trap after the next keystroke, which the editor never
+    sends; that case is a strict expected failure. A second bash case presses
+    Enter after the signal so the hook's own logic is still exercised.
+    """
+    cases = []
+    for name in names:
+        if name == "bash":
+            cases.append(pytest.param("bash", False, id="bash-idle-prompt", marks=BASH_IDLE_PROMPT))
+            cases.append(pytest.param("bash", True, id="bash-after-keystroke"))
+        else:
+            cases.append(pytest.param(name, False, id=name))
+    return cases
 
 
 STATE = {
@@ -58,14 +74,21 @@ OCCUPIED = {
 }
 
 
-def _ask(session: ShellSession, metadata: dict, query: str, words: list[str]) -> dict:
+def _deliver(session: ShellSession, metadata: dict, query: str, words: list[str], keystroke: bool) -> dict:
+    """Send a request to an idle shell; returns the metadata to use for the next request."""
     session.wait_idle()
     session.request(query, metadata["generation"], "live", words, metadata["liveSignal"])
-    return session.reply(query)
+    if keystroke:
+        session.send("\n")
+        # The empty command draws a new prompt; later requests must use its generation.
+        return session.metadata(after=metadata["generation"])
+    return metadata
 
 
-@pytest.mark.parametrize("shell", _shells("bash", "zsh", "fish"))
-def test_completer_sees_current_state_and_never_runs_editor_words(shell: str, shell_path: str, integration, node: str) -> None:
+@pytest.mark.parametrize(("shell", "keystroke"), _deliveries("bash", "zsh", "fish"))
+def test_completer_sees_current_state_and_never_runs_editor_words(
+    shell: str, keystroke: bool, shell_path: str, integration, node: str
+) -> None:
     script, update = STATE[shell]
     with interactive(shell, script, integration, node) as session:
         metadata = session.metadata()
@@ -78,9 +101,12 @@ def test_completer_sees_current_state_and_never_runs_editor_words(shell: str, sh
             marker = session.directory / "must-not-exist"
             event_marker = session.directory / "must-not-restore-events"
             event_marker.unlink(missing_ok=True)
-            reply = _ask(session, metadata, str(index + 1) * 32, ["custom", f"$(touch {marker})"])
+            query = str(index + 1) * 32
+            generation = metadata["generation"]
+            metadata = _deliver(session, metadata, query, ["custom", f"$(touch {marker})"], keystroke)
+            reply = session.reply(query)
             assert expected in [item["text"] for item in reply["candidates"]], reply
-            assert reply["generation"] == metadata["generation"]
+            assert reply["generation"] == generation
             assert not marker.exists(), "editor words were executed"
             assert not event_marker.exists(), "restoring private state fired a user event handler"
             prompts = [message for message in session.listener.messages if "shell" in message]
@@ -88,30 +114,34 @@ def test_completer_sees_current_state_and_never_runs_editor_words(shell: str, sh
             assert all(message["generation"] <= metadata["generation"] for message in prompts), "a private worker advanced the session"
 
 
-@pytest.mark.parametrize("shell", _shells("bash"))
-def test_bash_distinguishes_filename_spaces_from_shell_quoting(shell: str, shell_path: str, integration, node: str) -> None:
+@pytest.mark.parametrize(("shell", "keystroke"), _deliveries("bash"))
+def test_bash_distinguishes_filename_spaces_from_shell_quoting(
+    shell: str, keystroke: bool, shell_path: str, integration, node: str
+) -> None:
     script = STATE["bash"][0] + "_custom() { compopt -o filenames; COMPREPLY=('file '); }\n"
     with interactive(shell, script, integration, node) as session:
         metadata = session.metadata()
-        first = _ask(session, metadata, "1" * 32, ["custom"])["candidates"][0]
+        metadata = _deliver(session, metadata, "1" * 32, ["custom"], keystroke)
+        first = session.reply("1" * 32)["candidates"][0]
         assert (first["text"], first.get("encoding")) == ("file ", None), "readline quotes filename candidates itself"
         session.send("_custom() { compopt +o filenames; COMPREPLY=('file\\ '); }\n")
         metadata = session.metadata(after=metadata["generation"])
-        second = _ask(session, metadata, "2" * 32, ["custom"])["candidates"][0]
+        _deliver(session, metadata, "2" * 32, ["custom"], keystroke)
+        second = session.reply("2" * 32)["candidates"][0]
         assert (second["text"], second.get("encoding")) == ("file\\ ", "bashWord"), "other callbacks supply shell-word text"
 
 
-@pytest.mark.parametrize("shell", _shells("bash", "zsh"))
+@pytest.mark.parametrize(("shell", "keystroke"), _deliveries("bash", "zsh"))
 @pytest.mark.parametrize("returns_candidates", [False, True], ids=["hanging", "background-child"])
-def test_watchdog_stops_callbacks_and_their_children(shell: str, returns_candidates: bool, shell_path: str, integration, node: str) -> None:
+def test_watchdog_stops_callbacks_and_their_children(
+    shell: str, keystroke: bool, returns_candidates: bool, shell_path: str, integration, node: str
+) -> None:
     callback = HANGING
     if returns_candidates:
         callback = callback.replace("wait; }", ("COMPREPLY=(live)" if shell == "bash" else "compadd -- live") + "; }")
     with interactive(shell, STATE[shell][0] + callback, integration, node) as session:
-        metadata = session.metadata()
         query = "e" * 32
-        session.wait_idle()
-        session.request(query, metadata["generation"], "live", ["custom"], metadata["liveSignal"])
+        _deliver(session, session.metadata(), query, ["custom"], keystroke)
         files = [session.directory / "worker-pid", session.directory / "child-pid"]
         session.wait("worker and child started", lambda: all(path.exists() and path.read_text().strip() for path in files), timeout=3)
         if returns_candidates:

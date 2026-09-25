@@ -9,8 +9,6 @@ import pytest
 
 from ..harness import processes
 
-pytestmark = pytest.mark.skipif(__import__("sys").platform == "win32", reason="Unix signal transport")
-
 
 @pytest.fixture(scope="session", autouse=True)
 def _reap_hook_workers() -> None:
