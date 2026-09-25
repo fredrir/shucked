@@ -1,0 +1,27 @@
+# serializer version: 1
+# name: test_file_inventory
+  list([
+    '[Content_Types].xml',
+    'extension.vsixmanifest',
+    'extension/LICENSE.txt',
+    'extension/bin/platform.json',
+    'extension/bin/providers/packs/**',
+    'extension/bin/providers/runtime/**',
+    'extension/bin/shucked',
+    'extension/bin/shucked-server',
+    'extension/dist/extension.js',
+    'extension/package.json',
+    'extension/readme.md',
+    'extension/shell-integration/bash.sh',
+    'extension/shell-integration/capture.cjs',
+    'extension/shell-integration/fish.fish',
+    'extension/shell-integration/live-bash.sh',
+    'extension/shell-integration/live-fish.cjs',
+    'extension/shell-integration/live-fish.fish',
+    'extension/shell-integration/live-read.cjs',
+    'extension/shell-integration/live-result.cjs',
+    'extension/shell-integration/live-watchdog.cjs',
+    'extension/shell-integration/live-zsh.zsh',
+    'extension/shell-integration/zsh.zsh',
+  ])
+# ---
