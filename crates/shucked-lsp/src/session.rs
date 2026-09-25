@@ -7,6 +7,7 @@ use lsp_types::{ClientCapabilities, FileEvent, Url};
 
 use crate::analysis::{DocumentAnalysis, DocumentAnalysisCache};
 use crate::edit::{DocumentKey, DocumentVersion};
+use crate::handlers::semantic_tokens_cache::SemanticTokensCache;
 use crate::session::request_queue::RequestQueue;
 use crate::session::settings::GlobalClientSettings;
 pub(crate) mod workspace;
@@ -48,6 +49,7 @@ pub struct Session {
     workspace_symbols: Arc<crate::symbols::WorkspaceSymbolIndex>,
     workspace_diagnostics: Arc<crate::workspace_diagnostics::WorkspaceDiagnosticCache>,
     analysis_cache: Arc<DocumentAnalysisCache>,
+    semantic_tokens: Arc<SemanticTokensCache>,
     workspace_function_index: Arc<crate::workspace_functions::WorkspaceFunctionIndexCache>,
     request_queue: RequestQueue,
     shutdown_requested: bool,
@@ -66,6 +68,7 @@ pub struct DocumentSnapshot {
     document_ref: index::DocumentQuery,
     position_encoding: PositionEncoding,
     analysis_cache: Arc<DocumentAnalysisCache>,
+    semantic_tokens: Arc<SemanticTokensCache>,
     analysis_settings_epoch: u64,
 }
 
@@ -76,6 +79,7 @@ pub(crate) struct WorkspaceDocumentSnapshotFactory {
     resolved_client_capabilities: Arc<ResolvedClientCapabilities>,
     position_encoding: PositionEncoding,
     analysis_cache: Arc<DocumentAnalysisCache>,
+    semantic_tokens: Arc<SemanticTokensCache>,
     analysis_settings_epoch: u64,
 }
 
@@ -122,6 +126,7 @@ impl Session {
                 crate::workspace_diagnostics::WorkspaceDiagnosticCache::default(),
             ),
             analysis_cache: Arc::new(DocumentAnalysisCache::new()),
+            semantic_tokens: Arc::new(SemanticTokensCache::default()),
             workspace_function_index: Arc::new(
                 crate::workspace_functions::WorkspaceFunctionIndexCache::default(),
             ),
@@ -294,6 +299,7 @@ impl Session {
             document_ref: self.index.make_document_ref(key, settings)?,
             position_encoding: self.position_encoding,
             analysis_cache: self.analysis_cache.clone(),
+            semantic_tokens: self.semantic_tokens.clone(),
             analysis_settings_epoch: self.analysis_cache.current_settings_epoch(),
         })
     }
@@ -318,6 +324,7 @@ impl Session {
     /// Open or replace an in-memory text document.
     pub fn open_text_document(&mut self, url: Url, document: TextDocument) {
         self.analysis_cache.invalidate_uri(&url);
+        self.semantic_tokens.evict(&url);
         self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.index.open_text_document(url, document);
@@ -327,6 +334,7 @@ impl Session {
         self.diagnostic_worker.cancel(&key.clone().into_url());
         self.index.close_document(key)?;
         self.analysis_cache.invalidate_uri(&key.clone().into_url());
+        self.semantic_tokens.evict(&key.clone().into_url());
         self.workspace_diagnostics.invalidate_all();
         self.workspace_function_index.invalidate();
         self.workspace_symbols
@@ -407,6 +415,11 @@ impl Session {
         self.index.open_document_count()
     }
 
+    #[cfg(test)]
+    pub(crate) fn semantic_tokens(&self) -> &SemanticTokensCache {
+        &self.semantic_tokens
+    }
+
     pub(crate) fn workspace_roots(&self) -> &[PathBuf] {
         self.index.workspace_roots()
     }
@@ -436,6 +449,7 @@ impl Session {
             resolved_client_capabilities: self.resolved_client_capabilities.clone(),
             position_encoding: self.position_encoding,
             analysis_cache: self.analysis_cache.clone(),
+            semantic_tokens: self.semantic_tokens.clone(),
             analysis_settings_epoch: self.analysis_cache.current_settings_epoch(),
         }
     }
@@ -579,6 +593,11 @@ impl DocumentSnapshot {
     pub(crate) fn analysis_settings_epoch(&self) -> u64 {
         self.analysis_settings_epoch
     }
+
+    /// The per-document semantic token cache shared with the session.
+    pub(crate) fn semantic_tokens(&self) -> &SemanticTokensCache {
+        &self.semantic_tokens
+    }
 }
 
 impl WorkspaceDocumentSnapshotFactory {
@@ -604,6 +623,7 @@ impl WorkspaceDocumentSnapshotFactory {
             },
             position_encoding: self.position_encoding,
             analysis_cache: self.analysis_cache.clone(),
+            semantic_tokens: self.semantic_tokens.clone(),
             analysis_settings_epoch: self.analysis_settings_epoch,
         }
     }

@@ -134,6 +134,12 @@ pub(super) fn request(req: server::Request) -> Task {
         request::SemanticTokensFull::METHOD => {
             background_request_task::<request::SemanticTokensFull>(req, BackgroundSchedule::Worker)
         }
+        request::SemanticTokensFullDelta::METHOD => background_request_task::<
+            request::SemanticTokensFullDelta,
+        >(req, BackgroundSchedule::Worker),
+        request::SemanticTokensRange::METHOD => background_request_task::<
+            request::SemanticTokensRange,
+        >(req, BackgroundSchedule::Worker),
         lsp_types::request::Shutdown::METHOD => sync_request_task::<request::ShutdownHandler>(req),
         method => {
             let result: Result<()> = Err(Error::new(

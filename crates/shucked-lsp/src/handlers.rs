@@ -19,6 +19,7 @@ pub(crate) mod refactor;
 pub(crate) mod resolve;
 pub(crate) mod selection;
 pub(crate) mod semantic_tokens;
+pub(crate) mod semantic_tokens_cache;
 pub(crate) mod semantic_tokens_fish;
 pub(crate) mod symbols;
 pub(crate) mod workspace_diagnostics;
