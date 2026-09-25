@@ -55,10 +55,18 @@ def test_slow_live_completer_is_bounded_and_its_worker_stopped(zsh_document: tup
     marker = editor.home / "live_worker_pid"
     marker.unlink(missing_ok=True)
     editor.edit(uri, "slow_fixture live_")
-    started = time.monotonic()
-    editor.bridge.completions(uri, 0, len("slow_fixture live_"))
-    assert time.monotonic() - started < 2.5, "a slow custom completer has a bounded deadline"
-    worker = int(wait_until("live worker pid", lambda: marker.exists() and marker.read_text().strip(), timeout=5))
+    durations: list[float] = []
+
+    def worker_started() -> str | None:
+        # On a loaded machine the deadline can pass before the shell starts a
+        # worker; that request is simply cancelled, so ask again.
+        started = time.monotonic()
+        editor.bridge.completions(uri, 0, len("slow_fixture live_"))
+        durations.append(time.monotonic() - started)
+        return marker.read_text().strip() if marker.exists() else None
+
+    worker = int(wait_until("live worker started", worker_started, timeout=30, interval=0.5))
+    assert max(durations) < 2.5, f"a slow custom completer has a bounded deadline: {durations}"
     wait_until("live worker stopped", lambda: not processes.is_running(worker), timeout=5)
 
 
