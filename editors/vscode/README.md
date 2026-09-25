@@ -47,7 +47,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Block snippets | Structural keywords expand into editable fields and dialect-appropriate closing syntax |
 | Dismissal / navigation | Escape, edits, cursor changes, focus loss, and Up/Down/PageUp/PageDown stop idle refresh |
 | Provenance | Completion details identify the provider alongside available descriptions |
-| Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable |
+| Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable. One persistent helper per terminal relays requests; a request costs a fork of the shell, no new Node process |
 | Packages | Package names and other dynamic values come from the selected upstream completion definition |
 | Aliases | Preserve injected arguments and source ranges; standalone scripts do not inherit interactive aliases |
 | Missing commands | Debounced warning and invalid semantic classification when absence is established |

@@ -47,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await clientManager.start();
   const environments = new EnvironmentManager(context, clientManager);
   const history = new HistoryManager(environments);
-  context.subscriptions.push(environments, history, new TerminalManager(context, clientManager, environments, history));
+  context.subscriptions.push(environments, history, new TerminalManager(context, clientManager, environments, history, outputChannel));
   outputChannel.info("Shucked extension activation complete.");
 }
 

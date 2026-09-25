@@ -1,5 +1,9 @@
-# A reserved signal reads a private data request and forks current shell state.
-# Editor words only populate completion variables; they never become a command.
+# A reserved signal makes the shell read a private request and fork its current
+# completion state. Editor words only populate completion variables; they never
+# become a command. A persistent helper (live-helper.cjs, started below) writes
+# each request, sends the signal, reads the worker's records from a FIFO it
+# owns, and stops workers that outlive their deadline: no process is started
+# per request beyond the forked worker itself.
 __shucked_live_bash_complete() {
     builtin trap - DEBUG RETURN EXIT
     local __shucked_spec __shucked_function='' __shucked_word __shucked_quoted __shucked_i
@@ -67,39 +71,48 @@ __shucked_live_bash_complete() {
     builtin printf 'E\0'
 }
 __shucked_live_bash_request() {
-    local __shucked_status=$? __shucked_value __shucked_pid
+    local __shucked_status=$? __shucked_value
     local -a __shucked_fields=()
-    while IFS= read -r -d '' __shucked_value; do __shucked_fields+=("$__shucked_value"); done < <(ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_READ")
+    [[ -f $SHUCKED_LIVE_DIRECTORY/request && -p $SHUCKED_LIVE_DIRECTORY/live.fifo ]] || return "$__shucked_status"
+    while IFS= read -r -d '' __shucked_value; do __shucked_fields+=("$__shucked_value"); done < "$SHUCKED_LIVE_DIRECTORY/request"
     ((${#__shucked_fields[@]} >= 5)) || return "$__shucked_status"
     [[ ${__shucked_fields[0]} =~ ^[a-f0-9]{32}$ && ${__shucked_fields[1]} = "$__shucked_generation" ]] || return "$__shucked_status"
+    # A signal delivered twice for one request must not start a second worker.
+    [[ ${__shucked_fields[0]} != "$__shucked_live_served" ]] || return "$__shucked_status"
+    __shucked_live_served=${__shucked_fields[0]}
     (
-      (
-        # Job control is private to this fork and gives the callback its own group.
+        # Job control is private to this fork and gives the worker its own process
+        # group, which the helper stops at the deadline or on cancellation.
         set -m
         (
             set +m
+            builtin printf 'R\0%s\0%s\0' "${__shucked_fields[0]}" "$BASHPID"
             __shucked_live_bash_complete
-        ) &
-        __shucked_worker=$!
-        ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "${SHUCKED_LIVE_RESULT%/*}/live-watchdog.cjs" "$__shucked_worker" &
-        __shucked_watchdog=$!
-        wait "$__shucked_worker"
+        ) > "$SHUCKED_LIVE_DIRECTORY/live.fifo" &
+        wait "$!"
         # A callback may return while its background descendants are still running.
-        builtin kill -KILL -- "-$__shucked_worker" 2>/dev/null
-        builtin kill "$__shucked_watchdog" 2>/dev/null
-        wait "$__shucked_watchdog" 2>/dev/null
-      ) | ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_RESULT" result "${__shucked_fields[0]}" "${__shucked_fields[1]}" 0
+        builtin kill -KILL -- "-$!" 2>/dev/null
     ) </dev/null >/dev/null 2>&1 &
-    __shucked_pid=$!
-    builtin disown "$__shucked_pid" 2>/dev/null
-    ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_RESULT" started "${__shucked_fields[0]}" "${__shucked_fields[1]}" "$__shucked_pid" </dev/null >/dev/null 2>&1
+    builtin disown "$!" 2>/dev/null
     return "$__shucked_status"
 }
 __shucked_live_signal=''
-if [[ -z $(builtin trap -p USR1) ]]; then
-    builtin trap '__shucked_live_bash_request >/dev/null 2>&1' USR1
-    __shucked_live_signal=SIGUSR1
-elif [[ -z $(builtin trap -p USR2) ]]; then
-    builtin trap '__shucked_live_bash_request >/dev/null 2>&1' USR2
-    __shucked_live_signal=SIGUSR2
+__shucked_live_served=''
+# Readline runs a pending trap promptly only for the signals it watches itself;
+# any other signal waits for the next keystroke, which an editor never sends.
+# The window-size signal is the one of those that stays silent when the size
+# is unchanged, so it carries the requests. The helper needs BASHPID and named
+# file descriptors (bash 4.1).
+if [[ -n ${SHUCKED_LIVE_HELPER-} && -n ${SHUCKED_LIVE_DIRECTORY-} && -z ${__shucked_live_helper_fd-} ]] \
+    && (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 1) )); then
+    if [[ -z $(builtin trap -p WINCH) ]]; then
+        builtin trap '__shucked_live_bash_request >/dev/null 2>&1' WINCH
+        __shucked_live_signal=SIGWINCH
+    fi
+    if [[ -n $__shucked_live_signal ]]; then
+        # The helper reads its stdin from a pipe only this shell writes to, so it
+        # sees end-of-file the moment the shell exits; it also watches its parent.
+        builtin eval 'exec {__shucked_live_helper_fd}> >(ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_HELPER" bash "$$" "$__shucked_live_signal" >/dev/null 2>&1)'
+        __shucked_live_helper_pid=$!
+    fi
 fi

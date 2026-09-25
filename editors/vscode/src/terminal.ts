@@ -6,14 +6,14 @@ import * as path from "node:path";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { ClientManager } from "./client";
 import { EnvironmentManager } from "./environment";
-import { LiveCompletionManager } from "./live-completion";
+import { LIVE_SIGNALS, LiveCompletionManager, validLiveHelperHello, type LiveSignal } from "./live-completion";
 import type { HistoryManager } from "./history";
 
 type Shell = "bash" | "zsh" | "fish";
 export interface SessionMetadata {
   id: string; generation: number; pid: number; shell: Shell; cwd: string; path: string[];
   aliases: Record<string, string[]>; functions: string[]; options: Record<string, string>;
-  private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string; historyFile?: string; liveCompletion?: boolean; liveSignal?: "SIGUSR1" | "SIGUSR2";
+  private: boolean; ignore: string[]; connected: boolean; acceptedHistoryHash?: string; historyFile?: string; liveCompletion?: boolean; liveSignal?: LiveSignal;
 }
 interface AttachedSession { id: string; token: string; shell: Shell; generation: number; terminal?: vscode.Terminal; metadata?: SessionMetadata; pid?: number; directory?: string; executing?: boolean; historyPolicy?: string; executionGeneration?: number; pendingHistory?: { text: string; generation: number }; dropWarned?: boolean; }
 /** One hook payload; matches the cap in `shell-integration/capture.cjs`. */
@@ -36,7 +36,7 @@ export function validateSessionMessage(value: unknown): value is SessionMetadata
   if (item.acceptedHistoryHash !== undefined && (typeof item.acceptedHistoryHash !== "string" || !/^[a-f0-9]{64}$/.test(item.acceptedHistoryHash))) { return false; }
   if (item.historyFile !== undefined && (typeof item.historyFile !== "string" || item.historyFile.length > 16384 || item.historyFile.includes("\0") || (item.historyFile !== "" && !path.isAbsolute(item.historyFile)))) { return false; }
   if (item.liveCompletion !== undefined && typeof item.liveCompletion !== "boolean") { return false; }
-  if (item.liveSignal !== undefined && !["SIGUSR1", "SIGUSR2"].includes(String(item.liveSignal))) { return false; }
+  if (item.liveSignal !== undefined && !LIVE_SIGNALS.includes(item.liveSignal as LiveSignal)) { return false; }
   if (typeof item.private !== "boolean" || item.connected !== true || !item.aliases || typeof item.aliases !== "object" || Array.isArray(item.aliases)) { return false; }
   if (Object.keys(item.aliases).length > MAX_NAMES || !Object.entries(item.aliases).every(([name, words]) => /^[\w.:-]{1,256}$/.test(name) && stringList(words, 32))) { return false; }
   return !!item.options && typeof item.options === "object" && !Array.isArray(item.options) && Object.entries(item.options).length < 128 && Object.entries(item.options).every(([key, value]) => /^[\w_-]+$/.test(key) && typeof value === "string" && value.length < 128);
@@ -72,8 +72,8 @@ export class TerminalManager implements vscode.Disposable {
   private disposed = false;
   private readonly live: LiveCompletionManager;
 
-  constructor(private readonly context: vscode.ExtensionContext, private readonly client: ClientManager, private readonly environments: EnvironmentManager, private readonly history: HistoryManager) {
-    this.live = new LiveCompletionManager(client, environments, id => this.sessions.get(id));
+  constructor(private readonly context: vscode.ExtensionContext, private readonly client: ClientManager, private readonly environments: EnvironmentManager, private readonly history: HistoryManager, output?: vscode.LogOutputChannel) {
+    this.live = new LiveCompletionManager(client, environments, id => this.sessions.get(id), output);
     this.subscriptions.push(
       this.live,
       client.onReady(() => { for (const session of this.sessions.values()) { if (session.metadata) { void this.client.notify("shucked/shellSession", session.metadata).catch(() => undefined); } } }),
@@ -128,8 +128,9 @@ export class TerminalManager implements vscode.Disposable {
           handled = true;
           try {
             const value: unknown = JSON.parse(frame.subarray(0, frame.indexOf(10)).toString("utf8"));
-            if (value && typeof value === "object" && "kind" in value && value.kind === "liveCompletion") { void this.live.receive(value); }
-            else if (validateDropNotice(value)) { this.dropped(value); }
+            // A terminal's live completion helper keeps its connection open; every other sender delivers one frame.
+            if (validLiveHelperHello(value) && this.live.adopt(value, socket, frame.subarray(frame.indexOf(10) + 1))) { return; }
+            if (validateDropNotice(value)) { this.dropped(value); }
             else if (validateSessionMessage(value)) { void this.receive(value).catch(() => undefined); }
             else if (value && typeof value === "object" && "id" in value && typeof value.id === "string") { this.reportDrop(this.sessions.get(value.id), "validation"); }
           } catch { /* Malformed data is discarded without logging shell contents. */ }
@@ -209,7 +210,7 @@ export class TerminalManager implements vscode.Disposable {
     const env: Record<string, string> = { SHUCKED_SESSION_ID: session.id, SHUCKED_SESSION_TOKEN: session.token, SHUCKED_SESSION_SOCKET: this.socketPath!, SHUCKED_NODE: process.execPath, SHUCKED_CAPTURE: path.join(integration, "capture.cjs") };
     const sessionDirectory = path.join(this.directory!, session.id); await fs.mkdir(sessionDirectory, { mode: 0o700 });
     session.directory = sessionDirectory;
-    Object.assign(env, { SHUCKED_LIVE_ALLOWED: process.platform === "win32" ? "0" : "1", SHUCKED_LIVE_DIRECTORY: sessionDirectory, SHUCKED_LIVE_READ: path.join(integration, "live-read.cjs"), SHUCKED_LIVE_RESULT: path.join(integration, "live-result.cjs"), SHUCKED_LIVE_FISH: path.join(integration, "live-fish.cjs") });
+    Object.assign(env, { SHUCKED_LIVE_ALLOWED: process.platform === "win32" ? "0" : "1", SHUCKED_LIVE_DIRECTORY: sessionDirectory, SHUCKED_LIVE_HELPER: path.join(integration, "live-helper.cjs") });
     session.historyPolicy = path.join(sessionDirectory, "history-policy");
     await fs.writeFile(session.historyPolicy, `${this.history.sessionEnabled() ? 1 : 0}\n${this.history.filesEnabled() ? 1 : 0}\n`, { mode: 0o600 });
     env.SHUCKED_HISTORY_POLICY = session.historyPolicy;
@@ -260,6 +261,7 @@ export class TerminalManager implements vscode.Disposable {
 
   private disconnect(session: AttachedSession): void {
     this.live.cancelSession(session.id);
+    this.live.stopHelper(session.id);
     this.sessions.delete(session.id); this.history.clearSession(session.id);
     this.environments.sessionState(session.id, false, session.metadata);
     void this.client.notify("shucked/shellSession", { ...(session.metadata ?? { id: session.id, cwd: os.homedir(), path: [], aliases: {}, functions: [], options: {} }), generation: session.generation + 1, connected: false }).catch(() => undefined);

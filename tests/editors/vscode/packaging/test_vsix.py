@@ -25,10 +25,7 @@ SHELL_HOOKS = (
     "live-bash.sh",
     "live-zsh.zsh",
     "live-fish.fish",
-    "live-fish.cjs",
-    "live-read.cjs",
-    "live-result.cjs",
-    "live-watchdog.cjs",
+    "live-helper.cjs",
 )
 
 
