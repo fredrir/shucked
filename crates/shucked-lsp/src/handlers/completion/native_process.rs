@@ -368,6 +368,7 @@ impl Worker {
             return Exchange::Broken;
         }
         let mut output = Vec::new();
+        let mut exited = false;
         loop {
             if cancellation.is_cancelled() || Instant::now() >= deadline {
                 return Exchange::Abandoned(output);
@@ -385,10 +386,12 @@ impl Worker {
                         None => return Exchange::Broken,
                     }
                 }
-                Err(channel::RecvTimeoutError::Timeout) => match self.child.try_wait() {
-                    Ok(None) => {}
-                    Ok(Some(_)) | Err(_) => return Exchange::Broken,
-                },
+                // An exited worker may still have its final chunk in flight;
+                // the reader closes the channel once the pipe is drained.
+                Err(channel::RecvTimeoutError::Timeout) if !exited => {
+                    exited = !matches!(self.child.try_wait(), Ok(None));
+                }
+                Err(channel::RecvTimeoutError::Timeout) => {}
                 Err(channel::RecvTimeoutError::Disconnected) => return Exchange::Broken,
             }
         }

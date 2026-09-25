@@ -55,10 +55,32 @@ the environment-aware command intelligence programme.
   operator, dialect-aware (`=~`, `<`, `>`, `&&`, `||` only in `[[`; `-a`/`-o`
   connectors only in `[`/`test`; POSIX flagging for `sh`). The result is
   complete immediately; no shell is consulted.
-- Native completion gating, worker lifetime, `compinit` caching, Homebrew
-  environment, `fpath` discovery and PATH-entry handling: see the worker report
-  recorded in the commit message and the tests under
-  `crates/shucked-lsp/tests/completion/`.
+- Environment uncertainty is now a structured `EnvironmentUncertainty` reason
+  (`InFunction`, `SourceOrEval`, `Autoload`, `WorkingDirectoryChange`,
+  `PathReplaced`, `PathExtended`, `SearchPathOverride`, `DynamicAlias`,
+  `OpaqueAlias`, `DynamicName`, `WrapperOptions`). Diagnostics keep the old
+  conservative meaning; completion is blocked only when the reason changes host
+  lookup for that name (a replaced PATH, a prefix `PATH=x cmd`, a function or
+  opaque alias shadow, a dynamic name), so `brew `, `ls -` and `eza -` keep
+  completing after `source`, `autoload`, `cd`, `export PATH="$HOME/bin:$PATH"`
+  and inside functions. Relative, empty, `~` and unreadable PATH entries and the
+  Portable policy no longer switch argument completion off.
+- The persistent zsh completion worker survives timeouts and cancellations: an
+  abandoned response is drained in the background (10 s cap), an identical
+  follow-up request adopts it, and the LSP answer stays `isIncomplete` while a
+  job is pending instead of closing the popup with an empty list. Slow
+  completers (brew, docker, kubectl, helm, gcloud, aws, terraform, gh, npm,
+  cargo, pip, nix, pacman, ...) get a 4 s warm budget.
+- `compinit` uses a cached dump under the shucked cache directory keyed by the
+  engine, pack manifest and installed definition directories; the zsh worker
+  sets `HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_NO_ANALYTICS` and
+  `HOMEBREW_NO_ENV_HINTS`.
+- Completion definitions are also discovered in the zsh engine's own function
+  directories (`$fpath`, `share/zsh/<version>/functions`, `share/zsh/functions`),
+  so `ls` and friends complete from the host zsh even when the bundled provider
+  root is missing; a missing provider root is logged once.
+- `bind_primary` only pins the resolved executable when a PATH shadow exists,
+  so scripts such as `brew` keep their real location.
 
 ### Source resolution
 
@@ -108,12 +130,26 @@ the environment-aware command intelligence programme.
 
 ### Environment
 
-- `login-shell` environment policy (opt-in, trusted workspaces only): the server
-  captures PATH, aliases, functions and options from the user's login shell once
-  per rc-file fingerprint and treats them like an attached terminal. Shucked
-  terminals start as login shells. `tracing.logLevel` is forwarded from the
-  extension, and `shucked.showEnvironmentDetails` explains trust, policy,
-  provider root, engines and the resolution of the command under the cursor.
+- `login-shell` environment policy (opt-in, trusted workspaces only, label
+  "Login shell"): the server runs `$SHELL -l -i` once per shell/rc-file
+  fingerprint with a 5 s deadline, `TERM=dumb` and `SHUCKED_CAPTURE=1`, parses
+  the same NUL-framed records the terminal hooks send, and treats PATH, aliases,
+  functions and options like an attached terminal. Captures refresh when the
+  watcher sees rc-file changes or on `shucked.refreshEnvironment`; failures fall
+  back to the workspace host with one notice. `shucked.environment.loginShell`
+  overrides the shell path. The default policy is unchanged.
+- Shucked terminals start as login shells (zsh `-l -i` with the private
+  `ZDOTDIR` chain including `.zprofile`; bash runs the login file order from its
+  private rc file because bash ignores `--rcfile` under `-l`; fish `-l -i`).
+- `shucked.trace.logLevel` / `shucked.trace.logFile` are forwarded to the server,
+  and `shucked.showEnvironmentDetails` renders trust, policy and provenance,
+  the login-shell status, the PATH table with existence checks, alias/function
+  counts, provider root and engine availability, and the resolution of the
+  command under the cursor.
+- Terminal hook robustness: the capture helper has a 3 s deadline and a 1 MiB
+  payload cap and reports drops instead of failing silently; the server keeps
+  truncated session state up to 50 000 aliases/functions instead of discarding
+  it; the extension shows one warning per terminal when a payload is dropped.
 
 ## Roadmap
 
@@ -164,6 +200,15 @@ worthwhile but can wait.
 | P2  | Windows: a custom-completer transport that does not depend on Unix signals.                                                                                                             | `live_completion.rs`, `live-completion.ts`                                   |
 
 ## Validation gaps
+
+- `zsh` and `fish` are not installed in the environment used for this work, so
+  every zsh-backed completion test (Rust and Python) was skipped there; the
+  gating and worker-lifetime changes are covered by fixture-based unit tests
+  and need a run on a host with zsh.
+- `crates/shucked-lsp/tests/manual.rs` cross-file navigation tests are
+  nondeterministic in that environment (the same test passes and fails across
+  runs at the branch base as well); they should get an explicit "index ready"
+  synchronisation before they gate releases.
 
 - No macOS acceptance run exists in CI; the completion fixes above were validated
   with the Linux toolchain and unit tests. A macOS arm64 and an Intel run of
