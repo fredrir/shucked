@@ -205,6 +205,14 @@ worthwhile but can wait.
   every zsh-backed completion test (Rust and Python) was skipped there; the
   gating and worker-lifetime changes are covered by fixture-based unit tests
   and need a run on a host with zsh.
+- `tests/lsp/test_command_intelligence.py::test_dynamic_commands_and_guarded_dependencies_do_not_warn`
+  fails at the branch base as well: a dynamic command name (`"$COMMAND"`)
+  marks the workspace function environment unknown, and the command handler
+  turns that into an uncertain environment for every later site, so
+  `optional-tool` resolves as Unknown instead of Missing. Deciding whether a
+  dynamic dispatch should suppress later missing-command diagnostics is a
+  product question for the environment model (see `commands.rs` around the
+  "Workspace function binding depends on source or execution context" detail).
 - `crates/shucked-lsp/tests/manual.rs` cross-file navigation tests are
   nondeterministic in that environment (the same test passes and fails across
   runs at the branch base as well); they should get an explicit "index ready"
