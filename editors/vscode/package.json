@@ -410,7 +410,7 @@
     "lint:fix": "eslint --fix",
     "vsix": "node vsix.mjs package",
     "publish": "node vsix.mjs publish",
-    "test": "node --test tests/*.test.mjs",
-    "test:extension-host": "node esbuild.mjs && node tests/run-extension-host.mjs"
+    "test": "node --test --enable-source-maps tests/*.test.mjs",
+    "test:coverage": "node --test --enable-source-maps --experimental-test-coverage --test-coverage-exclude=tests/** tests/*.test.mjs"
   }
 }

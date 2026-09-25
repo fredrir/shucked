@@ -1,19 +1,31 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { build } from 'esbuild';
-import { createRequire } from 'node:module';
-import { runInNewContext } from 'node:vm';
-import { fileURLToPath } from 'node:url';
-import * as fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-const require = createRequire(import.meta.url);
-const built = await build({ entryPoints: [fileURLToPath(new URL('../src/live-completion.ts', import.meta.url))], bundle: true, platform: 'node', format: 'cjs', external: ['vscode'], write: false });
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { bundle, evaluate } from "./support/load.mjs";
+
+const compiled = await bundle("live-completion.ts");
+
 function load(vscode = {}, overrides = {}) {
-  const module = { exports: {} };
-  runInNewContext(built.outputFiles[0].text, { module, exports: module.exports, process: overrides.process ?? process, Buffer, setTimeout, clearTimeout, require: id => id === 'vscode' ? vscode : overrides[id] ?? require(id) });
-  return module.exports;
+  const { process: environment = process, ...modules } = overrides;
+  return evaluate(compiled, { vscode, modules, globals: { process: environment } });
 }
+
+test('live request limits are inclusive and apply to every field', () => {
+  const { validLiveParams } = load();
+  const valid = { uri: 'file:///fixture.zsh', version: 1, sessionId: 'b'.repeat(32), generation: 1, dialect: 'zsh', words: ['custom'], prefix: 'live' };
+  assert.equal(validLiveParams({ ...valid, prefix: 'a'.repeat(8192) }), true);
+  assert.equal(validLiveParams({ ...valid, words: Array(256).fill('w') }), true);
+  assert.equal(validLiveParams({ ...valid, words: Array(257).fill('w') }), false);
+  assert.equal(validLiveParams({ ...valid, words: Array(4).fill('w'.repeat(7600)) }), false, 'the combined request is bounded');
+  assert.equal(validLiveParams({ ...valid, prefix: 'é'.repeat(4097) }), false, 'limits count bytes, not characters');
+  for (const patch of [{ sessionId: 'B'.repeat(32) }, { version: 1.5 }, { uri: 42 }, { words: 'custom' }, { words: [1] }]) {
+    assert.equal(validLiveParams({ ...valid, ...patch }), false, JSON.stringify(patch));
+  }
+  for (const value of [null, undefined, 'request', 7]) { assert.equal(validLiveParams(value), false); }
+});
+
 test('live request rejects oversized and executable-data-invalid inputs', () => {
   const { validLiveParams } = load();
   const valid = { uri: 'file:///fixture.zsh', version: 1, sessionId: 'b'.repeat(32), generation: 1, dialect: 'zsh', words: ['custom'], prefix: 'live' };

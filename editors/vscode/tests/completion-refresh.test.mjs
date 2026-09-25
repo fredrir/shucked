@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { runInNewContext } from "node:vm";
-import { build } from "esbuild";
+import { bundle, evaluate } from "./support/load.mjs";
 
-const compiled = await build({ entryPoints: [fileURLToPath(new URL("../src/completion-refresh.ts", import.meta.url))], bundle: true, platform: "node", format: "cjs", external: ["vscode"], write: false });
+const compiled = await bundle("completion-refresh.ts");
 
 function fixture(t) {
   const handlers = new Map();
@@ -28,13 +26,13 @@ function fixture(t) {
     workspace: { onDidChangeTextDocument: event("change") },
     window: { activeTextEditor: editor, state: { focused: true }, onDidChangeTextEditorSelection: event("selection"), onDidChangeActiveTextEditor: event("editor"), onDidChangeWindowState: event("focus") },
   };
-  const module = { exports: {} };
   const scheduled = [];
-  runInNewContext(compiled.outputFiles[0].text, { module, exports: module.exports, require: () => vscode, performance,
+  // Timers are captured so tests fire deadlines deterministically.
+  const { CompletionRefresh } = evaluate(compiled, { vscode, globals: {
     setTimeout: (fn, ms) => { const timer = { fn, ms }; scheduled.push(timer); return timer; },
     clearTimeout: timer => { const index = scheduled.indexOf(timer); if (index >= 0) { scheduled.splice(index, 1); } },
-  });
-  const refresh = new module.exports.CompletionRefresh({ trace(message) { calls.push(["trace", message]); } });
+  } });
+  const refresh = new CompletionRefresh({ trace(message) { calls.push(["trace", message]); } });
   t.after(() => refresh.dispose());
   const token = { onCancellationRequested: event("cancel") };
   const ready = (generation = 1) => ({ uri: document.uri.toString(), version: 1, position: { line: 0, character: 4 }, generation });
