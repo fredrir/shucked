@@ -130,7 +130,11 @@ def editor_factory(
     def start(spec: LaunchSpec, root: Path) -> VSCodeInstance:
         instance = VSCodeInstance(vscode_installation, spec, root, display, BRIDGE, playwright_driver)
         instance.start()
-        instance.bridge.activate_extension(EXTENSION_ID)
+        try:
+            instance.bridge.activate_extension(EXTENSION_ID)
+        except Exception:
+            instance.stop()
+            raise
         return instance
 
     factory = EditorFactory(

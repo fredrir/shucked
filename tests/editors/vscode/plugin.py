@@ -40,7 +40,6 @@ def pytest_configure(config: pytest.Config) -> None:
     for marker in (
         "vscode: runs inside an isolated VS Code instance",
         "ui: drives the workbench with Playwright",
-        "shell(name): needs the named shell installed",
         "packaging: inspects a packaged VSIX",
         "contract: static checks of the extension manifest and sources",
     ):

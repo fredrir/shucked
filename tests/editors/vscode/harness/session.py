@@ -43,7 +43,12 @@ class EditorFactory:
     def launch(
         self, name: str = "editor", workspace: Path | None = None, files: dict[str, str] | None = None, **overrides: Any
     ) -> VSCodeInstance:
-        """Start an editor; ``files`` are written into the workspace copy before launch."""
+        """Start an editor; ``files`` are written into the workspace copy before launch.
+
+        An explicit ``workspace`` is opened as-is and never written to.
+        """
+        if workspace is not None and files:
+            raise ValueError("files can only be added to the default workspace copy")
         root = self._make_root(name)
         options = {**self._defaults, **overrides}
         home = prepare_home(options.pop("home_source"), root / "home")
