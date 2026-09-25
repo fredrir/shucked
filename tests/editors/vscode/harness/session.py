@@ -146,10 +146,16 @@ class EditorSession:
         lines = self.bridge.text(uri).split("\n")
         return len(lines) - 1, len(lines[-1])
 
-    def wait_for_diagnostic(self, uri: str, code: str, line: int | None = None, timeout: float = 30.0) -> dict[str, Any]:
+    def wait_for_diagnostic(
+        self, uri: str, code: str, line: int | None = None, message: str | None = None, timeout: float = 30.0
+    ) -> dict[str, Any]:
+        """Wait for a diagnostic; ``message`` (a substring) tells a fresh one from a stale one after an edit."""
+
         def find() -> dict[str, Any] | None:
             for item in self.bridge.diagnostics(uri):
-                if diagnostic_code(item) == code and (line is None or item["range"]["start"]["line"] == line):
+                if diagnostic_code(item) != code or (line is not None and item["range"]["start"]["line"] != line):
+                    continue
+                if message is None or message in item["message"]:
                     return item
             return None
 

@@ -6,6 +6,7 @@ import re
 import subprocess
 from typing import Any
 
+from ..harness import processes
 from ..harness.session import EditorSession
 from ..harness.waiting import wait_until
 
@@ -41,11 +42,11 @@ def test_show_logs_opens_the_output_channel(editor: EditorSession) -> None:
 def test_restart_from_the_palette_keeps_diagnostics_working(editor: EditorSession) -> None:
     uri = editor.open("restart.sh", "#!/bin/bash\nrestart_unused=1\n")
     editor.wait_for_diagnostic(uri, "C001", line=1)
+    before = {server.pid for server in processes.find_language_servers(editor.instance.pid)}
     editor.workbench.run_command("Shucked: Restart Language Server")
-    wait_until("ready after restart", lambda: "Shucked" in editor.workbench.status_items(), timeout=30)
+    wait_until("a new server process", lambda: set(server.pid for server in processes.find_language_servers(editor.instance.pid)) - before)
     editor.edit(uri, "#!/bin/bash\nrestart_unused_again=1\n")
-    diagnostic = editor.wait_for_diagnostic(uri, "C001", line=1)
-    assert "restart_unused_again" in diagnostic["message"]
+    editor.wait_for_diagnostic(uri, "C001", line=1, message="restart_unused_again")
 
 
 def test_clear_history_suggestions_command_runs(editor: EditorSession) -> None:
