@@ -33,7 +33,8 @@ STATE = {
         "my_completion_value=live_second\n",
     ),
     "zsh": (
-        'autoload -Uz compinit; compinit -D\nmy_completion_value=live_first\ncustom() { :; }\n_custom() { compadd -- "$my_completion_value"; }\ncompdef _custom custom\n',
+        "autoload -Uz compinit; compinit -D\n"
+        'my_completion_value=live_first\ncustom() { :; }\n_custom() { compadd -- "$my_completion_value"; }\ncompdef _custom custom\n',
         "my_completion_value=live_second\n",
     ),
     "fish": (

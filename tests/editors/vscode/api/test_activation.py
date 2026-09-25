@@ -12,15 +12,20 @@ from ..harness.session import EditorSession
 
 def test_extension_activates_in_isolated_profile(editor: EditorSession) -> None:
     extension = editor.bridge.extension(EXTENSION_ID)
-    assert extension and extension["isActive"]
+    assert extension is not None
+    assert extension["isActive"]
     state = editor.bridge.ping()
     assert state["isTrusted"] is True
     assert state["environment"]["HOME"] == str(editor.home)
     assert Path(state["workspaceFolders"][0]["path"]) == editor.workspace
 
 
-def test_extension_is_loaded_from_the_expected_location(editor: EditorSession, request: pytest.FixtureRequest, extension_root: Path) -> None:
-    location = Path(editor.bridge.extension(EXTENSION_ID)["extensionPath"]).resolve()
+def test_extension_is_loaded_from_the_expected_location(
+    editor: EditorSession, request: pytest.FixtureRequest, extension_root: Path
+) -> None:
+    extension = editor.bridge.extension(EXTENSION_ID)
+    assert extension is not None
+    location = Path(extension["extensionPath"]).resolve()
     if request.config.getoption("--vsix"):
         assert editor.instance.extensions.resolve() in location.parents, "installed-package mode must use the VSIX"
     else:

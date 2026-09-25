@@ -15,7 +15,19 @@ from typing import Any
 import pytest
 
 BINARIES = ("shucked", "shucked-server")
-SHELL_HOOKS = ("bash.sh", "zsh.zsh", "fish.fish", "capture.cjs", "live-bash.sh", "live-zsh.zsh", "live-fish.fish", "live-fish.cjs", "live-read.cjs", "live-result.cjs", "live-watchdog.cjs")
+SHELL_HOOKS = (
+    "bash.sh",
+    "zsh.zsh",
+    "fish.fish",
+    "capture.cjs",
+    "live-bash.sh",
+    "live-zsh.zsh",
+    "live-fish.fish",
+    "live-fish.cjs",
+    "live-read.cjs",
+    "live-result.cjs",
+    "live-watchdog.cjs",
+)
 
 
 def _manifest(archive: zipfile.ZipFile) -> dict[str, Any]:
@@ -29,7 +41,13 @@ def _binary(archive: zipfile.ZipFile, name: str) -> str:
 
 def test_archive_structure(archive: zipfile.ZipFile) -> None:
     names = set(archive.namelist())
-    for required in ("[Content_Types].xml", "extension.vsixmanifest", "extension/package.json", "extension/dist/extension.js", "extension/bin/platform.json"):
+    for required in (
+        "[Content_Types].xml",
+        "extension.vsixmanifest",
+        "extension/package.json",
+        "extension/dist/extension.js",
+        "extension/bin/platform.json",
+    ):
         assert required in names, required
     for name in BINARIES:
         assert _binary(archive, name)
@@ -51,7 +69,9 @@ def test_bundle_is_a_production_build(archive: zipfile.ZipFile) -> None:
 
 
 def test_development_files_are_excluded(archive: zipfile.ZipFile) -> None:
-    forbidden = re.compile(r"^extension/(?:src/|tests/|node_modules/|\.vscode|vscode-extension-samples|.*\.vsix$|bun\.lock$|tsconfig\.json$|eslint\.config\.mts$|esbuild\.mjs$|bundle-bins\.mjs$|vsix\.mjs$)")
+    forbidden = re.compile(
+        r"^extension/(?:src/|tests/|node_modules/|\.vscode|vscode-extension-samples|.*\.vsix$|bun\.lock$|tsconfig\.json$|eslint\.config\.mts$|esbuild\.mjs$|bundle-bins\.mjs$|vsix\.mjs$)"
+    )
     assert [name for name in archive.namelist() if forbidden.match(name)] == []
 
 
@@ -69,7 +89,9 @@ def test_provider_packs_and_runtime_match_the_target(archive: zipfile.ZipFile) -
 
 def test_binaries_are_executable_and_report_the_workspace_version(archive: zipfile.ZipFile, extension_root: Path) -> None:
     cargo = (extension_root.parents[1] / "Cargo.toml").read_text()
-    version = re.search(r'\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', cargo, re.MULTILINE | re.DOTALL).group(1)
+    found = re.search(r'\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', cargo, re.MULTILINE | re.DOTALL)
+    assert found, "workspace version not found in Cargo.toml"
+    version = found.group(1)
     with tempfile.TemporaryDirectory() as temporary:
         for name in BINARIES:
             entry = _binary(archive, name)
@@ -111,5 +133,7 @@ def test_file_inventory(archive: zipfile.ZipFile, snapshot) -> None:
 def test_binaries_match_the_platform_target(archive: zipfile.ZipFile, name: str) -> None:
     target = json.loads(archive.read("extension/bin/platform.json"))["target"]
     header = archive.read(_binary(archive, name))[:64]
-    expected_format = {"linux": b"\x7fELF", "alpine": b"\x7fELF", "darwin": (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), "win32": b"MZ"}[target.split("-")[0]]
+    expected_format = {"linux": b"\x7fELF", "alpine": b"\x7fELF", "darwin": (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"), "win32": b"MZ"}[
+        target.split("-")[0]
+    ]
     assert header.startswith(expected_format), f"{name} is not a {target} executable"

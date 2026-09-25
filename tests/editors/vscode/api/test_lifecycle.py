@@ -13,7 +13,9 @@ from ..harness.waiting import stays_false, wait_until
 
 
 def _server(session: EditorSession) -> psutil.Process:
-    return wait_until("running language server", lambda: next(iter(processes.find_language_servers(session.instance.pid)), None), timeout=30)
+    return wait_until(
+        "running language server", lambda: next(iter(processes.find_language_servers(session.instance.pid)), None), timeout=30
+    )
 
 
 def _lint_works(session: EditorSession, name: str) -> None:
@@ -46,7 +48,11 @@ def test_repeated_crashes_stop_automatic_restarts(launch_editor: Callable[..., E
     killed: set[int] = set()
     # Five crashes inside the rolling window count as a crash loop.
     for _ in range(5):
-        server = wait_until("server to kill", lambda: next((item for item in processes.find_language_servers(session.instance.pid) if item.pid not in killed), None), timeout=30)
+        server = wait_until(
+            "server to kill",
+            lambda: next((item for item in processes.find_language_servers(session.instance.pid) if item.pid not in killed), None),
+            timeout=30,
+        )
         killed.add(server.pid)
         server.send_signal(signal.SIGKILL)
     assert stays_false(lambda: any(item.pid not in killed for item in processes.find_language_servers(session.instance.pid)), duration=12)

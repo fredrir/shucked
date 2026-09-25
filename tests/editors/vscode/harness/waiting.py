@@ -15,11 +15,14 @@ class WaitTimeout(AssertionError):
 
 def wait_until(
     description: str,
-    probe: Callable[[], T],
+    probe: Callable[[], T | None],
     timeout: float = 20.0,
     interval: float = 0.15,
 ) -> T:
     """Poll ``probe`` until it returns a truthy value and return that value.
+
+    Probes return the value they wait for, or ``None`` (or another falsy value)
+    while it is not there yet.
 
     Exceptions raised by the probe are treated as "not yet" and the last one is
     reported if the deadline passes, so transient editor states do not hide the
@@ -34,7 +37,7 @@ def wait_until(
             if value:
                 return value
             last_value = value
-        except Exception as error:  # noqa: BLE001 - reported below when the wait fails
+        except Exception as error:
             last_error = error
         if time.monotonic() >= deadline:
             detail = f": {last_error!r}" if last_error else f" (last value: {last_value!r})"

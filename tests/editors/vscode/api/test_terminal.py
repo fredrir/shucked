@@ -31,7 +31,9 @@ def test_terminal_startup_alias_resolves_in_the_editor(zsh_document: tuple[Edito
     "shell",
     [
         "zsh",
-        pytest.param("bash", marks=pytest.mark.xfail(strict=True, reason="bash defers signal traps while readline waits at an idle prompt")),
+        pytest.param(
+            "bash", marks=pytest.mark.xfail(strict=True, reason="bash defers signal traps while readline waits at an idle prompt")
+        ),
     ],
 )
 def test_live_completer_reads_current_shell_state(editor: EditorSession, require_shell: Callable[[str], str], shell: str) -> None:

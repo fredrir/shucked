@@ -52,7 +52,7 @@ class HookListener:
         while not self._closed.is_set():
             try:
                 connection, _ = self._server.accept()
-            except (TimeoutError, socket.timeout):
+            except TimeoutError:
                 continue
             except OSError:
                 return
@@ -62,9 +62,8 @@ class HookListener:
                 with contextlib.suppress(OSError):
                     while chunk := connection.recv(65536):
                         data.extend(chunk)
-            with contextlib.suppress(ValueError):
-                with self._lock:
-                    self._messages.append(json.loads(data))
+            with contextlib.suppress(ValueError), self._lock:
+                self._messages.append(json.loads(data))
 
     @property
     def messages(self) -> list[Message]:
@@ -90,6 +89,7 @@ class ShellSession:
 
     @property
     def pid(self) -> int:
+        assert self.child.pid is not None
         return self.child.pid
 
     def _drain(self) -> None:
@@ -117,14 +117,16 @@ class ShellSession:
         """The newest prompt metadata with live completion, newer than ``after``."""
         return self.wait_message(
             "prompt metadata",
-            lambda message: message.get("shell") == self.shell and message.get("liveCompletion") is True and message.get("generation", 0) > after,
+            lambda message: (
+                message.get("shell") == self.shell and message.get("liveCompletion") is True and message.get("generation", 0) > after
+            ),
             timeout,
         )
 
     def at_prompt(self, prompt: bytes = b"READY>") -> bool:
         """True when nothing but terminal control sequences follows the last prompt."""
         index = self.output.rfind(prompt)
-        return index >= 0 and not _CONTROL.sub(b"", bytes(self.output[index + len(prompt):])).strip()
+        return index >= 0 and not _CONTROL.sub(b"", bytes(self.output[index + len(prompt) :])).strip()
 
     def wait_idle(self, quiet: float = 0.3) -> None:
         """Wait until the shell shows its prompt and waits for input, as a user's terminal does."""
@@ -143,7 +145,9 @@ class ShellSession:
         os.kill(self.pid, getattr(signal, signal_name))
 
     def reply(self, query: str, timeout: float = 3.0) -> Message:
-        return self.wait_message(f"reply to {query}", lambda message: message.get("query") == query and message.get("phase") == "result", timeout)
+        return self.wait_message(
+            f"reply to {query}", lambda message: message.get("query") == query and message.get("phase") == "result", timeout
+        )
 
     def send(self, text: str) -> None:
         self.child.send(text)
@@ -180,11 +184,19 @@ def interactive(shell: str, script: str, integration: Path, node: str):
     listener = HookListener(directory / "state.sock")
     environment = {
         **{key: value for key, value in os.environ.items() if not key.startswith(("SHUCKED_", "VSCODE_"))},
-        "HOME": str(directory), "ZDOTDIR": str(directory), "XDG_CONFIG_HOME": str(directory), "TERM": "dumb",
-        "SHUCKED_SESSION_SOCKET": str(listener.path), "SHUCKED_SESSION_ID": SESSION_ID, "SHUCKED_SESSION_TOKEN": SESSION_TOKEN,
-        "SHUCKED_LIVE_ALLOWED": "1", "SHUCKED_LIVE_DIRECTORY": str(directory),
-        "SHUCKED_LIVE_READ": str(integration / "live-read.cjs"), "SHUCKED_LIVE_RESULT": str(integration / "live-result.cjs"),
-        "SHUCKED_LIVE_FISH": str(integration / "live-fish.cjs"), "SHUCKED_CAPTURE": str(integration / "capture.cjs"),
+        "HOME": str(directory),
+        "ZDOTDIR": str(directory),
+        "XDG_CONFIG_HOME": str(directory),
+        "TERM": "dumb",
+        "SHUCKED_SESSION_SOCKET": str(listener.path),
+        "SHUCKED_SESSION_ID": SESSION_ID,
+        "SHUCKED_SESSION_TOKEN": SESSION_TOKEN,
+        "SHUCKED_LIVE_ALLOWED": "1",
+        "SHUCKED_LIVE_DIRECTORY": str(directory),
+        "SHUCKED_LIVE_READ": str(integration / "live-read.cjs"),
+        "SHUCKED_LIVE_RESULT": str(integration / "live-result.cjs"),
+        "SHUCKED_LIVE_FISH": str(integration / "live-fish.cjs"),
+        "SHUCKED_CAPTURE": str(integration / "capture.cjs"),
         "SHUCKED_NODE": node,
     }
     command = _command(shell, directory, script, integration)

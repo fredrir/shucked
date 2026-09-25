@@ -55,7 +55,8 @@ def test_navigation_bindings_only_pass_supported_arguments(extension_manifest: M
 
 def test_intercepted_keys_are_scoped_to_pending_completion(extension_manifest: Manifest) -> None:
     for binding in extension_manifest["contributes"]["keybindings"]:
-        assert "shucked.completionPending" in binding["when"] and "editorTextFocus" in binding["when"], binding
+        assert "shucked.completionPending" in binding["when"], binding
+        assert "editorTextFocus" in binding["when"], binding
 
 
 def test_settings_read_by_the_client_are_declared(settings: dict[str, Any], sources: str) -> None:
@@ -105,7 +106,8 @@ def test_untrusted_workspaces_cannot_choose_programs(extension_manifest: Manifes
         assert key in trust["restrictedConfigurations"]
         assert settings[key]["scope"] == "machine-overridable"
     for key in ("shucked.history.session", "shucked.history.files"):
-        assert settings[key]["scope"] == "machine" and settings[key]["default"] is False, "history is opt-in per machine"
+        assert settings[key]["scope"] == "machine", "history is chosen per machine"
+        assert settings[key]["default"] is False, "history is opt-in"
 
 
 def test_semantic_token_scopes_use_declared_types(extension_manifest: Manifest) -> None:
@@ -115,7 +117,8 @@ def test_semantic_token_scopes_use_declared_types(extension_manifest: Manifest) 
     for scope in contributes["semanticTokenScopes"]:
         for selector in scope["scopes"]:
             kind, *applied = selector.split(".")
-            assert kind in types and set(applied) <= modifiers, selector
+            assert kind in types, selector
+            assert set(applied) <= modifiers, selector
 
 
 def test_type_definitions_do_not_exceed_the_engine(extension_manifest: Manifest) -> None:

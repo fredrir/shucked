@@ -36,11 +36,7 @@ def test_arrow_keys_move_the_selection_and_keep_it(editor: EditorSession) -> Non
 def test_escape_keeps_its_default_meaning_without_pending_completion(editor: EditorSession) -> None:
     uri = editor.open("cursors.zsh", "#!/bin/zsh\necho one\necho two\n")
     editor.bridge.show(uri)
-    editor.bridge.evaluate("""
-        const editor = vscode.window.activeTextEditor;
-        editor.selections = [new vscode.Selection(1, 0, 1, 0), new vscode.Selection(2, 0, 2, 0)];
-    """)
+    editor.bridge.set_selections(uri, (1, 0, 1, 0), (2, 0, 2, 0))
     editor.workbench.focus_editor()
     editor.workbench.press("Escape")
-    count = lambda: editor.bridge.evaluate("return vscode.window.activeTextEditor.selections.length")  # noqa: E731
-    wait_until("secondary cursor removed", lambda: count() == 1, timeout=5)
+    wait_until("secondary cursor removed", lambda: len(editor.bridge.active_editor()["selections"]) == 1, timeout=5)

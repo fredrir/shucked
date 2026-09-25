@@ -20,7 +20,9 @@ def test_every_contributed_command_is_in_the_palette(editor: EditorSession, exte
 def test_show_version_reports_the_server_version(editor: EditorSession, language_server) -> None:
     editor.open_workspace_file("smoke.zsh")
     editor.workbench.run_command("Shucked: Show Version")
-    message = wait_until("version notification", lambda: next((text for text in editor.workbench.notifications() if text.startswith("Shucked:")), None))
+    message = wait_until(
+        "version notification", lambda: next((text for text in editor.workbench.notifications() if text.startswith("Shucked:")), None)
+    )
     if language_server is not None:
         expected = subprocess.run([str(language_server), "--version"], capture_output=True, text=True, check=True).stdout.strip()
         assert message == f"Shucked: {expected}"

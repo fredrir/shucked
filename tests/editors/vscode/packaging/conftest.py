@@ -23,7 +23,9 @@ def vsix(request: pytest.FixtureRequest, extension_root: Path, tmp_path_factory:
         pytest.fail("Building a VSIX needs Node.js and the extension's dependencies: (cd editors/vscode && bun install)")
     output = tmp_path_factory.mktemp("vsix") / "shucked.vsix"
     # vsce runs the prepublish step: a release build, bundled binaries, and provider runtimes.
-    result = subprocess.run([node, "vsix.mjs", "package", "--out", str(output)], cwd=extension_root, capture_output=True, text=True, timeout=3600)
+    result = subprocess.run(
+        [node, "vsix.mjs", "package", "--out", str(output)], cwd=extension_root, capture_output=True, text=True, timeout=3600
+    )
     if result.returncode:
         pytest.fail(f"VSIX packaging failed:\n{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
     return output

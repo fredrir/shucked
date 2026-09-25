@@ -482,11 +482,30 @@ enum VscodeCommands {
     /// Package the extension into a VSIX file
     Package,
 
-    /// Run extension tests
-    Test,
+    /// Run extension tests: unit, contract, and shell hooks; editor suites with --e2e
+    Test(VscodeTestArgs),
 
     /// Run extension linter
     Lint,
+}
+
+#[derive(Args, Debug)]
+struct VscodeTestArgs {
+    /// Also run the editor suites in an isolated, pinned VS Code
+    #[arg(long)]
+    e2e: bool,
+
+    /// Run the editor suites against this installed VSIX and inspect the package
+    #[arg(long)]
+    vsix: Option<PathBuf>,
+
+    /// Build a VSIX and run the packaging checks (release build; slow)
+    #[arg(long)]
+    build_vsix: bool,
+
+    /// Extra arguments passed to pytest (after `--`)
+    #[arg(last = true)]
+    pytest_args: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -679,7 +698,12 @@ fn main() -> Result<()> {
         Commands::Vscode(args) => match args.command {
             VscodeCommands::Compile => vscode::run_vscode_compile(),
             VscodeCommands::Package => vscode::run_vscode_package(),
-            VscodeCommands::Test => vscode::run_vscode_test(),
+            VscodeCommands::Test(test) => vscode::run_vscode_test(&vscode::TestOptions {
+                e2e: test.e2e,
+                vsix: test.vsix.as_deref(),
+                build_vsix: test.build_vsix,
+                pytest_args: &test.pytest_args,
+            }),
             VscodeCommands::Lint => vscode::run_vscode_lint(),
         },
         Commands::Deploy(args) => deploy::run_deploy(args.vscode, args.shucked),

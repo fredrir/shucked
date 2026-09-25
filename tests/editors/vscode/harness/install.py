@@ -101,7 +101,10 @@ def install(version: str, cache: Path) -> Installation:
             shutil.rmtree(root, ignore_errors=True)
             with tempfile.TemporaryDirectory(dir=cache) as temporary:
                 archive = Path(temporary) / f"vscode{suffix}"
-                with urllib.request.urlopen(f"{RELEASES}/{resolved}/{target}/stable", timeout=600) as response, archive.open("wb") as output:
+                with (
+                    urllib.request.urlopen(f"{RELEASES}/{resolved}/{target}/stable", timeout=600) as response,
+                    archive.open("wb") as output,
+                ):
                     shutil.copyfileobj(response, output)
                 staging = Path(temporary) / "staging"
                 if suffix == ".tar.gz":
@@ -128,6 +131,10 @@ def install(version: str, cache: Path) -> Installation:
 def from_executable(executable: Path) -> Installation:
     """Use an existing installation (``--vscode-executable``) as-is."""
     executable = executable.resolve()
-    candidates = [executable.parent / "bin" / "code", executable.parent / "bin" / "code.cmd", executable.parents[1] / "Resources/app/bin/code"]
+    candidates = [
+        executable.parent / "bin" / "code",
+        executable.parent / "bin" / "code.cmd",
+        executable.parents[1] / "Resources/app/bin/code",
+    ]
     cli = next((path for path in candidates if path.exists()), executable)
     return Installation("custom", executable.parent, executable, cli)

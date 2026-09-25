@@ -23,7 +23,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption("--e2e", action="store_true", help="run the editor suites (api/, ui/) in an isolated VS Code")
     group.addoption("--vsix", type=Path, help="installed-package mode: run editor suites against this VSIX and inspect it")
     group.addoption("--build-vsix", action="store_true", help="build a VSIX for the packaging checks (release build; slow)")
-    group.addoption("--vscode-version", default=None, help="VS Code version to download (default: the manifest's minimum engine; 'stable' for the latest)")
+    group.addoption(
+        "--vscode-version",
+        default=None,
+        help="VS Code version to download (default: the manifest's minimum engine; 'stable' for the latest)",
+    )
     group.addoption("--vscode-executable", type=Path, help="use an existing VS Code executable instead of a pinned download")
     group.addoption("--headed", action="store_true", help="use the current DISPLAY instead of a private Xvfb server")
     group.addoption("--vscode-trace", action="store_true", help="record verbose language server traces in the editor logs")

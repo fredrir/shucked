@@ -7,18 +7,16 @@ hide a missing trigger character or a broken refresh of incomplete results.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
 
 import pytest
 
 from ..harness.session import EditorSession
-from ..harness.waiting import wait_until
 
 
 @pytest.fixture
-def typing(editor: EditorSession) -> Iterator[EditorSession]:
+def typing(editor: EditorSession) -> EditorSession:
     (editor.workspace / "aaa_completion_fixture").mkdir(exist_ok=True)
-    yield editor
+    return editor
 
 
 def _type_and_accept(editor: EditorSession, uri: str, line: int, before: str, typed: str) -> str:
@@ -28,7 +26,7 @@ def _type_and_accept(editor: EditorSession, uri: str, line: int, before: str, ty
     workbench.type(typed)
     workbench.wait_for_suggestions(f"automatic suggestions after {before + typed!r}")
     workbench.press("Enter")
-    return wait_until("accepted suggestion", lambda: (text := editor.bridge.text(uri).split("\n")[line]) != before + typed and text)
+    return editor.wait_for_line_change(uri, line, before + typed)
 
 
 @pytest.mark.parametrize(

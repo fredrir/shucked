@@ -61,7 +61,13 @@ class Workbench:
         return row.first.inner_text().strip() if row.count() else None
 
     def wait_for_suggestions(self, description: str, predicate=lambda labels: bool(labels), timeout: float = 15.0) -> list[str]:
-        return wait_until(description, lambda: self.suggest_visible() and predicate(labels := self.suggestions()) and labels, timeout=timeout)
+        def matching() -> list[str] | None:
+            if not self.suggest_visible():
+                return None
+            labels = self.suggestions()
+            return labels if predicate(labels) else None
+
+        return wait_until(description, matching, timeout=timeout)
 
     # -- Inline suggestions -------------------------------------------------
 
@@ -84,7 +90,9 @@ class Workbench:
     def pick(self, label: str, timeout: float = 15.0) -> None:
         """Choose the quick pick row whose label is exactly ``label``."""
         wait_until("quick input", self.quick_input_visible, timeout=timeout)
-        row = self.page.locator(f"{QUICK_INPUT} .monaco-list-row", has=self.page.locator(".label-name", has_text=re.compile(rf"^\s*{re.escape(label)}\s*$")))
+        row = self.page.locator(
+            f"{QUICK_INPUT} .monaco-list-row", has=self.page.locator(".label-name", has_text=re.compile(rf"^\s*{re.escape(label)}\s*$"))
+        )
         wait_until(f"quick pick row {label!r}", lambda: row.count() > 0, timeout=timeout)
         row.first.click()
 

@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ FISH_SCRIPT = (
 
 
 @pytest.fixture
-def private_directory() -> Path:
+def private_directory() -> Iterator[Path]:
     directory = Path(tempfile.mkdtemp(prefix="shucked-hook-"))
     directory.chmod(0o700)
     yield directory
@@ -34,7 +35,9 @@ def private_directory() -> Path:
 
 @pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
 @pytest.mark.parametrize("files_enabled", [False, True], ids=["history-files-off", "history-files-on"])
-def test_prompt_metadata_reports_names_but_never_bodies(shell: str, files_enabled: bool, shell_path: str, integration: Path, node: str, private_directory: Path) -> None:
+def test_prompt_metadata_reports_names_but_never_bodies(
+    shell: str, files_enabled: bool, shell_path: str, integration: Path, node: str, private_directory: Path
+) -> None:
     policy = private_directory / "policy"
     policy.write_text(f"0\n{1 if files_enabled else 0}\n")
     history = private_directory / "custom-history"
@@ -42,9 +45,16 @@ def test_prompt_metadata_reports_names_but_never_bodies(shell: str, files_enable
     hook = integration / HOOKS[shell]
     arguments = ["--no-config", "-c", FISH_SCRIPT, str(hook)] if shell == "fish" else ["-c", POSIX_SCRIPT, shell, str(hook)]
     environment = {
-        **os.environ, "HISTFILE": str(history), "fish_history": "custom", "XDG_DATA_HOME": str(private_directory),
-        "SHUCKED_HISTORY_POLICY": str(policy), "SHUCKED_SESSION_ID": "a" * 32, "SHUCKED_SESSION_TOKEN": SESSION_TOKEN,
-        "SHUCKED_SESSION_SOCKET": str(listener.path), "SHUCKED_CAPTURE": str(integration / "capture.cjs"), "SHUCKED_NODE": node,
+        **os.environ,
+        "HISTFILE": str(history),
+        "fish_history": "custom",
+        "XDG_DATA_HOME": str(private_directory),
+        "SHUCKED_HISTORY_POLICY": str(policy),
+        "SHUCKED_SESSION_ID": "a" * 32,
+        "SHUCKED_SESSION_TOKEN": SESSION_TOKEN,
+        "SHUCKED_SESSION_SOCKET": str(listener.path),
+        "SHUCKED_CAPTURE": str(integration / "capture.cjs"),
+        "SHUCKED_NODE": node,
     }
     try:
         subprocess.run([shell_path, *arguments], env=environment, cwd=private_directory, check=True, capture_output=True, timeout=15)

@@ -144,6 +144,11 @@ const methods = {
     edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), text);
     return vscode.workspace.applyEdit(edit);
   },
+  applyEdit: async ({ uri, range, text }) => {
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(documentFor(uri).uri, new vscode.Range(...range), text);
+    return vscode.workspace.applyEdit(edit);
+  },
   saveDocument: async ({ uri }) => documentFor(uri).save(),
   setSelection: ({ uri, anchor, active }) => {
     const editor = editorFor(uri);
@@ -159,9 +164,17 @@ const methods = {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     return null;
   },
+  setSelections: ({ uri, selections }) => {
+    const editor = editorFor(uri);
+    editor.selections = selections.map(([anchorLine, anchorCharacter, activeLine, activeCharacter]) => new vscode.Selection(anchorLine, anchorCharacter, activeLine, activeCharacter));
+    return encode(editor.selections);
+  },
   activeEditor: () => {
     const editor = vscode.window.activeTextEditor;
-    return editor ? { uri: editor.document.uri.toString(), selection: encode(editor.selection), selectedText: editor.document.getText(editor.selection) } : null;
+    return editor ? {
+      uri: editor.document.uri.toString(), selection: encode(editor.selection), selections: encode(editor.selections),
+      selectedText: editor.document.getText(editor.selection),
+    } : null;
   },
   diagnostics: ({ uri }) => uri
     ? encode(vscode.languages.getDiagnostics(vscode.Uri.parse(uri)))

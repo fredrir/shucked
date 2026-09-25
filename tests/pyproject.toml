@@ -29,3 +29,17 @@ dev = [
     "ruff>=0.16.9",
 ]
 
+
+# Lint and type-check the editor suites (tests/editors); older suites keep their style.
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+include = ["editors/**/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "PT", "RUF"]
+
+[tool.basedpyright]
+include = ["editors"]
+pythonVersion = "3.10"
+typeCheckingMode = "standard"

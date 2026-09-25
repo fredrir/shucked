@@ -26,7 +26,9 @@ def test_capture_then_compare_a_script(editor: EditorSession) -> None:
     editor.workbench.clear_notifications()
     editor.workbench.run_command("Shucked: Compare Execution Targets")
     editor.workbench.enter_text(str(editor.path("host.json")))
-    report = wait_until("comparison report", lambda: (active := editor.bridge.active_editor()) and active["uri"].startswith("shucked-targets:") and active)
+    report = wait_until(
+        "comparison report", lambda: (active := editor.bridge.active_editor()) and active["uri"].startswith("shucked-targets:") and active
+    )
     text = editor.bridge.text(report["uri"])
     assert "| Command | Source line | ci-host |" in text
     assert "shucked_absent_everywhere" in text

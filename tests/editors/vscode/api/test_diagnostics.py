@@ -65,5 +65,5 @@ def test_diagnostics_follow_edits(editor: EditorSession) -> None:
     assert stays_false(lambda: "C001" in editor.bridge.diagnostic_codes(uri), duration=2)
     editor.edit(uri, "#!/bin/bash\nnow_unused=1\n")
     editor.wait_for_diagnostic(uri, "C001", line=1)
-    editor.edit(uri, "#!/bin/bash\nnow_used=1\necho \"$now_used\"\n")
+    editor.edit(uri, '#!/bin/bash\nnow_used=1\necho "$now_used"\n')
     editor.wait_without_diagnostic(uri, "C001")

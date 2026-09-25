@@ -12,9 +12,9 @@ compile:
 package:
     {{ vscode }} package
 
-# Run extension tests
-test:
-    {{ vscode }} test
+# [ --e2e, --vsix PATH, --build-vsix, -- PYTEST_ARGS ] -- Run extension tests
+test *args="":
+    {{ vscode }} test {{ args }}
 
 # Lint extension sources
 lint:

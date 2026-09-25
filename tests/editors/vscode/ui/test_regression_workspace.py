@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from ..harness.session import EditorSession
-from ..harness.waiting import wait_until
 
 HEADER = "#!/bin/zsh\n# aaa_word_guess_from_comment\n"
 
@@ -35,10 +34,10 @@ def test_ordinary_defaults_give_contextual_suggestions(existing: EditorSession, 
     existing.workbench.type(typed)
     existing.workbench.wait_for_suggestions(f"suggestions after {before + typed!r}")
     existing.workbench.press("Enter")
-    inserted = wait_until("accepted suggestion", lambda: (line := existing.bridge.text(uri).split("\n")[2]) != before + typed and line)
+    inserted = existing.wait_for_line_change(uri, 2, before + typed)
     assert re.match(pattern, inserted), inserted
     assert not re.search(r"aaa_word_guess|\.sh\b|/$", inserted), "a shell definition must win over document words and files"
-    assert inserted[len(before + typed):] not in files
+    assert inserted[len(before + typed) :] not in files
 
 
 def test_cd_offers_only_directories(existing: EditorSession) -> None:

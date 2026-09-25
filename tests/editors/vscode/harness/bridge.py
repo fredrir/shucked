@@ -10,6 +10,7 @@ snippets are ``{"snippet": value}``.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import re
@@ -112,7 +113,7 @@ class Bridge:
             self._socket.settimeout(remaining)
             try:
                 chunk = self._socket.recv(1 << 16)
-            except socket.timeout as error:
+            except TimeoutError as error:
                 raise TimeoutError("timed out waiting for the editor bridge") from error
             if not chunk:
                 raise ConnectionError("The editor bridge closed the connection")
@@ -134,10 +135,8 @@ class Bridge:
         return response.get("result")
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(OSError):
             self._socket.close()
-        except OSError:
-            pass
 
     def shutdown(self, code: int = 0, message: str | None = None) -> None:
         try:
@@ -201,6 +200,14 @@ class Bridge:
     def replace_text(self, document_uri: str, text: str) -> bool:
         return self.call("replaceText", uri=document_uri, text=text)
 
+    def apply_edit(self, document_uri: str, start: dict[str, int], end: dict[str, int], text: str) -> bool:
+        """Replace one range, given as encoded positions (``{"line", "character"}``)."""
+        return self.call("applyEdit", uri=document_uri, range=[start["line"], start["character"], end["line"], end["character"]], text=text)
+
+    def set_selections(self, document_uri: str | None, *selections: tuple[int, int, int, int]) -> JSON:
+        """Place one or more cursors or selections as (anchor line, anchor char, active line, active char)."""
+        return self.call("setSelections", uri=document_uri, selections=[list(item) for item in selections])
+
     def save(self, document_uri: str) -> bool:
         return self.call("saveDocument", uri=document_uri)
 
@@ -210,8 +217,12 @@ class Bridge:
     def set_cursor(self, document_uri: str | None, line: int, character: int) -> JSON:
         return self.call("setSelection", uri=document_uri, anchor=[line, character])
 
-    def active_editor(self) -> dict[str, JSON] | None:
-        return self.call("activeEditor")
+    def active_editor(self) -> dict[str, JSON]:
+        """URI, selections, and selected text of the active editor; raises when there is none."""
+        editor = self.call("activeEditor")
+        if editor is None:
+            raise BridgeError("activeEditor", "no active text editor", None)
+        return editor
 
     def close_all_editors(self) -> None:
         """Revert unsaved changes and close every editor without prompting."""
@@ -249,7 +260,9 @@ class Bridge:
         options = {"tabSize": tab_size, "insertSpaces": insert_spaces}
         return self.execute("vscode.executeFormatDocumentProvider", {"$uri": document_uri}, options) or []
 
-    def code_actions(self, document_uri: str, line: int, character: int, end_line: int | None = None, end_character: int | None = None) -> list[dict[str, JSON]]:
+    def code_actions(
+        self, document_uri: str, line: int, character: int, end_line: int | None = None, end_character: int | None = None
+    ) -> list[dict[str, JSON]]:
         target = range_(line, character, line if end_line is None else end_line, character if end_character is None else end_character)
         return self.execute("vscode.executeCodeActionProvider", {"$uri": document_uri}, target) or []
 

@@ -8,7 +8,7 @@ from ..harness.bridge import BridgeError
 from ..harness.session import EditorSession
 from ..harness.waiting import wait_until
 
-UNFORMATTED = "#!/bin/bash\nif true; then\necho \"body\"\nfi\n"
+UNFORMATTED = '#!/bin/bash\nif true; then\necho "body"\nfi\n'
 
 
 def test_missing_commands_carry_the_invalid_semantic_modifier(editor: EditorSession) -> None:
@@ -47,13 +47,14 @@ def test_format_document_indents_blocks(editor: EditorSession) -> None:
     edits = wait_until("format edits", lambda: editor.bridge.format_edits(uri))
     assert any(edit["range"]["start"]["line"] <= 2 <= edit["range"]["end"]["line"] for edit in edits)
     editor.bridge.execute("editor.action.formatDocument")
-    formatted = wait_until("formatted text", lambda: (text := editor.bridge.text(uri)) != UNFORMATTED and text)
+    formatted = editor.wait_for_text_change(uri, UNFORMATTED)
     body = formatted.split("\n")[2]
-    assert body.strip() == 'echo "body"' and body[0].isspace()
+    assert body.strip() == 'echo "body"'
+    assert body[0].isspace(), "the block body is indented"
 
 
 def test_formatting_a_clean_document_changes_nothing(editor: EditorSession) -> None:
-    uri = editor.open("clean.sh", "#!/bin/bash\necho \"clean\"\n")
+    uri = editor.open("clean.sh", '#!/bin/bash\necho "clean"\n')
     editor.wait_for_completion(uri, 1, 0, lambda _: True)
     assert editor.bridge.format_edits(uri) == []
 
@@ -84,7 +85,10 @@ def test_suppression_actions_follow_their_setting(editor: EditorSession) -> None
     editor.wait_for_diagnostic(uri, "C001", line=1)
     before = wait_until("code actions", lambda: editor.bridge.code_actions(uri, 1, 0, 1, 12))
     editor.bridge.update_setting("shucked", "codeAction.disableRuleComment.enable", False)
-    after = wait_until("fewer code actions", lambda: (actions := editor.bridge.code_actions(uri, 1, 0, 1, 12)) is not None and len(actions) < len(before) and actions)
+    after = wait_until(
+        "fewer code actions",
+        lambda: actions if len(actions := editor.bridge.code_actions(uri, 1, 0, 1, 12)) < len(before) else None,
+    )
     removed = set(_titles(before)) - set(_titles(after))
     assert removed, "turning off suppression comments removes their actions"
 
@@ -96,14 +100,10 @@ def test_applying_a_suppression_action_silences_the_rule(editor: EditorSession) 
     suppressions = [action for action in actions if "line" in action["title"].lower() and action.get("edit")]
     assert suppressions, _titles(actions)
     edit = suppressions[0]["edit"][0]["edits"][0]
-    editor.bridge.call("evaluate", code="""
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(vscode.Uri.parse(args.uri), new vscode.Range(args.start.line, args.start.character, args.end.line, args.end.character), args.text);
-        return vscode.workspace.applyEdit(edit);
-    """, args={"uri": uri, "start": edit["range"]["start"], "end": edit["range"]["end"], "text": edit["newText"]})
+    assert editor.bridge.apply_edit(uri, edit["range"]["start"], edit["range"]["end"], edit["newText"])
     editor.wait_without_diagnostic(uri, "C001")
 
 
-def test_unknown_command_arguments_are_reported_by_the_bridge(editor: EditorSession) -> None:
+def test_bridge_reports_unknown_methods(editor: EditorSession) -> None:
     with pytest.raises(BridgeError):
         editor.bridge.call("noSuchMethod")

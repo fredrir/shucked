@@ -1,8 +1,10 @@
+use std::path::Path;
+
 use anyhow::{Result, bail};
 
 use crate::runner::{
     RunOptions, find_repo_root, is_tool_available, print_section, print_step, print_success,
-    print_warning, run_command,
+    run_command,
 };
 
 /// Platform-specific names of the built Shucked binaries.
@@ -76,29 +78,73 @@ pub fn run_vscode_package() -> Result<()> {
     Ok(())
 }
 
-pub fn run_vscode_test() -> Result<()> {
+/// Selection for `just vscode test`.
+pub struct TestOptions<'a> {
+    pub e2e: bool,
+    pub vsix: Option<&'a Path>,
+    pub build_vsix: bool,
+    pub pytest_args: &'a [String],
+}
+
+pub fn run_vscode_test(options: &TestOptions) -> Result<()> {
     let repo_root = find_repo_root()?;
+    let vscode_dir = repo_root.join("editors/vscode");
     print_section("VS Code Extension: Test");
 
+    if !vscode_dir.join("node_modules").is_dir() {
+        bail!(
+            "Extension dependencies are missing; run `bun install` in {}",
+            vscode_dir.display()
+        );
+    }
+    let runner = detect_node_runner();
+    print_step(&format!("Running extension unit tests using {runner}..."));
+    run_command(
+        runner,
+        &["run", "test"],
+        &RunOptions {
+            cwd: Some(&vscode_dir),
+            ..Default::default()
+        },
+    )?;
+
+    if !is_tool_available("uv") {
+        bail!("uv is required for the extension's pytest suites (https://docs.astral.sh/uv/)");
+    }
     let opts = RunOptions {
         cwd: Some(&repo_root),
         ..Default::default()
     };
-
-    if is_tool_available("uv") {
-        print_step("Running VSIX packaging tests via pytest...");
-        let py_args = [
-            "run",
-            "--project",
-            "tests",
-            "pytest",
-            "tests/packaging/test_vsix.py",
-            "-v",
-        ];
-        run_command("uv", &py_args, &opts)?;
-    } else {
-        print_warning("uv not installed, skipping python packaging test.");
+    if options.e2e && options.vsix.is_none() {
+        // Development-mode editor tests run the debug language server.
+        print_step("Building the debug language server...");
+        run_command(
+            "cargo",
+            &["build", "-p", "shucked-cli", "-p", "shucked-server"],
+            &opts,
+        )?;
     }
+
+    let vsix = options.vsix.map(|path| path.display().to_string());
+    let mut args = vec![
+        "run",
+        "--project",
+        "tests",
+        "pytest",
+        "tests/editors/vscode",
+    ];
+    if options.e2e {
+        args.push("--e2e");
+    }
+    if let Some(vsix) = vsix.as_deref() {
+        args.extend(["--vsix", vsix]);
+    }
+    if options.build_vsix {
+        args.push("--build-vsix");
+    }
+    args.extend(options.pytest_args.iter().map(String::as_str));
+    print_step("Running extension pytest suites...");
+    run_command("uv", &args, &opts)?;
 
     print_success("VS Code extension tests passed.");
     Ok(())

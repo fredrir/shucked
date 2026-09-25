@@ -78,12 +78,14 @@ class PlaywrightDriver:
         self._playwright: Playwright | None = None
 
     def get(self) -> Playwright:
-        if self._playwright is None:
-            from playwright.sync_api import sync_playwright
+        if self._playwright is not None:
+            return self._playwright
+        from playwright.sync_api import sync_playwright
 
-            self._manager = sync_playwright()
-            self._playwright = self._manager.start()
-        return self._playwright
+        self._manager = sync_playwright()
+        playwright: Playwright = self._manager.start()
+        self._playwright = playwright
+        return playwright
 
     def stop(self) -> None:
         if self._manager is not None:
@@ -98,7 +100,9 @@ def _clean_environment() -> dict[str, str]:
 
 
 class VSCodeInstance:
-    def __init__(self, installation: Installation, spec: LaunchSpec, root: Path, display: Display, bridge_script: Path, driver: PlaywrightDriver) -> None:
+    def __init__(
+        self, installation: Installation, spec: LaunchSpec, root: Path, display: Display, bridge_script: Path, driver: PlaywrightDriver
+    ) -> None:
         self.installation = installation
         self.spec = spec
         self.root = root
@@ -146,19 +150,38 @@ class VSCodeInstance:
         # Shucked itself comes from the installed package.
         runner = self.root / "runner"
         runner.mkdir(exist_ok=True)
-        (runner / "package.json").write_text(json.dumps({
-            "name": "shucked-test-runner", "publisher": "shucked-tests", "version": "0.0.0",
-            "engines": {"vscode": "*"}, "main": "./index.cjs", "activationEvents": [],
-        }))
+        (runner / "package.json").write_text(
+            json.dumps(
+                {
+                    "name": "shucked-test-runner",
+                    "publisher": "shucked-tests",
+                    "version": "0.0.0",
+                    "engines": {"vscode": "*"},
+                    "main": "./index.cjs",
+                    "activationEvents": [],
+                }
+            )
+        )
         (runner / "index.cjs").write_text("exports.activate = () => undefined;\n")
         return runner
 
     def _install_vsix(self, environment: dict[str, str]) -> None:
         assert self.spec.vsix
         subprocess.run(
-            [str(self.installation.cli), "--user-data-dir", str(self.user_data), "--extensions-dir", str(self.extensions),
-             "--install-extension", str(self.spec.vsix), "--force"],
-            env=environment, check=True, capture_output=True, timeout=180,
+            [
+                str(self.installation.cli),
+                "--user-data-dir",
+                str(self.user_data),
+                "--extensions-dir",
+                str(self.extensions),
+                "--install-extension",
+                str(self.spec.vsix),
+                "--force",
+            ],
+            env=environment,
+            check=True,
+            capture_output=True,
+            timeout=180,
         )
 
     def start(self, timeout: float = 120.0) -> None:
@@ -215,10 +238,8 @@ class VSCodeInstance:
             self._bridge.shutdown()
             self._bridge = None
         if self.process is not None:
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 self.process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                pass
             processes.terminate([*owned, *processes.processes_mentioning(str(self.user_data))])
             with contextlib.suppress(Exception):
                 self.process.kill()

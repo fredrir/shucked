@@ -32,13 +32,17 @@ def prepare_workspace(source: Path, destination: Path) -> Path:
 class EditorFactory:
     """Creates isolated editors; each one gets its own root, HOME, and workspace copy."""
 
-    def __init__(self, make_root: Callable[[str], Path], start: Callable[[LaunchSpec, Path], VSCodeInstance], defaults: dict[str, Any]) -> None:
+    def __init__(
+        self, make_root: Callable[[str], Path], start: Callable[[LaunchSpec, Path], VSCodeInstance], defaults: dict[str, Any]
+    ) -> None:
         self._make_root = make_root
         self._start = start
         self._defaults = defaults
         self._instances: list[VSCodeInstance] = []
 
-    def launch(self, name: str = "editor", workspace: Path | None = None, files: dict[str, str] | None = None, **overrides: Any) -> VSCodeInstance:
+    def launch(
+        self, name: str = "editor", workspace: Path | None = None, files: dict[str, str] | None = None, **overrides: Any
+    ) -> VSCodeInstance:
         """Start an editor; ``files`` are written into the workspace copy before launch."""
         root = self._make_root(name)
         options = {**self._defaults, **overrides}
@@ -115,6 +119,24 @@ class EditorSession:
             self.bridge.show(uri)
             self.bridge.set_cursor(uri, *cursor)
 
+    def wait_for_text_change(self, uri: str, original: str, timeout: float = 20.0) -> str:
+        """Wait until a document's text differs from ``original`` and return the new text."""
+
+        def changed() -> str | None:
+            text = self.bridge.text(uri)
+            return text if text != original else None
+
+        return wait_until(f"text of {uri} to change", changed, timeout=timeout)
+
+    def wait_for_line_change(self, uri: str, line: int, original: str, timeout: float = 20.0) -> str:
+        """Wait until one line differs from ``original`` and return the new line."""
+
+        def changed() -> str | None:
+            text = self.bridge.text(uri).split("\n")[line]
+            return text if text != original else None
+
+        return wait_until(f"line {line} of {uri} to change", changed, timeout=timeout)
+
     def cursor_at_end(self, uri: str) -> tuple[int, int]:
         lines = self.bridge.text(uri).split("\n")
         return len(lines) - 1, len(lines[-1])
@@ -131,7 +153,9 @@ class EditorSession:
     def wait_without_diagnostic(self, uri: str, code: str, timeout: float = 30.0) -> None:
         wait_until(f"{code} cleared in {uri}", lambda: code not in self.bridge.diagnostic_codes(uri), timeout=timeout)
 
-    def wait_for_completion(self, uri: str, line: int, character: int, wanted: str | Callable[[str], bool], timeout: float = 20.0) -> dict[str, Any]:
+    def wait_for_completion(
+        self, uri: str, line: int, character: int, wanted: str | Callable[[str], bool], timeout: float = 20.0
+    ) -> dict[str, Any]:
         from .bridge import label
 
         matches = wanted if callable(wanted) else (lambda text: text == wanted)

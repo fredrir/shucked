@@ -25,7 +25,7 @@ def test_keyword_snippet_placeholders(editor: EditorSession, keyword: str, struc
     workbench.type(keyword)
     workbench.wait_for_suggestions(f"{keyword} snippet", lambda labels: keyword in labels)
     workbench.press("Enter")
-    block = wait_until(f"{keyword} block", lambda: (text := editor.bridge.text(uri)).count("\n") > 2 and text.removeprefix("#!/bin/zsh\n"))
+    block = editor.wait_for_text_change(uri, "#!/bin/zsh\n" + keyword).removeprefix("#!/bin/zsh\n")
     assert re.match(structure, block), block
     assert editor.bridge.active_editor()["selectedText"] == first, "the first placeholder is selected"
     workbench.type("edited")

@@ -80,7 +80,11 @@ def vscode_installation(request: pytest.FixtureRequest) -> install.Installation:
     executable = request.config.getoption("--vscode-executable")
     if executable:
         return install.from_executable(executable)
-    version = request.config.getoption("--vscode-version") or os.environ.get("SHUCKED_VSCODE_VERSION") or install.minimum_engine(EXTENSION / "package.json")
+    version = (
+        request.config.getoption("--vscode-version")
+        or os.environ.get("SHUCKED_VSCODE_VERSION")
+        or install.minimum_engine(EXTENSION / "package.json")
+    )
     cache = Path(os.environ.get("SHUCKED_VSCODE_CACHE", REPOSITORY / ".cache" / "vscode-test"))
     return install.install(version, cache)
 
@@ -129,14 +133,18 @@ def editor_factory(
         instance.bridge.activate_extension(EXTENSION_ID)
         return instance
 
-    factory = EditorFactory(make_root, start, {
-        "home_source": FIXTURES / "home",
-        "workspace_source": FIXTURES / "workspaces" / "default",
-        "extension": built_extension,
-        "server": language_server,
-        "vsix": vsix.resolve() if vsix else None,
-        "trace": bool(request.config.getoption("--vscode-trace")),
-    })
+    factory = EditorFactory(
+        make_root,
+        start,
+        {
+            "home_source": FIXTURES / "home",
+            "workspace_source": FIXTURES / "workspaces" / "default",
+            "extension": built_extension,
+            "server": language_server,
+            "vsix": vsix.resolve() if vsix else None,
+            "trace": bool(request.config.getoption("--vscode-trace")),
+        },
+    )
     yield factory
     factory.stop_all()
 
@@ -167,7 +175,9 @@ def editor(request: pytest.FixtureRequest, shared_editor: VSCodeInstance, artifa
 
 
 @pytest.fixture
-def launch_editor(request: pytest.FixtureRequest, editor_factory: EditorFactory, artifacts_dir: Path) -> Iterator[Callable[..., EditorSession]]:
+def launch_editor(
+    request: pytest.FixtureRequest, editor_factory: EditorFactory, artifacts_dir: Path
+) -> Iterator[Callable[..., EditorSession]]:
     """Start a dedicated editor: ``launch_editor(trusted=False, settings={...})``."""
     launched: list[VSCodeInstance] = []
 
