@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -82,3 +83,14 @@ def test_terminal_status_reflects_the_attached_shell(zsh_document: tuple[EditorS
     editor, _ = zsh_document
     editor.create_terminal("zsh")
     wait_until("terminal status item", lambda: any("Terminal (zsh)" in text for text in editor.workbench.status_items()), timeout=30)
+
+
+def test_terminals_do_not_receive_the_test_bridge_secret(zsh_document: tuple[EditorSession, str]) -> None:
+    editor, _ = zsh_document
+    terminal = editor.create_terminal("zsh")
+    dump = editor.home / "terminal-environment"
+    editor.bridge.terminal_send_text(terminal["name"], f"env > {dump}")
+    environment = wait_until("terminal environment", lambda: dump.read_text() if dump.exists() else None)
+    assert "SHUCKED_BRIDGE_TOKEN=" not in environment
+    token_file = next((line.split("=", 1)[1] for line in environment.splitlines() if line.startswith("SHUCKED_BRIDGE_TOKEN_FILE=")), None)
+    assert token_file is None or not Path(token_file).exists(), "the bridge deletes its secret after reading it"

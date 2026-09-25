@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from .harness import display as display_server
-from .harness import install, processes
+from .harness import install, platforms, processes
 from .harness.instance import EXTENSION_ID, LaunchSpec, PlaywrightDriver, VSCodeInstance
 from .harness.session import EditorFactory, EditorSession, artifact_name, keep_artifacts, scratch_directory
 
@@ -120,6 +120,8 @@ def editor_factory(
 ) -> Iterator[EditorFactory]:
     processes.adopt_orphans()
     vsix = request.config.getoption("--vsix")
+    if vsix and (target := platforms.vsix_target(vsix)) != platforms.host_target():
+        pytest.skip(f"the package targets {target}; the editor suites need a {platforms.host_target()} package")
 
     def make_root(name: str) -> Path:
         root = tmp_path_factory.mktemp(name)

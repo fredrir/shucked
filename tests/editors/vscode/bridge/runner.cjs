@@ -242,11 +242,13 @@ function serve(socket, token, finish) {
 }
 
 exports.run = function run() {
-  const token = process.env.SHUCKED_BRIDGE_TOKEN;
+  const tokenFile = process.env.SHUCKED_BRIDGE_TOKEN_FILE;
   const portFile = process.env.SHUCKED_BRIDGE_PORT_FILE;
-  // Processes the extension host starts from now on (servers, shells) do not need the secret.
-  delete process.env.SHUCKED_BRIDGE_TOKEN;
-  if (!token || !portFile) { return Promise.reject(new Error('The bridge requires SHUCKED_BRIDGE_TOKEN and SHUCKED_BRIDGE_PORT_FILE')); }
+  if (!tokenFile || !portFile) { return Promise.reject(new Error('The bridge requires SHUCKED_BRIDGE_TOKEN_FILE and SHUCKED_BRIDGE_PORT_FILE')); }
+  // Read once and delete, so no later process can learn the secret.
+  const token = fs.readFileSync(tokenFile, 'utf8').trim();
+  fs.unlinkSync(tokenFile);
+  if (!/^[a-f0-9]{64}$/.test(token)) { return Promise.reject(new Error('The bridge token is malformed')); }
   return new Promise((resolve, reject) => {
     const server = net.createServer(socket => serve(socket, token, (code, message) => {
       server.close();

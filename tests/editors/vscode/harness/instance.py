@@ -194,7 +194,12 @@ class VSCodeInstance:
             self._install_vsix(environment)
         token = secrets.token_hex(32)
         port_file = self.root / "bridge.port"
-        environment.update({"SHUCKED_BRIDGE_TOKEN": token, "SHUCKED_BRIDGE_PORT_FILE": str(port_file)})
+        # The secret goes through a private file the bridge deletes after reading it: the
+        # environment would pass it on to every terminal and server the editor starts.
+        token_file = self.root / "bridge.token"
+        token_file.touch(mode=0o600)
+        token_file.write_text(token)
+        environment.update({"SHUCKED_BRIDGE_TOKEN_FILE": str(token_file), "SHUCKED_BRIDGE_PORT_FILE": str(port_file)})
         arguments = [
             str(self.installation.executable),
             *(["--no-sandbox", "--disable-dev-shm-usage"] if sys.platform.startswith("linux") else []),

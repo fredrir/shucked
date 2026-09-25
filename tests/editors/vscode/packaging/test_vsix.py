@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-import platform
 import re
 import stat
 import subprocess
-import sys
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -15,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from ..harness.platforms import host_target
 
 BINARIES = ("shucked", "shucked-server")
 SHELL_HOOKS = (
@@ -93,15 +93,6 @@ def _target(archive: zipfile.ZipFile) -> str:
     return json.loads(archive.read("extension/bin/platform.json"))["target"]
 
 
-def _host_target() -> str:
-    """This machine's VSIX target, named as the extension's platform.mjs names it."""
-    cpu = {"x86_64": "x64", "amd64": "x64", "aarch64": "arm64", "arm64": "arm64", "armv7l": "armhf"}.get(platform.machine().lower(), "")
-    family = "win32" if sys.platform == "win32" else sys.platform
-    if family == "linux" and Path("/etc/alpine-release").exists():
-        family = "alpine"
-    return f"{family}-{cpu}"
-
-
 def _executable_platform(header: bytes) -> str | None:
     """Operating system and CPU of an executable, read from its header without running it."""
     if header[:4] == b"\x7fELF":
@@ -135,8 +126,8 @@ def test_binaries_match_the_platform_target(archive: zipfile.ZipFile, name: str)
 
 
 def test_cli_reports_the_workspace_version(archive: zipfile.ZipFile, extension_root: Path) -> None:
-    if _target(archive) != _host_target():
-        pytest.skip(f"the package targets {_target(archive)}; its binaries cannot run on {_host_target()}")
+    if _target(archive) != host_target():
+        pytest.skip(f"the package targets {_target(archive)}; its binaries cannot run on {host_target()}")
     cargo = (extension_root.parents[1] / "Cargo.toml").read_text()
     found = re.search(r'\[workspace\.package\][^\[]*?^version\s*=\s*"([^"]+)"', cargo, re.MULTILINE | re.DOTALL)
     assert found, "workspace version not found in Cargo.toml"

@@ -59,9 +59,7 @@ def test_cd_offers_only_directories_at_every_step(existing: EditorSession) -> No
     existing.bridge.set_cursor(uri, 2, 2)
     existing.workbench.focus_editor()
     existing.workbench.type(" ")
-    labels = existing.workbench.wait_for_suggestions("cd suggestions")
-    assert all(label.endswith("/") for label in labels), labels
-    # Every response the provider gives while it settles must already be contextual.
+    # Sample from the first keystroke: every response while the provider settles must be contextual.
     samples: list[list[dict]] = []
 
     def settled() -> bool:
@@ -69,8 +67,10 @@ def test_cd_offers_only_directories_at_every_step(existing: EditorSession) -> No
         samples.append(result["items"])
         return not result["isIncomplete"]
 
-    wait_until("cd completion settles", settled, timeout=15)
+    wait_until("cd completion settles", settled, timeout=15, interval=0.05)
     for items in samples:
         names = [label(item) for item in items]
         assert not [item for item in items if item.get("kind") in (FILE, TEXT)], f"file or word items offered after cd: {names}"
         assert not [name for name in names if "aaa_word_guess" in name or name in files], names
+    labels = existing.workbench.wait_for_suggestions("cd suggestions")
+    assert all(label.endswith("/") for label in labels), labels
