@@ -179,13 +179,15 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 | Typecheck | `npm run check-types` |
 | Lint | `npm run lint` |
 | Build | `npm run build` |
-| Unit and hook tests | `npm test` |
+| Unit tests | `npm test` |
+| Unit test coverage | `npm run test:coverage` |
 | Package host VSIX | `npm run vsix` |
-| Real editor smoke | `npm run test:extension-host` |
-| Automatic popup smoke | `SHUCKED_COMPLETION_UI_ONLY=1 npm run test:extension-host` |
-| Editor and native providers, without live terminals | `SHUCKED_COMPLETION_NATIVE_ONLY=1 npm run test:extension-host` |
-| Existing workspace, ordinary defaults and editable snippets; untitled probes only | `SHUCKED_COMPLETION_REGRESSION_WORKSPACE=/absolute/workspace npm run test:extension-host` |
-| Installed package smoke | `SHUCKED_TEST_VSIX=/absolute/path/package.vsix npm run test:extension-host` |
+| Unit, contract, and shell hook tests | `just vscode test` |
+| Real editor tests (pinned VS Code, isolated profile) | `just vscode test --e2e` |
+| Installed package and its contents | `just vscode test --vsix /absolute/path/package.vsix` |
+| Existing workspace, ordinary defaults; untitled probes only | `just vscode test --e2e -- --regression-workspace /absolute/workspace` |
+
+Unit tests live in `tests/` next to the sources. Shell hook, editor, and packaging tests are a pytest suite in [`tests/editors/vscode`](../../tests/editors/vscode/README.md).
 
 ## Language server selection
 

@@ -18,7 +18,7 @@ Status: implementation in progress. The original acceptance gates below remain b
 | History                | Separate opt-ins, actual custom history paths, bounded memory, authenticated accepted-command confirmation                                                           | Real editor insertion/revocation pass on macOS arm64 and Linux x64                                |
 | Distribution           | Pinned hashes, licenses/source archives, exact runtime architecture checks; Windows dispatch cross-checks; native Linux GNU/musl x64 runtime artifacts               | Release VSIX18/18 on macOS arm64/Linux x64; Intel macOS, ARMHF and Windows execution remain gated |
 
-Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
+Evidence is recorded by tests in the corresponding crates, `tests/lsp/test_command_intelligence.py`, `editors/vscode/tests`, `tests/editors/vscode`, and `tooling/providers/tests`. Platform availability and build commands are tracked in [provider documentation](../tooling/providers/README.md).
 
 ## Local performance evidence
 

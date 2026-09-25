@@ -1,0 +1,95 @@
+name: VS Code extension
+
+on:
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - "tests/editors/**"
+      - "tests/pyproject.toml"
+      - "tests/uv.lock"
+      - "crates/**"
+      - "Cargo.lock"
+      - ".github/workflows/vscode-extension.yml"
+  push:
+    branches: [main]
+    paths:
+      - "editors/vscode/**"
+      - "tests/editors/**"
+      - "tests/pyproject.toml"
+      - "tests/uv.lock"
+      - "crates/**"
+      - "Cargo.lock"
+      - ".github/workflows/vscode-extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-extension-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit, shell hook, and editor tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Cache the pinned VS Code build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('editors/vscode/package.json') }}
+
+      - name: Install shells and a virtual display
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zsh fish xvfb
+
+      - name: Install extension dependencies
+        working-directory: editors/vscode
+        run: bun install --frozen-lockfile
+
+      - name: Type check and lint the extension
+        working-directory: editors/vscode
+        run: |
+          bun run check-types
+          bun run lint
+
+      - name: Lint the Python harness
+        run: |
+          uv run --project tests ruff check tests/editors
+          uv run --project tests ruff format --check tests/editors
+          uv run --project tests basedpyright
+
+      - name: Build the language server
+        run: cargo build -p shucked-cli -p shucked-server
+
+      - name: Unit tests
+        working-directory: editors/vscode
+        run: bun run test
+
+      - name: Contract, shell hook, and editor tests
+        run: uv run --project tests pytest tests/editors/vscode --e2e --require-shells
+
+      - name: Keep screenshots and logs of failed editor tests
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vscode-test-artifacts
+          path: target/vscode-tests
+          if-no-files-found: ignore

@@ -49,6 +49,10 @@ just run check .             # cargo run -p shucked-cli -- check .
 # Build release and install locally (~/.local/bin + VS Code extension)
 just deploy                  # both; --shucked or --vscode to narrow
 
+# VS Code extension: unit, contract, and shell hook tests; --e2e adds the real-editor suites
+just vscode test
+just vscode test --e2e
+
 # Build/test everything (including shucked-parser)
 cargo build
 cargo test --features http_client
