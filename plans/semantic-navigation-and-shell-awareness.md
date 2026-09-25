@@ -205,8 +205,17 @@ worthwhile but can wait.
   every zsh-backed completion test (Rust and Python) was skipped there; the
   gating and worker-lifetime changes are covered by fixture-based unit tests
   and need a run on a host with zsh.
+- The Python protocol suite (`tests/lsp`) has 8 tests that fail identically on
+  a build of the branch base commit in the same container: the two
+  `test_native_completion.py` cases and all three `test_completion_relevance.py`
+  variants need the zsh engine, and three `test_command_intelligence.py` cases
+  (missing-command fix, dynamic dispatch, file-scoped declarations) depend on
+  diagnostics arriving within fixed timeouts; `test_sourced_functions_resolve_with_shared_hover`
+  passes or fails run to run on both builds because the first hover races the
+  workspace index build. Those tests should wait for an explicit readiness
+  signal rather than a timeout.
 - `tests/lsp/test_command_intelligence.py::test_dynamic_commands_and_guarded_dependencies_do_not_warn`
-  fails at the branch base as well: a dynamic command name (`"$COMMAND"`)
+  also documents a behaviour worth revisiting: a dynamic command name (`"$COMMAND"`)
   marks the workspace function environment unknown, and the command handler
   turns that into an uncertain environment for every later site, so
   `optional-tool` resolves as Unknown instead of Missing. Deciding whether a
