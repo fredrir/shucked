@@ -109,8 +109,8 @@ pub fn server_capabilities(
                 types::SemanticTokensOptions {
                     work_done_progress_options: types::WorkDoneProgressOptions::default(),
                     legend: crate::handlers::semantic_tokens::semantic_tokens_legend(),
-                    range: Some(false),
-                    full: Some(types::SemanticTokensFullOptions::Bool(true)),
+                    range: Some(true),
+                    full: Some(types::SemanticTokensFullOptions::Delta { delta: Some(true) }),
                 },
             ),
         ),
@@ -331,8 +331,9 @@ mod tests {
         };
         assert_eq!(
             options.full,
-            Some(types::SemanticTokensFullOptions::Bool(true))
+            Some(types::SemanticTokensFullOptions::Delta { delta: Some(true) })
         );
+        assert_eq!(options.range, Some(true));
         let legend = crate::handlers::semantic_tokens::semantic_tokens_legend();
         assert_eq!(options.legend.token_types, legend.token_types);
         assert_eq!(options.legend.token_modifiers, legend.token_modifiers);

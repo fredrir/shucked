@@ -110,6 +110,21 @@ impl ResolvedSourcePaths {
             .map(|path| path.as_deref())
     }
 
+    /// Records the ordered files a source site loads, replacing whatever the
+    /// analysis found for it.
+    ///
+    /// Consumers that know a site's effect from outside the shell text (a
+    /// plugin framework's bootstrap, whose loads follow the framework's
+    /// contract rather than the resolvable operand) use this to make the
+    /// projection reflect that knowledge. An empty list marks the site as
+    /// loading nothing that is not accounted for elsewhere.
+    pub fn insert_sequence(&mut self, reference: &SourceRef, paths: Vec<PathBuf>) {
+        let key = SpanKey::new(reference.span);
+        self.uncertain_sequences.remove(&key);
+        self.candidates.remove(&key);
+        self.sequences.insert(key, paths);
+    }
+
     /// Ordered files loaded by a bounded source loop at this site.
     pub fn sequence(&self, reference: &SourceRef) -> Option<&[PathBuf]> {
         self.sequences
@@ -537,6 +552,48 @@ impl SourcePathAnalyzer {
         }
         result.incomplete |= self.incomplete;
         result
+    }
+
+    /// The directory Zsh reads the user's startup files from.
+    ///
+    /// This is `ZDOTDIR` from the process environment, otherwise the absolute
+    /// value the user's `~/.zshenv` assigns to it, otherwise the home
+    /// directory. Nothing is executed: `.zshenv` is evaluated by the same
+    /// bounded path analysis that resolves source operands.
+    pub fn zsh_startup_directory(
+        &mut self,
+        provider: &dyn SourcePathFileProvider,
+    ) -> Option<PathBuf> {
+        let home = provider.home_dir()?;
+        let mut environment = PathEnvironment::default();
+        seed_process_environment(ParseShellDialect::Zsh, &home, provider, &mut environment);
+        let zdotdir = Name::from("ZDOTDIR");
+        let seeded = environment
+            .values
+            .get(&zdotdir)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.clone());
+        let zshenv = seeded.join(".zshenv");
+        self.halted = false;
+        self.incomplete = false;
+        let mut remaining = MAX_EVENTS;
+        let mut result = ResolvedSourcePaths::default();
+        self.zsh_dotdir_from_startup_file(
+            &zshenv,
+            &zshenv,
+            provider,
+            &mut environment,
+            &mut remaining,
+            &mut result,
+        );
+        Some(
+            environment
+                .values
+                .get(&zdotdir)
+                .map(PathBuf::from)
+                .filter(|directory| directory.is_absolute())
+                .unwrap_or(seeded),
+        )
     }
 
     /// Applies the Zsh startup files that run before `path`.

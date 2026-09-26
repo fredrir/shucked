@@ -562,7 +562,11 @@ impl<'model> SemanticAnalysis<'model> {
         for (name, bindings) in &self.model.functions {
             for &binding_id in bindings {
                 let binding = self.model.binding(binding_id);
-                if !matches!(binding.kind, BindingKind::FunctionDefinition) {
+                if !matches!(binding.kind, BindingKind::FunctionDefinition)
+                    || binding
+                        .attributes
+                        .contains(crate::BindingAttributes::AUTOLOAD)
+                {
                     continue;
                 }
 
@@ -1515,6 +1519,16 @@ impl<'model> SemanticAnalysis<'model> {
         for (name, bindings) in &self.model.functions {
             let mut bindings_by_scope = FxHashMap::<ScopeId, Vec<BindingId>>::default();
             for &binding in bindings {
+                // An `autoload` declaration neither overwrites a body nor is
+                // overwritten by one in a way worth reporting.
+                if self
+                    .model
+                    .binding(binding)
+                    .attributes
+                    .contains(crate::BindingAttributes::AUTOLOAD)
+                {
+                    continue;
+                }
                 bindings_by_scope
                     .entry(self.model.binding(binding).scope)
                     .or_default()

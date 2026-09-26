@@ -25,11 +25,10 @@ SHELL_HOOKS = (
     "live-bash.sh",
     "live-zsh.zsh",
     "live-fish.fish",
-    "live-fish.cjs",
-    "live-read.cjs",
-    "live-result.cjs",
-    "live-watchdog.cjs",
+    "live-helper.cjs",
 )
+# The fish grammar and language configuration the manifest registers.
+LANGUAGE_FILES = ("syntaxes/fish.tmLanguage.json", "language-configuration/fish.json")
 
 
 def _manifest(archive: zipfile.ZipFile) -> dict[str, Any]:
@@ -80,6 +79,17 @@ def test_development_files_are_excluded(archive: zipfile.ZipFile) -> None:
 def test_shell_integration_hooks_are_shipped(archive: zipfile.ZipFile) -> None:
     names = set(archive.namelist())
     assert {f"extension/shell-integration/{hook}" for hook in SHELL_HOOKS} <= names
+
+
+def test_fish_grammar_and_language_configuration_are_shipped_where_the_manifest_points(archive: zipfile.ZipFile) -> None:
+    names = set(archive.namelist())
+    assert {f"extension/{path}" for path in LANGUAGE_FILES} <= names
+    manifest = _manifest(archive)
+    grammar = next(item for item in manifest["contributes"]["grammars"] if item["language"] == "fish")
+    language = next(item for item in manifest["contributes"]["languages"] if item["id"] == "fish")
+    assert f"extension/{grammar['path'].removeprefix('./')}" in names
+    assert f"extension/{language['configuration'].removeprefix('./')}" in names
+    assert json.loads(archive.read(f"extension/{grammar['path'].removeprefix('./')}"))["scopeName"] == grammar["scopeName"]
 
 
 def test_provider_packs_and_runtime_match_the_target(archive: zipfile.ZipFile) -> None:

@@ -3,194 +3,761 @@
   "version": "14.1.1",
   "source": "https://raw.githubusercontent.com/BurntSushi/ripgrep/14.1.1/crates/core/flags/defs.rs",
   "flags": {
-    "--after-context": "required",
-    "--auto-hybrid-regex": "none",
-    "--before-context": "required",
-    "--binary": "none",
-    "--block-buffered": "none",
-    "--byte-offset": "none",
-    "--case-sensitive": "none",
-    "--color": "required",
-    "--colors": "required",
-    "--column": "none",
-    "--context": "required",
-    "--context-separator": "required",
-    "--count": "none",
-    "--count-matches": "none",
-    "--crlf": "none",
-    "--debug": "none",
-    "--dfa-size-limit": "required",
-    "--encoding": "required",
-    "--engine": "required",
-    "--field-context-separator": "required",
-    "--field-match-separator": "required",
-    "--file": "required",
-    "--files": "none",
-    "--files-with-matches": "none",
-    "--files-without-match": "none",
-    "--fixed-strings": "none",
-    "--follow": "none",
-    "--generate": "required",
-    "--glob": "required",
-    "--glob-case-insensitive": "none",
-    "--heading": "none",
-    "--help": "none",
-    "--hidden": "none",
-    "--hostname-bin": "required",
-    "--hyperlink-format": "required",
-    "--iglob": "required",
-    "--ignore": "none",
-    "--ignore-case": "none",
-    "--ignore-dot": "none",
-    "--ignore-exclude": "none",
-    "--ignore-file": "required",
-    "--ignore-file-case-insensitive": "none",
-    "--ignore-files": "none",
-    "--ignore-global": "none",
-    "--ignore-messages": "none",
-    "--ignore-parent": "none",
-    "--ignore-vcs": "none",
-    "--include-zero": "none",
-    "--invert-match": "none",
-    "--json": "none",
-    "--line-buffered": "none",
-    "--line-number": "none",
-    "--line-regexp": "none",
-    "--max-columns": "required",
-    "--max-columns-preview": "none",
-    "--max-count": "required",
-    "--max-depth": "required",
-    "--max-filesize": "required",
-    "--maxdepth": "required",
-    "--messages": "none",
-    "--mmap": "none",
-    "--multiline": "none",
-    "--multiline-dotall": "none",
-    "--no-auto-hybrid-regex": "none",
-    "--no-binary": "none",
-    "--no-block-buffered": "none",
-    "--no-byte-offset": "none",
-    "--no-column": "none",
-    "--no-config": "none",
-    "--no-context-separator": "none",
-    "--no-crlf": "none",
-    "--no-encoding": "none",
-    "--no-filename": "none",
-    "--no-fixed-strings": "none",
-    "--no-follow": "none",
-    "--no-glob-case-insensitive": "none",
-    "--no-heading": "none",
-    "--no-hidden": "none",
-    "--no-ignore": "none",
-    "--no-ignore-dot": "none",
-    "--no-ignore-exclude": "none",
-    "--no-ignore-file-case-insensitive": "none",
-    "--no-ignore-files": "none",
-    "--no-ignore-global": "none",
-    "--no-ignore-messages": "none",
-    "--no-ignore-parent": "none",
-    "--no-ignore-vcs": "none",
-    "--no-include-zero": "none",
-    "--no-invert-match": "none",
-    "--no-json": "none",
-    "--no-line-buffered": "none",
-    "--no-line-number": "none",
-    "--no-max-columns-preview": "none",
-    "--no-messages": "none",
-    "--no-mmap": "none",
-    "--no-multiline": "none",
-    "--no-multiline-dotall": "none",
-    "--no-one-file-system": "none",
-    "--no-pcre2": "none",
-    "--no-pcre2-unicode": "none",
-    "--no-pre": "none",
-    "--no-require-git": "none",
-    "--no-search-zip": "none",
-    "--no-sort-files": "none",
-    "--no-stats": "none",
-    "--no-text": "none",
-    "--no-trim": "none",
-    "--no-unicode": "none",
-    "--null": "none",
-    "--null-data": "none",
-    "--one-file-system": "none",
-    "--only-matching": "none",
-    "--passthrough": "none",
-    "--passthru": "none",
-    "--path-separator": "required",
-    "--pcre2": "none",
-    "--pcre2-unicode": "none",
-    "--pcre2-version": "none",
-    "--pre": "required",
-    "--pre-glob": "required",
-    "--pretty": "none",
-    "--quiet": "none",
-    "--regex-size-limit": "required",
-    "--regexp": "required",
-    "--replace": "required",
-    "--require-git": "none",
-    "--search-zip": "none",
-    "--smart-case": "none",
-    "--sort": "required",
-    "--sort-files": "none",
-    "--sortr": "required",
-    "--stats": "none",
-    "--stop-on-nonmatch": "none",
-    "--text": "none",
-    "--threads": "required",
-    "--trace": "none",
-    "--trim": "none",
-    "--type": "required",
-    "--type-add": "required",
-    "--type-clear": "required",
-    "--type-list": "none",
-    "--type-not": "required",
-    "--unicode": "none",
-    "--unrestricted": "none",
-    "--version": "none",
-    "--vimgrep": "none",
-    "--with-filename": "none",
-    "--word-regexp": "none",
-    "-.": "none",
-    "-0": "none",
-    "-A": "required",
-    "-B": "required",
-    "-C": "required",
-    "-E": "required",
-    "-F": "none",
-    "-H": "none",
-    "-I": "none",
-    "-L": "none",
-    "-M": "required",
-    "-N": "none",
-    "-P": "none",
-    "-S": "none",
-    "-T": "required",
-    "-U": "none",
-    "-V": "none",
-    "-a": "none",
-    "-b": "none",
-    "-c": "none",
-    "-d": "required",
-    "-e": "required",
-    "-f": "required",
-    "-g": "required",
-    "-h": "none",
-    "-i": "none",
-    "-j": "required",
-    "-l": "none",
-    "-m": "required",
-    "-n": "none",
-    "-o": "none",
-    "-p": "none",
-    "-q": "none",
-    "-r": "required",
-    "-s": "none",
-    "-t": "required",
-    "-u": "none",
-    "-v": "none",
-    "-w": "none",
-    "-x": "none",
-    "-z": "none"
+    "--after-context": {
+      "value": "required",
+      "description": "Show this many lines after each match"
+    },
+    "--auto-hybrid-regex": {
+      "value": "none",
+      "description": "Fall back to PCRE2 when the default engine rejects a pattern; superseded by --engine auto"
+    },
+    "--before-context": {
+      "value": "required",
+      "description": "Show this many lines before each match"
+    },
+    "--binary": {
+      "value": "none",
+      "description": "Search binary files instead of skipping them"
+    },
+    "--block-buffered": {
+      "value": "none",
+      "description": "Buffer output in blocks even on a terminal"
+    },
+    "--byte-offset": {
+      "value": "none",
+      "description": "Print the byte offset of each match or line"
+    },
+    "--case-sensitive": {
+      "value": "none",
+      "description": "Match case sensitively, overriding -i and -S"
+    },
+    "--color": {
+      "value": "required",
+      "description": "Colorize output: never, auto, always or ansi"
+    },
+    "--colors": {
+      "value": "required",
+      "description": "Set colors for match, line, path or column, such as path:fg:green"
+    },
+    "--column": {
+      "value": "none",
+      "description": "Show the column number of the first match on each line"
+    },
+    "--context": {
+      "value": "required",
+      "description": "Show this many lines before and after each match"
+    },
+    "--context-separator": {
+      "value": "required",
+      "description": "Print this string between non-contiguous context blocks"
+    },
+    "--count": {
+      "value": "none",
+      "description": "Print only the number of matching lines per file"
+    },
+    "--count-matches": {
+      "value": "none",
+      "description": "Print only the number of individual matches per file"
+    },
+    "--crlf": {
+      "value": "none",
+      "description": "Treat CRLF as a line terminator so $ matches before it"
+    },
+    "--debug": {
+      "value": "none",
+      "description": "Print debugging output on stderr"
+    },
+    "--dfa-size-limit": {
+      "value": "required",
+      "description": "Cap the memory used by the regex DFA"
+    },
+    "--encoding": {
+      "value": "required",
+      "description": "Decode files with this text encoding, or none"
+    },
+    "--engine": {
+      "value": "required",
+      "description": "Choose the regex engine: default, pcre2 or auto"
+    },
+    "--field-context-separator": {
+      "value": "required",
+      "description": "Print this string between the path, line number and context line"
+    },
+    "--field-match-separator": {
+      "value": "required",
+      "description": "Print this string between the path, line number and matched line"
+    },
+    "--file": {
+      "value": "required",
+      "description": "Read one pattern per line from this file"
+    },
+    "--files": {
+      "value": "none",
+      "description": "List the files that would be searched without searching them"
+    },
+    "--files-with-matches": {
+      "value": "none",
+      "description": "Print only the paths of files with matches"
+    },
+    "--files-without-match": {
+      "value": "none",
+      "description": "Print only the paths of files without matches"
+    },
+    "--fixed-strings": {
+      "value": "none",
+      "description": "Treat patterns as literal strings rather than regexes"
+    },
+    "--follow": {
+      "value": "none",
+      "description": "Follow symbolic links while walking directories"
+    },
+    "--generate": {
+      "value": "required",
+      "description": "Generate shell completions or the man page: complete-bash, complete-zsh, complete-fish, complete-powershell or man"
+    },
+    "--glob": {
+      "value": "required",
+      "description": "Include or exclude paths matching this glob; prefix ! to exclude"
+    },
+    "--glob-case-insensitive": {
+      "value": "none",
+      "description": "Match globs case insensitively"
+    },
+    "--heading": {
+      "value": "none",
+      "description": "Print the file path above its matches instead of on every line"
+    },
+    "--help": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "--hidden": {
+      "value": "none",
+      "description": "Search hidden files and directories"
+    },
+    "--hostname-bin": {
+      "value": "required",
+      "description": "Run this program to find the hostname used in hyperlinks"
+    },
+    "--hyperlink-format": {
+      "value": "required",
+      "description": "Print file paths as hyperlinks using this template or alias"
+    },
+    "--iglob": {
+      "value": "required",
+      "description": "Like --glob, but matched case insensitively"
+    },
+    "--ignore": {
+      "value": "none",
+      "description": "Respect ignore files such as .gitignore"
+    },
+    "--ignore-case": {
+      "value": "none",
+      "description": "Match case insensitively"
+    },
+    "--ignore-dot": {
+      "value": "none",
+      "description": "Respect .ignore files"
+    },
+    "--ignore-exclude": {
+      "value": "none",
+      "description": "Respect .git/info/exclude files"
+    },
+    "--ignore-file": {
+      "value": "required",
+      "description": "Read additional ignore rules from this file"
+    },
+    "--ignore-file-case-insensitive": {
+      "value": "none",
+      "description": "Match ignore-file globs case insensitively"
+    },
+    "--ignore-files": {
+      "value": "none",
+      "description": "Respect --ignore-file arguments"
+    },
+    "--ignore-global": {
+      "value": "none",
+      "description": "Respect global gitignore files"
+    },
+    "--ignore-messages": {
+      "value": "none",
+      "description": "Show errors about parsing ignore files"
+    },
+    "--ignore-parent": {
+      "value": "none",
+      "description": "Respect ignore files in parent directories"
+    },
+    "--ignore-vcs": {
+      "value": "none",
+      "description": "Respect .gitignore files"
+    },
+    "--include-zero": {
+      "value": "none",
+      "description": "With --count, also print files that have zero matches"
+    },
+    "--invert-match": {
+      "value": "none",
+      "description": "Print lines that do not match"
+    },
+    "--json": {
+      "value": "none",
+      "description": "Print results as JSON Lines"
+    },
+    "--line-buffered": {
+      "value": "none",
+      "description": "Flush output after every line"
+    },
+    "--line-number": {
+      "value": "none",
+      "description": "Show the line number of each match"
+    },
+    "--line-regexp": {
+      "value": "none",
+      "description": "Match only whole lines"
+    },
+    "--max-columns": {
+      "value": "required",
+      "description": "Omit lines longer than this many characters"
+    },
+    "--max-columns-preview": {
+      "value": "none",
+      "description": "Show a preview of lines omitted by --max-columns"
+    },
+    "--max-count": {
+      "value": "required",
+      "description": "Stop searching a file after this many matching lines"
+    },
+    "--max-depth": {
+      "value": "required",
+      "description": "Limit the directory depth of the search"
+    },
+    "--max-filesize": {
+      "value": "required",
+      "description": "Skip files larger than this size, such as 50M"
+    },
+    "--maxdepth": {
+      "value": "required",
+      "description": "Limit the directory depth of the search"
+    },
+    "--messages": {
+      "value": "none",
+      "description": "Show error messages about files that could not be read"
+    },
+    "--mmap": {
+      "value": "none",
+      "description": "Search using memory maps when possible"
+    },
+    "--multiline": {
+      "value": "none",
+      "description": "Let patterns match across multiple lines"
+    },
+    "--multiline-dotall": {
+      "value": "none",
+      "description": "Let . match line terminators in multiline mode"
+    },
+    "--no-auto-hybrid-regex": {
+      "value": "none",
+      "description": "Turn off --auto-hybrid-regex"
+    },
+    "--no-binary": {
+      "value": "none",
+      "description": "Skip files that look binary"
+    },
+    "--no-block-buffered": {
+      "value": "none",
+      "description": "Turn off --block-buffered"
+    },
+    "--no-byte-offset": {
+      "value": "none",
+      "description": "Turn off --byte-offset"
+    },
+    "--no-column": {
+      "value": "none",
+      "description": "Turn off --column"
+    },
+    "--no-config": {
+      "value": "none",
+      "description": "Ignore the RIPGREP_CONFIG_PATH configuration file"
+    },
+    "--no-context-separator": {
+      "value": "none",
+      "description": "Print no separator between context blocks"
+    },
+    "--no-crlf": {
+      "value": "none",
+      "description": "Turn off --crlf"
+    },
+    "--no-encoding": {
+      "value": "none",
+      "description": "Reset --encoding to automatic detection"
+    },
+    "--no-filename": {
+      "value": "none",
+      "description": "Never print file paths with matches"
+    },
+    "--no-fixed-strings": {
+      "value": "none",
+      "description": "Turn off --fixed-strings"
+    },
+    "--no-follow": {
+      "value": "none",
+      "description": "Turn off --follow"
+    },
+    "--no-glob-case-insensitive": {
+      "value": "none",
+      "description": "Turn off --glob-case-insensitive"
+    },
+    "--no-heading": {
+      "value": "none",
+      "description": "Print the file path on every matching line"
+    },
+    "--no-hidden": {
+      "value": "none",
+      "description": "Turn off --hidden"
+    },
+    "--no-ignore": {
+      "value": "none",
+      "description": "Search files that ignore rules would skip"
+    },
+    "--no-ignore-dot": {
+      "value": "none",
+      "description": "Ignore .ignore files"
+    },
+    "--no-ignore-exclude": {
+      "value": "none",
+      "description": "Ignore .git/info/exclude files"
+    },
+    "--no-ignore-file-case-insensitive": {
+      "value": "none",
+      "description": "Turn off --ignore-file-case-insensitive"
+    },
+    "--no-ignore-files": {
+      "value": "none",
+      "description": "Ignore --ignore-file arguments"
+    },
+    "--no-ignore-global": {
+      "value": "none",
+      "description": "Ignore global gitignore files"
+    },
+    "--no-ignore-messages": {
+      "value": "none",
+      "description": "Hide errors about parsing ignore files"
+    },
+    "--no-ignore-parent": {
+      "value": "none",
+      "description": "Ignore rules from parent directories' ignore files"
+    },
+    "--no-ignore-vcs": {
+      "value": "none",
+      "description": "Ignore .gitignore files"
+    },
+    "--no-include-zero": {
+      "value": "none",
+      "description": "Turn off --include-zero"
+    },
+    "--no-invert-match": {
+      "value": "none",
+      "description": "Turn off --invert-match"
+    },
+    "--no-json": {
+      "value": "none",
+      "description": "Turn off --json"
+    },
+    "--no-line-buffered": {
+      "value": "none",
+      "description": "Turn off --line-buffered"
+    },
+    "--no-line-number": {
+      "value": "none",
+      "description": "Hide line numbers"
+    },
+    "--no-max-columns-preview": {
+      "value": "none",
+      "description": "Turn off --max-columns-preview"
+    },
+    "--no-messages": {
+      "value": "none",
+      "description": "Hide error messages about files that could not be read"
+    },
+    "--no-mmap": {
+      "value": "none",
+      "description": "Never search using memory maps"
+    },
+    "--no-multiline": {
+      "value": "none",
+      "description": "Turn off --multiline"
+    },
+    "--no-multiline-dotall": {
+      "value": "none",
+      "description": "Turn off --multiline-dotall"
+    },
+    "--no-one-file-system": {
+      "value": "none",
+      "description": "Turn off --one-file-system"
+    },
+    "--no-pcre2": {
+      "value": "none",
+      "description": "Turn off --pcre2"
+    },
+    "--no-pcre2-unicode": {
+      "value": "none",
+      "description": "Disable Unicode mode in PCRE2"
+    },
+    "--no-pre": {
+      "value": "none",
+      "description": "Turn off --pre"
+    },
+    "--no-require-git": {
+      "value": "none",
+      "description": "Respect .gitignore files outside Git repositories too"
+    },
+    "--no-search-zip": {
+      "value": "none",
+      "description": "Turn off --search-zip"
+    },
+    "--no-sort-files": {
+      "value": "none",
+      "description": "Turn off --sort-files"
+    },
+    "--no-stats": {
+      "value": "none",
+      "description": "Turn off --stats"
+    },
+    "--no-text": {
+      "value": "none",
+      "description": "Turn off --text"
+    },
+    "--no-trim": {
+      "value": "none",
+      "description": "Turn off --trim"
+    },
+    "--no-unicode": {
+      "value": "none",
+      "description": "Match ASCII only, disabling Unicode in patterns"
+    },
+    "--null": {
+      "value": "none",
+      "description": "Print a NUL byte after each file path"
+    },
+    "--null-data": {
+      "value": "none",
+      "description": "Use NUL as the line terminator instead of newline"
+    },
+    "--one-file-system": {
+      "value": "none",
+      "description": "Do not descend into directories on other file systems"
+    },
+    "--only-matching": {
+      "value": "none",
+      "description": "Print only the matched parts of lines"
+    },
+    "--passthrough": {
+      "value": "none",
+      "description": "Print every line, whether or not it matches"
+    },
+    "--passthru": {
+      "value": "none",
+      "description": "Print every line, whether or not it matches"
+    },
+    "--path-separator": {
+      "value": "required",
+      "description": "Use this character as the path separator in output"
+    },
+    "--pcre2": {
+      "value": "none",
+      "description": "Use the PCRE2 regex engine"
+    },
+    "--pcre2-unicode": {
+      "value": "none",
+      "description": "Enable Unicode mode in PCRE2"
+    },
+    "--pcre2-version": {
+      "value": "none",
+      "description": "Print the PCRE2 version and exit"
+    },
+    "--pre": {
+      "value": "required",
+      "description": "Filter each file through this command before searching"
+    },
+    "--pre-glob": {
+      "value": "required",
+      "description": "Only preprocess files matching this glob with --pre"
+    },
+    "--pretty": {
+      "value": "none",
+      "description": "Use colors, headings and line numbers, as on a terminal"
+    },
+    "--quiet": {
+      "value": "none",
+      "description": "Print nothing; exit 0 when a match is found"
+    },
+    "--regex-size-limit": {
+      "value": "required",
+      "description": "Cap the memory used by a compiled regex"
+    },
+    "--regexp": {
+      "value": "required",
+      "description": "Search for this pattern; may be repeated"
+    },
+    "--replace": {
+      "value": "required",
+      "description": "Replace each match with this text in the output"
+    },
+    "--require-git": {
+      "value": "none",
+      "description": "Respect .gitignore files only inside Git repositories"
+    },
+    "--search-zip": {
+      "value": "none",
+      "description": "Search inside compressed files such as gz, bz2 and xz"
+    },
+    "--smart-case": {
+      "value": "none",
+      "description": "Match case insensitively unless the pattern has uppercase letters"
+    },
+    "--sort": {
+      "value": "required",
+      "description": "Sort results ascending by path, modified, accessed or created"
+    },
+    "--sort-files": {
+      "value": "none",
+      "description": "Sort results by file path"
+    },
+    "--sortr": {
+      "value": "required",
+      "description": "Sort results descending by path, modified, accessed or created"
+    },
+    "--stats": {
+      "value": "none",
+      "description": "Print search statistics at the end"
+    },
+    "--stop-on-nonmatch": {
+      "value": "none",
+      "description": "Stop searching a file at the first non-matching line after a match"
+    },
+    "--text": {
+      "value": "none",
+      "description": "Search binary files as if they were text"
+    },
+    "--threads": {
+      "value": "required",
+      "description": "Use this many threads; 0 chooses automatically"
+    },
+    "--trace": {
+      "value": "none",
+      "description": "Print debugging output at trace level"
+    },
+    "--trim": {
+      "value": "none",
+      "description": "Trim leading whitespace from printed lines"
+    },
+    "--type": {
+      "value": "required",
+      "description": "Only search files of this type; see --type-list"
+    },
+    "--type-add": {
+      "value": "required",
+      "description": "Define a new file type, such as foo:*.foo"
+    },
+    "--type-clear": {
+      "value": "required",
+      "description": "Remove the globs associated with a file type"
+    },
+    "--type-list": {
+      "value": "none",
+      "description": "List all known file types and exit"
+    },
+    "--type-not": {
+      "value": "required",
+      "description": "Do not search files of this type"
+    },
+    "--unicode": {
+      "value": "none",
+      "description": "Enable Unicode in patterns"
+    },
+    "--unrestricted": {
+      "value": "none",
+      "description": "Reduce filtering: once for ignores, twice for hidden, thrice for binary"
+    },
+    "--version": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "--vimgrep": {
+      "value": "none",
+      "description": "Print each match on its own line with line and column numbers"
+    },
+    "--with-filename": {
+      "value": "none",
+      "description": "Print the file path with each match"
+    },
+    "--word-regexp": {
+      "value": "none",
+      "description": "Match only whole words"
+    },
+    "-.": {
+      "value": "none",
+      "description": "Search hidden files and directories"
+    },
+    "-0": {
+      "value": "none",
+      "description": "Print a NUL byte after each file path"
+    },
+    "-A": {
+      "value": "required",
+      "description": "Show this many lines after each match"
+    },
+    "-B": {
+      "value": "required",
+      "description": "Show this many lines before each match"
+    },
+    "-C": {
+      "value": "required",
+      "description": "Show this many lines before and after each match"
+    },
+    "-E": {
+      "value": "required",
+      "description": "Decode files with this text encoding, or none"
+    },
+    "-F": {
+      "value": "none",
+      "description": "Treat patterns as literal strings rather than regexes"
+    },
+    "-H": {
+      "value": "none",
+      "description": "Print the file path with each match"
+    },
+    "-I": {
+      "value": "none",
+      "description": "Never print file paths with matches"
+    },
+    "-L": {
+      "value": "none",
+      "description": "Follow symbolic links while walking directories"
+    },
+    "-M": {
+      "value": "required",
+      "description": "Omit lines longer than this many characters"
+    },
+    "-N": {
+      "value": "none",
+      "description": "Hide line numbers"
+    },
+    "-P": {
+      "value": "none",
+      "description": "Use the PCRE2 regex engine"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Match case insensitively unless the pattern has uppercase letters"
+    },
+    "-T": {
+      "value": "required",
+      "description": "Do not search files of this type"
+    },
+    "-U": {
+      "value": "none",
+      "description": "Let patterns match across multiple lines"
+    },
+    "-V": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Search binary files as if they were text"
+    },
+    "-b": {
+      "value": "none",
+      "description": "Print the byte offset of each match or line"
+    },
+    "-c": {
+      "value": "none",
+      "description": "Print only the number of matching lines per file"
+    },
+    "-d": {
+      "value": "required",
+      "description": "Limit the directory depth of the search"
+    },
+    "-e": {
+      "value": "required",
+      "description": "Search for this pattern; may be repeated"
+    },
+    "-f": {
+      "value": "required",
+      "description": "Read one pattern per line from this file"
+    },
+    "-g": {
+      "value": "required",
+      "description": "Include or exclude paths matching this glob; prefix ! to exclude"
+    },
+    "-h": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "-i": {
+      "value": "none",
+      "description": "Match case insensitively"
+    },
+    "-j": {
+      "value": "required",
+      "description": "Use this many threads; 0 chooses automatically"
+    },
+    "-l": {
+      "value": "none",
+      "description": "Print only the paths of files with matches"
+    },
+    "-m": {
+      "value": "required",
+      "description": "Stop searching a file after this many matching lines"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Show the line number of each match"
+    },
+    "-o": {
+      "value": "none",
+      "description": "Print only the matched parts of lines"
+    },
+    "-p": {
+      "value": "none",
+      "description": "Use colors, headings and line numbers, as on a terminal"
+    },
+    "-q": {
+      "value": "none",
+      "description": "Print nothing; exit 0 when a match is found"
+    },
+    "-r": {
+      "value": "required",
+      "description": "Replace each match with this text in the output"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Match case sensitively, overriding -i and -S"
+    },
+    "-t": {
+      "value": "required",
+      "description": "Only search files of this type; see --type-list"
+    },
+    "-u": {
+      "value": "none",
+      "description": "Reduce filtering: once for ignores, twice for hidden, thrice for binary"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Print lines that do not match"
+    },
+    "-w": {
+      "value": "none",
+      "description": "Match only whole words"
+    },
+    "-x": {
+      "value": "none",
+      "description": "Match only whole lines"
+    },
+    "-z": {
+      "value": "none",
+      "description": "Search inside compressed files such as gz, bz2 and xz"
+    }
   }
 }

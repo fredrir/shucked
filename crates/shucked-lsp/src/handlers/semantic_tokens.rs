@@ -137,12 +137,14 @@ struct RawSemanticToken {
     modifiers: u32,
 }
 
-/// Computes full semantic tokens for the given document snapshot.
+/// Tokenises the whole document. Requests go through
+/// [`super::semantic_tokens_cache::SemanticTokensCache`], which memoises this per document
+/// state and assigns the result id; the tokens returned here carry none.
 pub fn semantic_tokens_full(
-    snapshot: DocumentSnapshot,
+    snapshot: &DocumentSnapshot,
 ) -> crate::server::Result<Option<SemanticTokens>> {
-    if crate::handlers::commands::dialect(&snapshot) == "fish" {
-        return Ok(Some(super::semantic_tokens_fish::full(&snapshot)));
+    if crate::handlers::commands::dialect(snapshot) == "fish" {
+        return Ok(Some(super::semantic_tokens_fish::full(snapshot)));
     }
     let Some(analysis) = snapshot.analysis() else {
         return Ok(None);
@@ -180,7 +182,7 @@ pub fn semantic_tokens_full(
     }
 
     // The same resolution snapshot supplies diagnostics, hover and highlighting.
-    let commands = snapshot.command_service.analysis(&snapshot);
+    let commands = snapshot.command_service.analysis(snapshot);
     for (site, resolution) in &commands.sites {
         let span = site.name_span();
         for word in &site.words {

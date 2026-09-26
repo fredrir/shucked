@@ -1,6 +1,7 @@
 //! Request and notification handlers for the Shucked language server.
 
 pub(crate) mod analysis;
+pub(crate) mod autoload;
 pub(crate) mod call_hierarchy;
 pub(crate) mod commands;
 pub(crate) mod commands_actions;
@@ -18,6 +19,7 @@ pub(crate) mod refactor;
 pub(crate) mod resolve;
 pub(crate) mod selection;
 pub(crate) mod semantic_tokens;
+pub(crate) mod semantic_tokens_cache;
 pub(crate) mod semantic_tokens_fish;
 pub(crate) mod symbols;
 pub(crate) mod workspace_diagnostics;
@@ -25,5 +27,6 @@ pub(crate) mod workspace_explain;
 pub(crate) mod workspace_functions;
 pub(crate) mod workspace_variables;
 pub(crate) mod zsh;
+pub(crate) mod zsh_frameworks;
 
 pub use self::lint::{diagnostic_tags_for_rule, generate_diagnostics};

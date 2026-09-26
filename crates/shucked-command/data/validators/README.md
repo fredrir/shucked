@@ -16,6 +16,18 @@ These records describe option names and argument arity, including hidden aliases
 | curl | 8.7.1, 8.12.1, 8.14.1, 8.15.0 | Boolean negations and expanded values; configuration-loading scopes remain Unknown |
 | Pacman | 7.0.0, 7.1.0 | Union of operation option names; operation-specific validity remains unchecked |
 
+## Record schema
+
+Each record is a JSON object with these members:
+
+- `tool`, `version` and `source` (plus optional `additionalSources`) identify the audited release.
+- `flags` maps every option name to its value arity: `"none"`, `"required"`, or `"optionalAttached"` (a value is accepted only as `--flag=value`). An entry may instead be an object, `{"value": "<arity>", "description": "<text>"}`, whose `description` is one short imperative line that completion shows next to the option (no trailing period). Bare and object entries may be mixed in one record. Descriptions are written for this repository from the tool's documented behaviour; they are never copied from upstream help output or from third-party completion definitions, and they carry no validation authority.
+- `flagsComplete` (default `true`) states whether an option outside `flags` is invalid for the release.
+- `subcommands` lists the bare first-word commands when the tool has them; a non-empty list makes the first positional word a required subcommand.
+- `unsupportedFlags` names options that hand parsing to another context, so an invocation using them stays Unknown.
+- `longAbbreviations` (default `false`) records that the parser accepts unique long-option prefixes.
+- `positionalArguments` (default `true`) states whether positional syntax after the options is covered.
+
 Each JSON file links to the corresponding version's option registration. Updating coverage requires reviewing parser changes and testing aliases, argument consumption, end-of-options, and delegated arguments. A similar help listing or matching major version is insufficient. Other versions and unidentified BSD `ls` builds remain Unknown.
 
 `shucked target capture --capabilities` records these grammars for offline comparison. Plain `target capture` performs filesystem inspection only. Docker/kubectl capability acquisition currently stays Unknown for attached terminal sessions because their configuration environment variables are not part of session metadata.

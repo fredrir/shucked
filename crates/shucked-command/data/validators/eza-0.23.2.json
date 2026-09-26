@@ -3,109 +3,421 @@
   "version": "0.23.2",
   "source": "https://raw.githubusercontent.com/eza-community/eza/v0.23.2/src/options/flags.rs",
   "flags": {
-    "--absolute": "optionalAttached",
-    "--accessed": "none",
-    "--across": "none",
-    "--all": "none",
-    "--almost-all": "none",
-    "--binary": "none",
-    "--blocksize": "none",
-    "--bytes": "none",
-    "--changed": "none",
-    "--classify": "optionalAttached",
-    "--color": "optionalAttached",
-    "--color-scale": "optionalAttached",
-    "--color-scale-mode": "required",
-    "--colour": "optionalAttached",
-    "--colour-scale": "optionalAttached",
-    "--colour-scale-mode": "required",
-    "--context": "none",
-    "--created": "none",
-    "--dereference": "none",
-    "--extended": "none",
-    "--flags": "none",
-    "--follow-symlinks": "none",
-    "--git": "none",
-    "--git-ignore": "none",
-    "--git-repos": "none",
-    "--git-repos-no-status": "none",
-    "--grid": "none",
-    "--group": "none",
-    "--group-directories-first": "none",
-    "--group-directories-last": "none",
-    "--header": "none",
-    "--help": "none",
-    "--hyperlink": "none",
-    "--icons": "optionalAttached",
-    "--ignore-glob": "required",
-    "--inode": "none",
-    "--level": "required",
-    "--links": "none",
-    "--list-dirs": "none",
-    "--long": "none",
-    "--modified": "none",
-    "--mounts": "none",
-    "--no-filesize": "none",
-    "--no-git": "none",
-    "--no-permissions": "none",
-    "--no-quotes": "none",
-    "--no-symlinks": "none",
-    "--no-time": "none",
-    "--no-user": "none",
-    "--numeric": "none",
-    "--octal-permissions": "none",
-    "--oneline": "none",
-    "--only-dirs": "none",
-    "--only-files": "none",
-    "--recurse": "none",
-    "--reverse": "none",
-    "--show-symlinks": "none",
-    "--smart-group": "none",
-    "--sort": "required",
-    "--stdin": "none",
-    "--time": "required",
-    "--time-style": "required",
-    "--total-size": "none",
-    "--treat-dirs-as-files": "none",
-    "--tree": "none",
-    "--version": "none",
-    "--width": "required",
-    "-1": "none",
-    "-?": "none",
-    "-@": "none",
-    "-A": "none",
-    "-B": "none",
-    "-D": "none",
-    "-F": "optionalAttached",
-    "-G": "none",
-    "-H": "none",
-    "-I": "required",
-    "-L": "required",
-    "-M": "none",
-    "-O": "none",
-    "-R": "none",
-    "-S": "none",
-    "-T": "none",
-    "-U": "none",
-    "-X": "none",
-    "-Z": "none",
-    "-a": "none",
-    "-b": "none",
-    "-d": "none",
-    "-f": "none",
-    "-g": "none",
-    "-h": "none",
-    "-i": "none",
-    "-l": "none",
-    "-m": "none",
-    "-n": "none",
-    "-o": "none",
-    "-r": "none",
-    "-s": "required",
-    "-t": "required",
-    "-u": "none",
-    "-v": "none",
-    "-w": "required",
-    "-x": "none"
+    "--absolute": {
+      "value": "optionalAttached",
+      "description": "Show entries with absolute paths: on, follow or off"
+    },
+    "--accessed": {
+      "value": "none",
+      "description": "Show the last access timestamp"
+    },
+    "--across": {
+      "value": "none",
+      "description": "Sort the grid across rather than down"
+    },
+    "--all": {
+      "value": "none",
+      "description": "Include entries whose names begin with a dot"
+    },
+    "--almost-all": {
+      "value": "none",
+      "description": "Include dot entries except . and .."
+    },
+    "--binary": {
+      "value": "none",
+      "description": "Show sizes with binary prefixes such as KiB"
+    },
+    "--blocksize": {
+      "value": "none",
+      "description": "Show the file system blocks allocated to each file"
+    },
+    "--bytes": {
+      "value": "none",
+      "description": "Show sizes in bytes without prefixes"
+    },
+    "--changed": {
+      "value": "none",
+      "description": "Show the status change timestamp"
+    },
+    "--classify": {
+      "value": "optionalAttached",
+      "description": "Append a type indicator to names: always, auto or never"
+    },
+    "--color": {
+      "value": "optionalAttached",
+      "description": "Colorize output: always, auto or never"
+    },
+    "--color-scale": {
+      "value": "optionalAttached",
+      "description": "Shade fields by magnitude: all, age or size"
+    },
+    "--color-scale-mode": {
+      "value": "required",
+      "description": "Use fixed or gradient colors for the color scale"
+    },
+    "--colour": {
+      "value": "optionalAttached",
+      "description": "Colorize output: always, auto or never"
+    },
+    "--colour-scale": {
+      "value": "optionalAttached",
+      "description": "Shade fields by magnitude: all, age or size"
+    },
+    "--colour-scale-mode": {
+      "value": "required",
+      "description": "Use fixed or gradient colors for the color scale"
+    },
+    "--context": {
+      "value": "none",
+      "description": "Show each file's security context"
+    },
+    "--created": {
+      "value": "none",
+      "description": "Show the creation timestamp"
+    },
+    "--dereference": {
+      "value": "none",
+      "description": "Show information about the target of each symbolic link"
+    },
+    "--extended": {
+      "value": "none",
+      "description": "List extended attributes and their sizes"
+    },
+    "--flags": {
+      "value": "none",
+      "description": "Show file flags on macOS and BSD, or attributes on Windows"
+    },
+    "--follow-symlinks": {
+      "value": "none",
+      "description": "Descend into symbolic links that point to directories"
+    },
+    "--git": {
+      "value": "none",
+      "description": "Show the Git status of each file"
+    },
+    "--git-ignore": {
+      "value": "none",
+      "description": "Omit files ignored by Git"
+    },
+    "--git-repos": {
+      "value": "none",
+      "description": "Show the Git status of each directory that is a repository"
+    },
+    "--git-repos-no-status": {
+      "value": "none",
+      "description": "Mark directories that are Git repositories without their status"
+    },
+    "--grid": {
+      "value": "none",
+      "description": "Arrange entries in a grid"
+    },
+    "--group": {
+      "value": "none",
+      "description": "Show each file's group"
+    },
+    "--group-directories-first": {
+      "value": "none",
+      "description": "List directories before other entries"
+    },
+    "--group-directories-last": {
+      "value": "none",
+      "description": "List directories after other entries"
+    },
+    "--header": {
+      "value": "none",
+      "description": "Print a header row above the long view"
+    },
+    "--help": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "--hyperlink": {
+      "value": "none",
+      "description": "Emit entry names as terminal hyperlinks"
+    },
+    "--icons": {
+      "value": "optionalAttached",
+      "description": "Show an icon before each name: always, auto or never"
+    },
+    "--ignore-glob": {
+      "value": "required",
+      "description": "Omit entries matching these | separated glob patterns"
+    },
+    "--inode": {
+      "value": "none",
+      "description": "Show each file's inode number"
+    },
+    "--level": {
+      "value": "required",
+      "description": "Limit the depth of recursion"
+    },
+    "--links": {
+      "value": "none",
+      "description": "Show the number of hard links to each file"
+    },
+    "--list-dirs": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "--long": {
+      "value": "none",
+      "description": "List in long format with metadata columns"
+    },
+    "--modified": {
+      "value": "none",
+      "description": "Show the modification timestamp"
+    },
+    "--mounts": {
+      "value": "none",
+      "description": "Show mount details for mount points"
+    },
+    "--no-filesize": {
+      "value": "none",
+      "description": "Omit the size column"
+    },
+    "--no-git": {
+      "value": "none",
+      "description": "Do not show Git status"
+    },
+    "--no-permissions": {
+      "value": "none",
+      "description": "Omit the permissions column"
+    },
+    "--no-quotes": {
+      "value": "none",
+      "description": "Do not quote names containing spaces"
+    },
+    "--no-symlinks": {
+      "value": "none",
+      "description": "Omit symbolic links"
+    },
+    "--no-time": {
+      "value": "none",
+      "description": "Omit the timestamp column"
+    },
+    "--no-user": {
+      "value": "none",
+      "description": "Omit the user column"
+    },
+    "--numeric": {
+      "value": "none",
+      "description": "Show numeric user and group ids"
+    },
+    "--octal-permissions": {
+      "value": "none",
+      "description": "Show permissions in octal"
+    },
+    "--oneline": {
+      "value": "none",
+      "description": "List one entry per line"
+    },
+    "--only-dirs": {
+      "value": "none",
+      "description": "List directories only"
+    },
+    "--only-files": {
+      "value": "none",
+      "description": "List files only"
+    },
+    "--recurse": {
+      "value": "none",
+      "description": "List subdirectories recursively"
+    },
+    "--reverse": {
+      "value": "none",
+      "description": "Reverse the sort order"
+    },
+    "--show-symlinks": {
+      "value": "none",
+      "description": "Include symbolic links when only files or only directories are listed"
+    },
+    "--smart-group": {
+      "value": "none",
+      "description": "Show the group only when it differs from the owner"
+    },
+    "--sort": {
+      "value": "required",
+      "description": "Sort by a field such as name, size, modified, type or extension"
+    },
+    "--stdin": {
+      "value": "none",
+      "description": "Read the paths to list from standard input"
+    },
+    "--time": {
+      "value": "required",
+      "description": "Choose the timestamp field: modified, changed, accessed or created"
+    },
+    "--time-style": {
+      "value": "required",
+      "description": "Choose the timestamp format: default, iso, long-iso, full-iso, relative or a + format"
+    },
+    "--total-size": {
+      "value": "none",
+      "description": "Show the recursive size of each directory"
+    },
+    "--treat-dirs-as-files": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "--tree": {
+      "value": "none",
+      "description": "Show entries as a tree"
+    },
+    "--version": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "--width": {
+      "value": "required",
+      "description": "Assume this terminal width in columns"
+    },
+    "-1": {
+      "value": "none",
+      "description": "List one entry per line"
+    },
+    "-?": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "-@": {
+      "value": "none",
+      "description": "List extended attributes and their sizes"
+    },
+    "-A": {
+      "value": "none",
+      "description": "Include dot entries except . and .."
+    },
+    "-B": {
+      "value": "none",
+      "description": "Show sizes in bytes without prefixes"
+    },
+    "-D": {
+      "value": "none",
+      "description": "List directories only"
+    },
+    "-F": {
+      "value": "optionalAttached",
+      "description": "Append a type indicator to names: always, auto or never"
+    },
+    "-G": {
+      "value": "none",
+      "description": "Arrange entries in a grid"
+    },
+    "-H": {
+      "value": "none",
+      "description": "Show the number of hard links to each file"
+    },
+    "-I": {
+      "value": "required",
+      "description": "Omit entries matching these | separated glob patterns"
+    },
+    "-L": {
+      "value": "required",
+      "description": "Limit the depth of recursion"
+    },
+    "-M": {
+      "value": "none",
+      "description": "Show mount details for mount points"
+    },
+    "-O": {
+      "value": "none",
+      "description": "Show file flags on macOS and BSD, or attributes on Windows"
+    },
+    "-R": {
+      "value": "none",
+      "description": "List subdirectories recursively"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Show the file system blocks allocated to each file"
+    },
+    "-T": {
+      "value": "none",
+      "description": "Show entries as a tree"
+    },
+    "-U": {
+      "value": "none",
+      "description": "Show the creation timestamp"
+    },
+    "-X": {
+      "value": "none",
+      "description": "Show information about the target of each symbolic link"
+    },
+    "-Z": {
+      "value": "none",
+      "description": "Show each file's security context"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Include entries whose names begin with a dot"
+    },
+    "-b": {
+      "value": "none",
+      "description": "Show sizes with binary prefixes such as KiB"
+    },
+    "-d": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "-f": {
+      "value": "none",
+      "description": "List files only"
+    },
+    "-g": {
+      "value": "none",
+      "description": "Show each file's group"
+    },
+    "-h": {
+      "value": "none",
+      "description": "Print a header row above the long view"
+    },
+    "-i": {
+      "value": "none",
+      "description": "Show each file's inode number"
+    },
+    "-l": {
+      "value": "none",
+      "description": "List in long format with metadata columns"
+    },
+    "-m": {
+      "value": "none",
+      "description": "Show the modification timestamp"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Show numeric user and group ids"
+    },
+    "-o": {
+      "value": "none",
+      "description": "Show permissions in octal"
+    },
+    "-r": {
+      "value": "none",
+      "description": "Reverse the sort order"
+    },
+    "-s": {
+      "value": "required",
+      "description": "Sort by a field such as name, size, modified, type or extension"
+    },
+    "-t": {
+      "value": "required",
+      "description": "Choose the timestamp field: modified, changed, accessed or created"
+    },
+    "-u": {
+      "value": "none",
+      "description": "Show the last access timestamp"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "-w": {
+      "value": "required",
+      "description": "Assume this terminal width in columns"
+    },
+    "-x": {
+      "value": "none",
+      "description": "Sort the grid across rather than down"
+    }
   }
 }

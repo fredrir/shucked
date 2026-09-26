@@ -3,73 +3,274 @@
   "version": "0.25.0",
   "source": "https://raw.githubusercontent.com/sharkdp/bat/v0.25.0/src/bin/bat/clap_app.rs",
   "flags": {
-    "--acknowledgements": "none",
-    "--binary": "required",
-    "--cache-dir": "none",
-    "--chop-long-lines": "none",
-    "--color": "required",
-    "--completion": "required",
-    "--config-dir": "none",
-    "--config-file": "none",
-    "--decorations": "required",
-    "--diagnostic": "none",
-    "--diagnostics": "none",
-    "--diff": "none",
-    "--diff-context": "required",
-    "--file-name": "required",
-    "--force-colorization": "none",
-    "--generate-config-file": "none",
-    "--help": "none",
-    "--highlight-line": "required",
-    "--ignored-suffix": "required",
-    "--italic-text": "required",
-    "--language": "required",
-    "--lessopen": "none",
-    "--line-range": "required",
-    "--list-languages": "none",
-    "--list-themes": "none",
-    "--map-syntax": "required",
-    "--no-config": "none",
-    "--no-custom-assets": "none",
-    "--no-lessopen": "none",
-    "--no-pager": "none",
-    "--no-paging": "none",
-    "--nonprintable-notation": "required",
-    "--number": "none",
-    "--pager": "required",
-    "--paging": "required",
-    "--plain": "none",
-    "--set-terminal-title": "none",
-    "--show-all": "none",
-    "--show-nonprintable": "none",
-    "--squeeze-blank": "none",
-    "--squeeze-limit": "required",
-    "--strip-ansi": "required",
-    "--style": "required",
-    "--tabs": "required",
-    "--terminal-width": "required",
-    "--theme": "required",
-    "--theme-dark": "required",
-    "--theme-light": "required",
-    "--unbuffered": "none",
-    "--version": "none",
-    "--wrap": "required",
-    "-A": "none",
-    "-H": "required",
-    "-L": "none",
-    "-P": "none",
-    "-S": "none",
-    "-V": "none",
-    "-d": "none",
-    "-f": "none",
-    "-h": "none",
-    "-l": "required",
-    "-m": "required",
-    "-n": "none",
-    "-p": "none",
-    "-r": "required",
-    "-s": "none",
-    "-u": "none"
+    "--acknowledgements": {
+      "value": "none",
+      "description": "Show acknowledgements and exit"
+    },
+    "--binary": {
+      "value": "required",
+      "description": "Choose how binary content is shown: no-printing or as-text"
+    },
+    "--cache-dir": {
+      "value": "none",
+      "description": "Show the cache directory and exit"
+    },
+    "--chop-long-lines": {
+      "value": "none",
+      "description": "Truncate lines wider than the terminal instead of wrapping"
+    },
+    "--color": {
+      "value": "required",
+      "description": "Colorize output: auto, never or always"
+    },
+    "--completion": {
+      "value": "required",
+      "description": "Print a completion script for bash, fish, zsh or ps1"
+    },
+    "--config-dir": {
+      "value": "none",
+      "description": "Show the configuration directory and exit"
+    },
+    "--config-file": {
+      "value": "none",
+      "description": "Show the configuration file path and exit"
+    },
+    "--decorations": {
+      "value": "required",
+      "description": "Show decorations such as headers and line numbers: auto, never or always"
+    },
+    "--diagnostic": {
+      "value": "none",
+      "description": "Show diagnostic information for bug reports"
+    },
+    "--diagnostics": {
+      "value": "none",
+      "description": "Show diagnostic information for bug reports"
+    },
+    "--diff": {
+      "value": "none",
+      "description": "Show only lines changed in Git, with context"
+    },
+    "--diff-context": {
+      "value": "required",
+      "description": "Show this many context lines around Git changes"
+    },
+    "--file-name": {
+      "value": "required",
+      "description": "Use this name for the file in the header and for syntax detection"
+    },
+    "--force-colorization": {
+      "value": "none",
+      "description": "Colorize and decorate output even when not on a terminal"
+    },
+    "--generate-config-file": {
+      "value": "none",
+      "description": "Write a default configuration file"
+    },
+    "--help": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "--highlight-line": {
+      "value": "required",
+      "description": "Highlight this line or range, such as 40 or 30:40"
+    },
+    "--ignored-suffix": {
+      "value": "required",
+      "description": "Strip this suffix before detecting the syntax, such as .dev"
+    },
+    "--italic-text": {
+      "value": "required",
+      "description": "Use italics in output: always or never"
+    },
+    "--language": {
+      "value": "required",
+      "description": "Highlight with this language's syntax"
+    },
+    "--lessopen": {
+      "value": "none",
+      "description": "Enable the LESSOPEN preprocessor"
+    },
+    "--line-range": {
+      "value": "required",
+      "description": "Show only these lines, such as 30:40 or :10"
+    },
+    "--list-languages": {
+      "value": "none",
+      "description": "List supported languages and exit"
+    },
+    "--list-themes": {
+      "value": "none",
+      "description": "List available themes and exit"
+    },
+    "--map-syntax": {
+      "value": "required",
+      "description": "Map file names matching a glob to a syntax, such as *.conf:INI"
+    },
+    "--no-config": {
+      "value": "none",
+      "description": "Ignore the configuration file"
+    },
+    "--no-custom-assets": {
+      "value": "none",
+      "description": "Ignore user-provided syntaxes and themes"
+    },
+    "--no-lessopen": {
+      "value": "none",
+      "description": "Disable the LESSOPEN preprocessor"
+    },
+    "--no-pager": {
+      "value": "none",
+      "description": "Do not pipe output through a pager"
+    },
+    "--no-paging": {
+      "value": "none",
+      "description": "Do not pipe output through a pager"
+    },
+    "--nonprintable-notation": {
+      "value": "required",
+      "description": "Show non-printable characters in caret or unicode notation"
+    },
+    "--number": {
+      "value": "none",
+      "description": "Show line numbers only, without other decorations"
+    },
+    "--pager": {
+      "value": "required",
+      "description": "Pipe output through this pager command"
+    },
+    "--paging": {
+      "value": "required",
+      "description": "Choose when to use a pager: auto, never or always"
+    },
+    "--plain": {
+      "value": "none",
+      "description": "Show plain output without decorations; repeat to disable paging"
+    },
+    "--set-terminal-title": {
+      "value": "none",
+      "description": "Set the terminal title to the file name while paging"
+    },
+    "--show-all": {
+      "value": "none",
+      "description": "Show non-printable characters such as spaces, tabs and newlines"
+    },
+    "--show-nonprintable": {
+      "value": "none",
+      "description": "Show non-printable characters such as spaces, tabs and newlines"
+    },
+    "--squeeze-blank": {
+      "value": "none",
+      "description": "Collapse consecutive empty lines into one"
+    },
+    "--squeeze-limit": {
+      "value": "required",
+      "description": "Keep this many consecutive empty lines when squeezing"
+    },
+    "--strip-ansi": {
+      "value": "required",
+      "description": "Remove ANSI escapes from the input: auto, always or never"
+    },
+    "--style": {
+      "value": "required",
+      "description": "Choose the decorations to show, such as numbers, header or grid"
+    },
+    "--tabs": {
+      "value": "required",
+      "description": "Expand tabs to this many spaces"
+    },
+    "--terminal-width": {
+      "value": "required",
+      "description": "Assume this terminal width, or adjust it with +N or -N"
+    },
+    "--theme": {
+      "value": "required",
+      "description": "Highlight with this color theme"
+    },
+    "--theme-dark": {
+      "value": "required",
+      "description": "Theme to use when the terminal background is dark"
+    },
+    "--theme-light": {
+      "value": "required",
+      "description": "Theme to use when the terminal background is light"
+    },
+    "--unbuffered": {
+      "value": "none",
+      "description": "Accepted for cat compatibility; has no effect"
+    },
+    "--version": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "--wrap": {
+      "value": "required",
+      "description": "Choose how long lines wrap: auto, never or character"
+    },
+    "-A": {
+      "value": "none",
+      "description": "Show non-printable characters such as spaces, tabs and newlines"
+    },
+    "-H": {
+      "value": "required",
+      "description": "Highlight this line or range, such as 40 or 30:40"
+    },
+    "-L": {
+      "value": "none",
+      "description": "List supported languages and exit"
+    },
+    "-P": {
+      "value": "none",
+      "description": "Do not pipe output through a pager"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Truncate lines wider than the terminal instead of wrapping"
+    },
+    "-V": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "-d": {
+      "value": "none",
+      "description": "Show only lines changed in Git, with context"
+    },
+    "-f": {
+      "value": "none",
+      "description": "Colorize and decorate output even when not on a terminal"
+    },
+    "-h": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "-l": {
+      "value": "required",
+      "description": "Highlight with this language's syntax"
+    },
+    "-m": {
+      "value": "required",
+      "description": "Map file names matching a glob to a syntax, such as *.conf:INI"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Show line numbers only, without other decorations"
+    },
+    "-p": {
+      "value": "none",
+      "description": "Show plain output without decorations; repeat to disable paging"
+    },
+    "-r": {
+      "value": "required",
+      "description": "Show only these lines, such as 30:40 or :10"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Collapse consecutive empty lines into one"
+    },
+    "-u": {
+      "value": "none",
+      "description": "Accepted for cat compatibility; has no effect"
+    }
   },
   "positionalArguments": false
 }

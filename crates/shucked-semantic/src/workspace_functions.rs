@@ -207,11 +207,45 @@ impl Projection<'_> {
                         .bodies
                         .insert(definition.def_span.start.offset(), body);
                     events.push(Event::Define(definition.clone()));
+                    continue;
+                }
+                // An `autoload` declaration binds the name without a body:
+                // calling it neither defines nor removes other functions.
+                let binding = self.model.binding(*binding);
+                if binding
+                    .attributes
+                    .contains(crate::BindingAttributes::AUTOLOAD)
+                    && let Some(definition) = self
+                        .calls
+                        .definitions
+                        .iter()
+                        .find(|d| d.name == binding.name && d.selection_span == binding.span)
+                {
+                    self.file
+                        .bodies
+                        .entry(definition.def_span.start.offset())
+                        .or_default();
+                    events.push(Event::Define(definition.clone()));
                 }
             }
         }
         match command.kind {
             RecordedCommandKind::Linear => {
+                // Loads attached to a command that is not a `source` (a plugin
+                // manager's module load, resolved by the caller) run in place.
+                if !self.model.source_refs().iter().any(|r| r.span == span) {
+                    let loaded = self
+                        .calls
+                        .source_edges
+                        .iter()
+                        .filter(|edge| edge.span == span)
+                        .map(|edge| edge.path.clone())
+                        .collect::<Vec<_>>();
+                    if !loaded.is_empty() {
+                        self.file.targets.extend(loaded.iter().cloned());
+                        events.push(Event::Source(Some(loaded)));
+                    }
+                }
                 if let Some(reference) = self.model.source_refs().iter().find(|r| r.span == span) {
                     let targets =
                         if matches!(reference.kind, crate::SourceRefKind::DirectiveDevNull) {

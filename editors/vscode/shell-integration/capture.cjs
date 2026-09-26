@@ -29,7 +29,7 @@ process.stdin.on('end', () => {
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const key = fields[i], value = fields[i + 1];
     if (key === 'cwd') {message.cwd = value;}
-    else if (key === 'live-signal' && ['SIGUSR1', 'SIGUSR2'].includes(value)) {message.liveSignal = value; message.liveCompletion = true;}
+    else if (key === 'live-signal' && ['SIGUSR1', 'SIGUSR2', 'SIGWINCH'].includes(value)) {message.liveSignal = value; message.liveCompletion = true;}
     else if (key === 'history-file') {message.historyFile = value;}
     else if (key === 'searchpath') {message.path = value.split(':');}
     else if (key === 'path') {message.path.push(value);}

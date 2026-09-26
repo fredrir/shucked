@@ -1,0 +1,235 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "fish",
+  "scopeName": "source.fish",
+  "fileTypes": ["fish"],
+  "firstLineMatch": "^#!.*\\bfish\\b",
+  "patterns": [
+    { "include": "#shebang" },
+    { "include": "#statements" }
+  ],
+  "repository": {
+    "statements": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#function-definition" },
+        { "include": "#for-loop" },
+        { "include": "#set-command" },
+        { "include": "#keyword" },
+        { "include": "#builtin" },
+        { "include": "#test-brackets" },
+        { "include": "#string-single" },
+        { "include": "#string-double" },
+        { "include": "#command-substitution" },
+        { "include": "#variable" },
+        { "include": "#redirection" },
+        { "include": "#pipe" },
+        { "include": "#logical-operator" },
+        { "include": "#separator" },
+        { "include": "#comparison" },
+        { "include": "#number" },
+        { "include": "#option" },
+        { "include": "#brace-expansion" },
+        { "include": "#glob" },
+        { "include": "#escape" }
+      ]
+    },
+    "shebang": {
+      "match": "\\A(#!).*$",
+      "name": "comment.line.shebang.fish",
+      "captures": { "1": { "name": "punctuation.definition.comment.fish" } }
+    },
+    "comment": {
+      "match": "(?:^|(?<=\\s))(#).*$",
+      "name": "comment.line.number-sign.fish",
+      "captures": { "1": { "name": "punctuation.definition.comment.fish" } }
+    },
+    "function-definition": {
+      "begin": "(?:^|(?<=[\\s;|(&]))(function)\\s+([^\\s;()|&'\"#]+)",
+      "end": "(?=[;#|&)])|$",
+      "name": "meta.function.fish",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.fish" },
+        "2": { "name": "entity.name.function.fish" }
+      },
+      "patterns": [
+        { "include": "#string-single" },
+        { "include": "#string-double" },
+        { "include": "#command-substitution" },
+        { "include": "#variable" },
+        { "include": "#option" },
+        { "include": "#escape" }
+      ]
+    },
+    "for-loop": {
+      "match": "(?:^|(?<=[\\s;|(&]))(for)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(in)(?=[\\s;|)&#]|$)",
+      "captures": {
+        "1": { "name": "keyword.control.fish" },
+        "2": { "name": "variable.other.assignment.fish" },
+        "3": { "name": "keyword.control.fish" }
+      }
+    },
+    "set-command": {
+      "match": "(?:^|(?<=[\\s;|(&]))(set)((?:\\s+--?[A-Za-z][A-Za-z0-9-]*)*)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.other.builtin.fish" },
+        "2": { "patterns": [{ "include": "#option" }] },
+        "3": { "name": "variable.other.assignment.fish" }
+      }
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "match": "(?:^|(?<=[\\s;|(&]))(if|else|end|for|while|switch|case|begin|return|break|continue|function)(?=[\\s;|)&#]|$)",
+          "name": "keyword.control.fish"
+        },
+        {
+          "match": "(?:^|(?<=[\\s;|(&]))(and|or|not)(?=[\\s;|)&#]|$)",
+          "name": "keyword.operator.logical.fish"
+        },
+        {
+          "match": "(?:^|(?<=[\\s;|(&]))(command|builtin|exec|set|test|source|eval|time)(?=[\\s;|)&#]|$)",
+          "name": "keyword.other.builtin.fish"
+        }
+      ]
+    },
+    "builtin": {
+      "match": "(?:^|(?<=[\\s;|(&]))(echo|printf|string|math|read|abbr|alias|bind|cd|count|contains|functions|status|type|argparse|emit|exit|fg|bg|jobs|disown|wait|history|pwd|random|realpath|ulimit|umask|complete|commandline|dirh|dirs|pushd|popd|prevd|nextd|isatty|set_color|true|false|block|breakpoint|funced|funcsave|help|fish_config|fish_add_path|trap|vared|psub|path|cdh|open|fish_opt|fish_indent|fish_key_reader|fish_prompt|fish_right_prompt|fish_greeting|fish_title|fish_mode_prompt|edit_command_buffer|prompt_pwd|prompt_login|prompt_hostname|fish_git_prompt|fish_vcs_prompt|fish_update_completions|fish_clipboard_copy|fish_clipboard_paste|fish_default_key_bindings|fish_vi_key_bindings|fish_is_root_user|fish_status_to_signal|setenv|export)(?=[\\s;|)&#]|$)",
+      "name": "support.function.builtin.fish"
+    },
+    "test-brackets": {
+      "patterns": [
+        { "match": "(?:^|(?<=[\\s;|(&]))\\[(?=\\s)", "name": "support.function.builtin.fish" },
+        { "match": "(?<=\\s)\\](?=[\\s;|)&#]|$)", "name": "support.function.builtin.fish" }
+      ]
+    },
+    "string-single": {
+      "begin": "'",
+      "end": "'",
+      "name": "string.quoted.single.fish",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.fish" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.fish" } },
+      "patterns": [
+        { "match": "\\\\['\\\\]", "name": "constant.character.escape.fish" }
+      ]
+    },
+    "string-double": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.fish",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.fish" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.fish" } },
+      "patterns": [
+        { "match": "\\\\[\"$\\\\\\n]", "name": "constant.character.escape.fish" },
+        { "include": "#dollar-command-substitution" },
+        { "include": "#variable" }
+      ]
+    },
+    "command-substitution": {
+      "patterns": [
+        { "include": "#dollar-command-substitution" },
+        {
+          "begin": "\\(",
+          "end": "\\)",
+          "name": "meta.command-substitution.fish",
+          "beginCaptures": { "0": { "name": "punctuation.definition.substitution.begin.fish" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.substitution.end.fish" } },
+          "patterns": [{ "include": "#statements" }]
+        }
+      ]
+    },
+    "dollar-command-substitution": {
+      "begin": "\\$\\(",
+      "end": "\\)",
+      "name": "meta.command-substitution.fish",
+      "beginCaptures": { "0": { "name": "punctuation.definition.substitution.begin.fish" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.substitution.end.fish" } },
+      "patterns": [{ "include": "#statements" }]
+    },
+    "variable": {
+      "patterns": [
+        {
+          "match": "(\\$+)(status|pipestatus|argv|history|umask|fish_pid|last_pid|CMD_DURATION|hostname|version|PWD|OLDPWD|IFS|HOME|USER|SHLVL|COLUMNS|LINES|PATH|CDPATH|MANPATH|TERM|LANG|EDITOR|SHELL|_|fish_[A-Za-z0-9_]*)(?![A-Za-z0-9_])",
+          "name": "variable.language.fish",
+          "captures": { "1": { "name": "punctuation.definition.variable.fish" } }
+        },
+        {
+          "match": "(\\$+)([A-Za-z_][A-Za-z0-9_]*)",
+          "name": "variable.other.fish",
+          "captures": { "1": { "name": "punctuation.definition.variable.fish" } }
+        },
+        {
+          "begin": "(?<=[A-Za-z0-9_)])\\[",
+          "end": "\\]",
+          "name": "meta.index.fish",
+          "beginCaptures": { "0": { "name": "punctuation.definition.index.begin.fish" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.index.end.fish" } },
+          "patterns": [
+            { "match": "\\.\\.", "name": "keyword.operator.range.fish" },
+            { "match": "-?[0-9]+", "name": "constant.numeric.integer.fish" },
+            { "include": "#variable" },
+            { "include": "#command-substitution" }
+          ]
+        }
+      ]
+    },
+    "redirection": {
+      "match": "(?:[0-9]|&)?>>?\\??(?:&(?:[0-9]|-))?|<(?:&(?:[0-9]|-))?|\\^\\^?",
+      "name": "keyword.operator.redirect.fish"
+    },
+    "pipe": {
+      "match": "&\\||\\|(?!\\|)",
+      "name": "keyword.operator.pipe.fish"
+    },
+    "logical-operator": {
+      "match": "&&|\\|\\||(?:^|(?<=\\s))!(?=\\s)",
+      "name": "keyword.operator.logical.fish"
+    },
+    "separator": {
+      "patterns": [
+        { "match": ";", "name": "punctuation.terminator.statement.fish" },
+        { "match": "&(?![&|>])", "name": "keyword.operator.background.fish" }
+      ]
+    },
+    "comparison": {
+      "match": "(?<=\\s)(!?=|-(?:eq|ne|gt|ge|lt|le))(?=\\s)",
+      "name": "keyword.operator.comparison.fish"
+    },
+    "number": {
+      "match": "(?:^|(?<=[\\s=(,\\[]))-?[0-9]+(?:\\.[0-9]+)?(?=[\\s;|)&#,\\]]|$)",
+      "name": "constant.numeric.fish"
+    },
+    "option": {
+      "match": "(?:^|(?<=[\\s=(]))(--?[A-Za-z0-9][A-Za-z0-9_-]*)(=)?",
+      "captures": {
+        "1": { "name": "variable.parameter.option.fish" },
+        "2": { "name": "punctuation.separator.key-value.fish" }
+      }
+    },
+    "brace-expansion": {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.brace-expansion.fish",
+      "beginCaptures": { "0": { "name": "punctuation.definition.brace-expansion.begin.fish" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.brace-expansion.end.fish" } },
+      "patterns": [
+        { "match": ",", "name": "punctuation.separator.brace-expansion.fish" },
+        { "include": "#string-single" },
+        { "include": "#string-double" },
+        { "include": "#command-substitution" },
+        { "include": "#variable" },
+        { "include": "#brace-expansion" },
+        { "include": "#glob" },
+        { "include": "#escape" }
+      ]
+    },
+    "glob": {
+      "match": "\\*\\*?|\\?",
+      "name": "constant.other.wildcard.fish"
+    },
+    "escape": {
+      "match": "\\\\.",
+      "name": "constant.character.escape.fish"
+    }
+  }
+}

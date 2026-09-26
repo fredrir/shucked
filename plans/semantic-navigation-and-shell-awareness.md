@@ -151,19 +151,120 @@ the environment-aware command intelligence programme.
   truncated session state up to 50 000 aliases/functions instead of discarding
   it; the extension shows one warning per terminal when a payload is dropped.
 
+### Second increment (delivered)
+
+The eight P1 rows marked *Done* in the roadmap below landed as one commit each.
+
+Navigation and source resolution:
+
+- **Incoming loaders outside the workspace roots.** `build_projections` now
+  inspects the well-known startup files of the resolved home and `ZDOTDIR`
+  (`~/.zshenv`, `$ZDOTDIR/{.zshenv,.zprofile,.zshrc,.zlogin}`,
+  `~/{.bash_profile,.bash_login,.profile,.bashrc}`; `ZDOTDIR` from the
+  environment, else from the assignment in `~/.zshenv`). A candidate whose
+  resolved source edges reach an indexed file or a workspace root joins the
+  index as a loader, so definitions it provides before the `source` line
+  resolve exactly, references include its calls, and the "incomplete" notice
+  shrinks. Bounds: 1 MiB per file, 64 loader-reached files (excess makes
+  functions "possible" rather than the index incomplete), the global file cap,
+  read-only like every other out-of-root source target, cached by content and
+  dependency fingerprints so the watcher invalidates on rc-file edits.
+- **oh-my-zsh and prezto loads resolve in the LSP index.** The linter's
+  plugin-manager resolvers are shared with the index through
+  `handlers/zsh_frameworks.rs`: `source $ZSH/oh-my-zsh.sh` expands to the
+  ordered sequence oh-my-zsh.sh, `lib/*.zsh` (with `$ZSH_CUSTOM/lib`
+  overrides), the selected `plugins=(…)` (custom first), the theme and
+  `$ZSH_CUSTOM/*.zsh`; prezto `zstyle ':prezto:load' pmodule` and `pmodload`
+  map to `modules/<name>/init.zsh`. Roots come from the file, the environment
+  and the conventional locations, and only roots holding the bootstrap count.
+  Dynamic loads inside a framework's own bootstrap no longer invalidate the
+  environment or count as unfollowed sources; hover shows "Files loaded through
+  oh-my-zsh". Bounds: 64 files and 1 MiB per load, directory fingerprints as
+  cache dependencies. Zinit is not modelled beyond a static `ZINIT_HOME`
+  bootstrap path.
+- **Autoload-aware navigation.** `autoload [-Uz] name` declares `name` as a
+  function binding with the `AUTOLOAD` attribute (no body: document symbols,
+  tokens, reachability and completion keep their body-only meaning). `fpath`
+  assignments (`fpath=(…)`, `fpath+=`, `FPATH=a:$FPATH`, with `~`, `$HOME` and
+  seeded variables) are collected per file; definition and implementation from
+  a call site or the `autoload` operand open the file named `name` on the
+  file's declared directories, then its connected component, then existing
+  conventional host directories (`share/zsh/{site-functions,…}` under the usual
+  prefixes, at most 256 directories probed once per index). `zle -N widget fn`
+  and `bindkey … widget` give definition from a widget name to the
+  registration and its function. The login-shell capture does not record
+  `fpath` yet, so only declared and default directories are searched.
+
+Completion:
+
+- **Offline flag completion with descriptions.** Validator grammar entries
+  accept `{"value": …, "description": …}` objects next to the bare arity form;
+  every option of ls (Apple and GNU), eza, docker, ripgrep, fd, bat, curl and
+  OpenSSH is described in the repository's own words. `completion/grammar.rs`
+  binds the resolved executable to a grammar exactly as validation does (the
+  audited version query, evidence accepted only when path, size and mtime
+  match) and answers `-`/`--` prefixes, short-flag clusters (`-la` → `-lah`),
+  and the first subcommand level of docker/kubectl instantly, even when the
+  native engine is unavailable or slow; native results then enrich the items
+  (native descriptions win). Untrusted workspaces and uncovered releases get
+  the newest bundled grammar labelled "(unverified)".
+- **Cached subcommand inventories.** `shucked-command::subcommands` runs
+  `brew commands`, `git --list-cmds` (falling back to `git help -a`),
+  `docker --help` and `kubectl --help` once per executable identity (path,
+  size, mtime) under the same trust gate as every native query, with a 3 s
+  timeout, a 1 MiB output cap, a cleared non-interactive environment and no
+  controlling terminal; results are stored under `<cache>/subcommands/` and in
+  memory, refreshed when the environment is invalidated. `brew `, `git `,
+  `docker ` and `kubectl ` complete from the inventory first, the grammar
+  second and the native completer last.
+
+Highlighting and editor:
+
+- **Range and delta semantic tokens.** The server advertises
+  `textDocument/semanticTokens/range` and `full/delta`. Each open document
+  keeps a memo of the tokens for its current state (keyed by version, settings
+  and workspace epochs, environment generation and encoding) and the last
+  published result id; full and range requests at an unchanged state do not
+  tokenise again, a delta ships one edit computed from the common prefix and
+  suffix of the encoded arrays, an unknown id falls back to a full result, and
+  the entry is dropped on close.
+- **Fish grammar and language configuration.** `syntaxes/fish.tmLanguage.json`
+  (scope `source.fish`, written from scratch) and
+  `language-configuration/fish.json` ship with the extension: comments,
+  strings with escapes and expansions, variables and indexing, command
+  substitution, keywords, builtins, options, pipes and redirections, numbers,
+  brace expansion, globs and function definitions; comment toggling, bracket
+  pairs and folding for `function`/`if`/`for`/`while`/`switch`/`begin` … `end`.
+- **Persistent live-completion helper.** The terminal live-completion channel
+  used to start VS Code's Electron-as-node four times per request on bash and
+  zsh (read, watchdog, result, started) plus `/bin/ps` scans, and on bash the
+  request trap never ran at an idle prompt because readline only services its
+  own signals. Now one `live-helper.cjs` per terminal starts when the hook is
+  sourced, holds a FIFO in the private session directory and one connection to
+  the extension, writes each request and signals its shell itself; the trap
+  reads the request with builtins and forks the worker, whose NUL-framed
+  records the helper parses under the existing limits. Per request the shell
+  forks once and no new process starts. Bash requests travel on `SIGWINCH`
+  (the only readline-serviced signal that stays silent when the size is
+  unchanged; a shell with its own WINCH trap declines live completion); zsh
+  and fish keep their signals. Deadlines: helper 1250 ms, extension 1300 ms,
+  server 1500 ms. The helper exits with its shell (parent-PID poll, stdin
+  end-of-file), on a stop frame, or on hang-up, and removes its FIFO. The
+  Rust protocol is unchanged.
+
 ## Roadmap
 
-Priorities: P0 is done on this branch, P1 is the next increment, P2 is
-worthwhile but can wait.
+Priorities: P0 and the rows marked Done landed on this branch, P1 is the next
+increment, P2 is worthwhile but can wait.
 
 ### Semantic model and navigation
 
 | Pri | Proposal                                                                                                                                                                                                                                                                  | Where                                                                                     |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| P1  | Index files that *source the current file* from outside the workspace roots (e.g. `~/.zshrc` sourcing a workspace file). Today only transitive targets are pulled in; incoming loaders outside the roots are invisible, so inherited definitions are missed.               | `workspace_functions.rs::build_projections`, `discover_closed_shell_files`               |
-| P1  | Use the oh-my-zsh / zinit / prezto plugin-manager resolvers that the linter already has for the LSP index, so `source $ZSH/oh-my-zsh.sh` and plugin loads resolve to real files.                                                                                           | `source_closure/plugin_managers/`, `WorkspacePathProvider`                                |
+| Done | Index files that *source the current file* from outside the workspace roots (e.g. `~/.zshrc` sourcing a workspace file). Today only transitive targets are pulled in; incoming loaders outside the roots are invisible, so inherited definitions are missed.               | `workspace_functions.rs::build_projections`, `discover_closed_shell_files`               |
+| Done | Use the oh-my-zsh / zinit / prezto plugin-manager resolvers that the linter already has for the LSP index, so `source $ZSH/oh-my-zsh.sh` and plugin loads resolve to real files.                                                                                           | `source_closure/plugin_managers/`, `WorkspacePathProvider`                                |
 | P1  | Rename across files for variables when the family is proven; today only functions have cross-file rename.                                                                                                                                                                 | `cross_file_rename.rs`, `WorkspaceVariableIndex::references`                              |
-| P1  | Model `autoload`ed functions: resolve `autoload -Uz name` to the file on `$fpath` and offer it for definition/implementation; also `zstyle`/`bindkey` widget names.                                                                                                        | `builder/special_builtins.rs`, `handlers/zsh.rs`, workspace index                          |
+| Done | Model `autoload`ed functions: resolve `autoload -Uz name` to the file on `$fpath` and offer it for definition/implementation; also `zstyle`/`bindkey` widget names.                                                                                                        | `builder/special_builtins.rs`, `handlers/zsh.rs`, workspace index                          |
 | P2  | Treat `builtin source x` / `command . x` as source effects (currently ignored).                                                                                                                                                                                             | `builder/special_builtins.rs`                                                             |
 | P2  | Contract-aware LSP models: apply the linter's ambient contracts (`contracts/zsh/config.yaml`) so runtime-consumed names get a "consumed by zsh" reference instead of "no references".                                                                                      | `crates/shucked-lsp/src/editor.rs` (`resolve_source_closure`, contracts)                  |
 | P2  | Type definition request mapping array/assoc/integer declarations to their `typeset` site.                                                                                                                                                                                  | new `type_definition.rs`                                                                  |
@@ -173,9 +274,9 @@ worthwhile but can wait.
 | Pri | Proposal                                                                                                                                                                                                                                | Where                                                                                     |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | P1  | Recognise more completion contexts statically: `setopt`/`unsetopt` options already exist; add `case` patterns, `for … in` word lists, function names after `unfunction`/`autoload`, `zstyle` contexts, `bindkey` widgets, `trap` signals, `kill -`, `ulimit -`, `read -`, `printf` formats. | `completion/context.rs`, semantic `editor.rs::completion_context`                        |
-| P1  | Argument descriptions for the validator grammars (ls, eza, docker, rg, fd, bat, curl, ssh, kubectl) so flag completion works offline and instantly, with the native completer as enrichment rather than the only source.                   | `crates/shucked-command/data/validators/*.json` (add `description`), `completion/native.rs` |
-| P1  | Subcommand completion for brew/git/docker/kubectl from a cached one-shot inventory (`brew commands`, `git --list-cmds`, `docker --help`) refreshed by the environment watcher; the resolver already runs these for validation.             | `crates/shucked-command/src/metadata.rs`, `completion/native.rs`                          |
-| P1  | Keep the live-completion channel off the Electron-as-node path: a persistent helper (one process per terminal) instead of spawning node three times per request inside a 1.3 s budget.                                                   | `editors/vscode/shell-integration/live-*.{zsh,sh,fish}`, `capture.cjs`, `live-completion.ts` |
+| Done | Argument descriptions for the validator grammars (ls, eza, docker, rg, fd, bat, curl, ssh, kubectl) so flag completion works offline and instantly, with the native completer as enrichment rather than the only source.                   | `crates/shucked-command/data/validators/*.json` (add `description`), `completion/native.rs` |
+| Done | Subcommand completion for brew/git/docker/kubectl from a cached one-shot inventory (`brew commands`, `git --list-cmds`, `docker --help`) refreshed by the environment watcher; the resolver already runs these for validation.             | `crates/shucked-command/src/metadata.rs`, `completion/native.rs`                          |
+| Done | Keep the live-completion channel off the Electron-as-node path: a persistent helper (one process per terminal) instead of spawning node three times per request inside a 1.3 s budget.                                                   | `editors/vscode/shell-integration/live-*.{zsh,sh,fish}`, `capture.cjs`, `live-completion.ts` |
 | P1  | Accept aliases with option words (`--icons=auto`) as aliases instead of opaque functions in the terminal capture, so `eza -` completes with the user's alias.                                                                            | `capture.cjs::simpleAlias`, `commands.rs::update_session`                                 |
 | P2  | Ship a darwin-x64 runtime lock (or a universal build) so Intel Macs and Rosetta VS Code get the provider bundle; surface "no provider bundle" in the status bar instead of a debug log.                                                    | `tooling/providers/bundle-runtime.py`, `native_assets.rs::root`, `status.ts`              |
 | P2  | Remove the dead `useShellConfig`/`SHUCKED_NATIVE_PERSONAL` path or wire it to the login-shell policy.                                                                                                                                    | `options.rs`, `background.rs`, `zsh_supervisor.zsh`                                        |
@@ -184,9 +285,9 @@ worthwhile but can wait.
 
 | Pri | Proposal                                                                                                                                                              | Where                                                                  |
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| P1  | Range and delta semantic tokens with a per-document `result_id` cache; large startup files re-tokenise on every keystroke today.                                        | `capabilities.rs`, `requests/semantic_tokens.rs`                        |
+| Done | Range and delta semantic tokens with a per-document `result_id` cache; large startup files re-tokenise on every keystroke today.                                        | `capabilities.rs`, `requests/semantic_tokens.rs`                        |
 | P1  | Add `elif`/`else`/`do`/`then` spans to the AST so keyword tokens never rely on text search.                                                                             | `shucked-ast/src/ast.rs`, parser                                        |
-| P1  | Ship a fish TextMate grammar and `language-configuration.json` (comment toggling, brackets) so fish is usable without a third-party extension.                         | `editors/vscode/package.json`, new `syntaxes/fish.tmLanguage.json`     |
+| Done | Ship a fish TextMate grammar and `language-configuration.json` (comment toggling, brackets) so fish is usable without a third-party extension.                         | `editors/vscode/package.json`, new `syntaxes/fish.tmLanguage.json`     |
 | P2  | Move the formatter's `AstVisitor` into `shucked-ast` and use it for tokens, inlay hints and folding so traversal holes cannot reappear.                                | `shucked-formatter/src/visit`, `shucked-ast`                            |
 | P2  | Escape-sequence tokens inside `$'...'` and `printf` formats; brace-expansion and glob tokens.                                                                          | `semantic_tokens.rs::AstCollector`                                      |
 
@@ -236,3 +337,15 @@ worthwhile but can wait.
   override (`SHUCKED_PROVIDER_ROOT=/nonexistent`) case.
 - Real oh-my-zsh, prezto and zinit startup files should be added as fixtures
   for the navigation and source-resolution tests.
+- The rewritten zsh and fish live-completion hooks (`live-zsh.zsh`,
+  `live-fish.fish`) follow the same helper protocol as the bash hook, which the
+  new pseudo-terminal tests exercise end to end, but they were not executed
+  here because neither shell is installed; run `just vscode test` on a host
+  with zsh and fish before release. The zsh points to check first are the
+  `exec {fd}> >(…)` helper start at source time and the `R query pids` header
+  written from the zpty child.
+- Bash live completion now relies on `SIGWINCH`; a user rc file that installs
+  its own WINCH trap silently disables the channel for that terminal.
+- `fpath` is not part of the login-shell capture yet, so autoload navigation
+  searches only the directories declared in the file family plus the
+  conventional host directories.

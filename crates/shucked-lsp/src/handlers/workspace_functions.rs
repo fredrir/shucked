@@ -3,8 +3,11 @@
 //! The index projects each shell file into compact semantic function and
 //! variable facts, resolves determinable `source` edges, and retains just
 //! enough source metadata to turn byte spans back into LSP ranges. Open
-//! buffers shadow disk content. File analysis survives workspace invalidation;
-//! source effects are reused only while their content and dependencies match.
+//! buffers shadow disk content. Shell startup files outside the workspace
+//! roots that source a workspace file join the index as loaders, so the
+//! definitions they establish before the `source` line resolve inside the
+//! workspace. File analysis survives workspace invalidation; source effects
+//! are reused only while their content and dependencies match.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -34,6 +37,13 @@ use crate::workspace_variables::{WorkspaceVariableIndex, WorkspaceVariableTarget
 
 const MAX_RETAINED_MODELS: usize = 128;
 const MAX_RETAINED_MODEL_SOURCE_BYTES: usize = 16 * 1024 * 1024;
+/// Upper bound on files that are indexed only because a shell startup file
+/// outside the workspace roots loads a workspace file: the loaders themselves
+/// plus everything reached through them. The workspace file limit still
+/// applies on top.
+const MAX_LOADER_FILES: usize = 64;
+/// Startup files larger than this are not inspected as loader candidates.
+const MAX_LOADER_FILE_BYTES: u64 = 1024 * 1024;
 
 /// Immutable session state needed to build or query the cross-file symbol index.
 #[derive(Clone)]
@@ -231,6 +241,8 @@ struct WorkspaceFileProjection {
     functions: Arc<shucked_semantic::FileFunctionEffects>,
     sources: Vec<WorkspaceSourceDetails>,
     variables: FileVariableFacts,
+    /// Autoload declarations, `fpath` directories and widget facts.
+    zsh: crate::handlers::autoload::ZshNavigationFacts,
     complete: bool,
 }
 
@@ -275,6 +287,10 @@ pub(crate) struct WorkspaceSourceDetails {
     pub(crate) reason: SourceResolutionReason,
     pub(crate) conditional: bool,
     pub(crate) in_function: bool,
+    /// The plugin framework whose contract produced `sequence`, when the
+    /// statement is a framework bootstrap or plugin load rather than a plain
+    /// `source` operand.
+    pub(crate) framework: Option<shucked_semantic::PluginFramework>,
 }
 
 #[derive(Clone, Copy)]
@@ -286,6 +302,9 @@ pub(crate) enum SourceResolutionReason {
     AnalysisLimit,
     Ignored,
     Unreadable,
+    /// A load inside a plugin framework's own bootstrap file: its effect is
+    /// attached to the statement that sources the framework.
+    Framework,
 }
 
 pub(crate) struct WorkspaceVariableDetails {
@@ -319,6 +338,7 @@ impl UnfollowedSource {
             Some(SourceResolutionReason::AnalysisLimit) => "analysis limit",
             Some(SourceResolutionReason::Ignored) => "ignored by directive",
             Some(SourceResolutionReason::Unreadable) => "unreadable file",
+            Some(SourceResolutionReason::Framework) => "modelled by the framework",
             None => "not followed",
         }
     }
@@ -344,6 +364,8 @@ pub(crate) struct WorkspaceFunctionIndex {
     complete: bool,
     issues: BTreeSet<WorkspaceIssue>,
     file_limit: usize,
+    /// Conventional host function directories, probed once per index.
+    default_function_directories: OnceLock<Vec<PathBuf>>,
 }
 
 struct CompletionFunctions {
@@ -411,21 +433,7 @@ impl WorkspaceFunctionIndex {
         }
         // Include incoming loaders, their other imports, and recursively sourced
         // files: module visibility depends on their execution order together.
-        let mut connected = BTreeSet::from([path.to_path_buf()]);
-        loop {
-            let before = connected.len();
-            for (source, facts) in self.graph.files() {
-                for edge in &facts.source_edges {
-                    if connected.contains(source) || connected.contains(&edge.path) {
-                        connected.insert(source.to_path_buf());
-                        connected.insert(edge.path.clone());
-                    }
-                }
-            }
-            if connected.len() == before {
-                break;
-            }
-        }
+        let connected = self.connected_component(path);
         let complete = connected.iter().all(|path| {
             self.files.get(path).is_some_and(|file| {
                 file.projection.complete && file.projection.source_paths.complete
@@ -594,22 +602,112 @@ impl WorkspaceFunctionIndex {
             );
         }
 
+        // Startup files outside the roots that load a workspace file are part
+        // of its execution context: their definitions are visible inside the
+        // workspace file, so they join the index as loaders.
+        let workspace_roots = context
+            .workspace_roots
+            .iter()
+            .map(|root| canonical_path(root))
+            .collect::<Vec<_>>();
+        let mut loader_origin = BTreeSet::new();
+        let mut loader_budget = MAX_LOADER_FILES;
+        let mut skipped = BTreeSet::new();
+        for candidate in startup_loader_candidates(&path_provider, &mut path_analyzer) {
+            if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
+            {
+                return None;
+            }
+            let key = canonical_path(&candidate);
+            if files.contains_key(&key)
+                || workspace_roots.iter().any(|root| key.starts_with(root))
+                || graph.file_count() >= max_files
+                || loader_budget == 0
+            {
+                continue;
+            }
+            let Some(metadata) = std::fs::metadata(&candidate).ok().filter(|m| m.is_file()) else {
+                continue;
+            };
+            if metadata.len() > MAX_LOADER_FILE_BYTES {
+                tracing::debug!(
+                    "workspace functions: startup file {} exceeds the loader size limit",
+                    candidate.display()
+                );
+                continue;
+            }
+            let Some(source) = path_provider.source(&candidate) else {
+                continue;
+            };
+            let Ok(uri) = types::Url::from_file_path(&candidate) else {
+                continue;
+            };
+            let resolution = path_provider
+                .source_paths
+                .borrow_mut()
+                .resolve(&candidate, context);
+            let prepared = prepare_file(
+                previous.as_deref(),
+                WorkspaceFileInput {
+                    path: &candidate,
+                    uri,
+                    source: &source,
+                    version: None,
+                },
+                &resolution,
+                &mut path_analyzer,
+                &path_provider,
+            );
+            let loads_workspace = prepared
+                .file
+                .projection
+                .calls
+                .source_edges
+                .iter()
+                .any(|edge| {
+                    files.contains_key(&edge.path)
+                        || workspace_roots
+                            .iter()
+                            .any(|root| edge.path.starts_with(root))
+                });
+            if !loads_workspace {
+                continue;
+            }
+            tracing::debug!(
+                "workspace functions: indexing {} as a loader of workspace files",
+                candidate.display()
+            );
+            complete &= resolution.complete;
+            if !resolution.complete {
+                issues.insert(WorkspaceIssue::Configuration);
+            }
+            loader_origin.insert(prepared.key.clone());
+            loader_budget -= 1;
+            complete &= commit_file(&mut graph, &mut variables, &mut files, prepared);
+        }
+
         'expand: loop {
             if context.cancellation.is_cancelled() || context.cache.current_epoch() != context.epoch
             {
                 return None;
             }
-            let missing = graph
-                .files()
-                .flat_map(|(_, facts)| facts.source_edges.iter().map(|edge| edge.path.clone()))
-                .filter(|target| !graph.contains(target))
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
+            // Missing targets, with whether a workspace file (rather than only
+            // a loader) requests them; loader-only targets count against the
+            // loader budget instead of joining the workspace closure freely.
+            let mut missing = BTreeMap::<PathBuf, bool>::new();
+            for (source, facts) in graph.files() {
+                let from_workspace = !loader_origin.contains(source);
+                for edge in &facts.source_edges {
+                    if graph.contains(&edge.path) || skipped.contains(&edge.path) {
+                        continue;
+                    }
+                    *missing.entry(edge.path.clone()).or_default() |= from_workspace;
+                }
+            }
             if missing.is_empty() {
                 break;
             }
-            for target in missing {
+            for (target, from_workspace) in missing {
                 if context.cancellation.is_cancelled()
                     || context.cache.current_epoch() != context.epoch
                 {
@@ -623,6 +721,19 @@ impl WorkspaceFunctionIndex {
                          limit; cross-file results may be incomplete"
                     );
                     break 'expand;
+                }
+                if !from_workspace {
+                    if loader_budget == 0 {
+                        tracing::debug!(
+                            "workspace functions: loader closure limit ({MAX_LOADER_FILES}) \
+                             reached; not indexing {}",
+                            target.display()
+                        );
+                        skipped.insert(target);
+                        continue;
+                    }
+                    loader_budget -= 1;
+                    loader_origin.insert(target.clone());
                 }
                 let Some(open) = open_docs
                     .iter()
@@ -710,7 +821,133 @@ impl WorkspaceFunctionIndex {
             files,
             encoding: context.encoding,
             complete,
+            default_function_directories: OnceLock::new(),
         })
+    }
+
+    /// The files connected to `path` through source edges in either
+    /// direction: its loaders, what they load, and what it loads.
+    fn connected_component(&self, path: &Path) -> BTreeSet<PathBuf> {
+        let mut connected = BTreeSet::from([path.to_path_buf()]);
+        loop {
+            let before = connected.len();
+            for (source, facts) in self.graph.files() {
+                for edge in &facts.source_edges {
+                    if connected.contains(source) || connected.contains(&edge.path) {
+                        connected.insert(source.to_path_buf());
+                        connected.insert(edge.path.clone());
+                    }
+                }
+            }
+            if connected.len() == before {
+                break;
+            }
+        }
+        connected
+    }
+
+    /// The `autoload` declaration behind a function definition, when the
+    /// definition is one.
+    pub(crate) fn autoload_declaration(
+        &self,
+        definition: &shucked_semantic::WorkspaceFunctionDefinition,
+    ) -> Option<&crate::handlers::autoload::AutoloadDeclaration> {
+        self.files
+            .get(&definition.path)?
+            .projection
+            .zsh
+            .autoloads
+            .iter()
+            .find(|declaration| {
+                declaration.name == definition.definition.name.as_str()
+                    && declaration.name_span == definition.definition.selection_span
+            })
+    }
+
+    /// The `autoload` declaration whose operand contains `offset` in `path`.
+    pub(crate) fn autoload_declaration_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Option<&crate::handlers::autoload::AutoloadDeclaration> {
+        self.files
+            .get(path)?
+            .projection
+            .zsh
+            .autoloads
+            .iter()
+            .find(|declaration| {
+                declaration.name_span.start.offset() <= offset
+                    && offset < declaration.name_span.end.offset()
+            })
+    }
+
+    /// Files named `name` on the function search path visible from `path`:
+    /// the `fpath` directories declared by the file and its family (the file
+    /// first), then the host's conventional function directories.
+    pub(crate) fn autoload_files(&self, path: &Path, name: &str) -> Vec<PathBuf> {
+        let mut directories = Vec::new();
+        for member in std::iter::once(path.to_path_buf()).chain(self.connected_component(path)) {
+            if let Some(file) = self.files.get(&member) {
+                for directory in &file.projection.zsh.function_path {
+                    if !directories.contains(directory) {
+                        directories.push(directory.clone());
+                    }
+                }
+            }
+        }
+        for directory in self
+            .default_function_directories
+            .get_or_init(crate::handlers::autoload::default_function_directories)
+        {
+            if !directories.contains(directory) {
+                directories.push(directory.clone());
+            }
+        }
+        crate::handlers::autoload::function_files(&directories, name)
+    }
+
+    /// The `bindkey` widget operand containing `offset` in `path`.
+    pub(crate) fn key_binding_at(
+        &self,
+        path: &Path,
+        offset: usize,
+    ) -> Option<&shucked_semantic::ZshKeyBinding> {
+        self.files
+            .get(path)?
+            .projection
+            .zsh
+            .widgets
+            .bindings
+            .iter()
+            .find(|binding| {
+                binding.widget_span.start.offset() <= offset
+                    && offset < binding.widget_span.end.offset()
+            })
+    }
+
+    /// Every `zle -N` registration of `widget` in the family of `path`,
+    /// with the file that holds it.
+    pub(crate) fn widget_registrations(
+        &self,
+        path: &Path,
+        widget: &str,
+    ) -> Vec<(PathBuf, &shucked_semantic::ZshWidgetRegistration)> {
+        let mut registrations = Vec::new();
+        for member in std::iter::once(path.to_path_buf()).chain(self.connected_component(path)) {
+            if let Some(file) = self.files.get(&member) {
+                for registration in &file.projection.zsh.widgets.registrations {
+                    if registration.widget.as_str() == widget
+                        && !registrations
+                            .iter()
+                            .any(|(existing, _): &(PathBuf, _)| *existing == member)
+                    {
+                        registrations.push((member.clone(), registration));
+                    }
+                }
+            }
+        }
+        registrations
     }
 
     pub(crate) fn function_resolution(
@@ -1432,6 +1669,17 @@ impl shucked_semantic::SourcePathFileProvider for WorkspacePathProvider<'_> {
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
     }
 
+    /// A pinned test home directory stands in for the whole process
+    /// environment, so `ZDOTDIR` or `XDG_*` values of the machine running the
+    /// tests cannot leak into the expectations.
+    #[cfg(test)]
+    fn environment_variable(&self, name: &str) -> Option<String> {
+        if TEST_HOME_DIR.with(|cell| cell.borrow().is_some()) {
+            return None;
+        }
+        std::env::var(name).ok().filter(|value| !value.is_empty())
+    }
+
     fn read_source(&self, path: &Path) -> Option<String> {
         self.source(path).map(|source| source.to_string())
     }
@@ -1461,6 +1709,12 @@ struct WorkspaceFileInput<'a> {
     version: Option<DocumentVersion>,
 }
 
+/// A file analysed and projected for the index but not yet inserted.
+struct PreparedWorkspaceFile {
+    key: PathBuf,
+    file: IndexedWorkspaceFile,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn insert_file(
     graph: &mut WorkspaceCallIndex,
@@ -1472,6 +1726,20 @@ fn insert_file(
     path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
     path_provider: &WorkspacePathProvider<'_>,
 ) -> bool {
+    let prepared = prepare_file(previous, input, source_paths, path_analyzer, path_provider);
+    commit_file(graph, variables, files, prepared)
+}
+
+/// Analyses and projects one file, reusing the previous build's work when the
+/// content and every dependency are unchanged. The compact projection is
+/// retained across builds whether or not the file ends up in the index.
+fn prepare_file(
+    previous: Option<&WorkspaceFunctionIndex>,
+    input: WorkspaceFileInput<'_>,
+    source_paths: &SourcePathResolution,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    path_provider: &WorkspacePathProvider<'_>,
+) -> PreparedWorkspaceFile {
     let key = canonical_path(input.path);
     let open_uri = input.version.is_some().then(|| input.uri.clone());
     let uri = std::fs::canonicalize(input.path)
@@ -1529,6 +1797,7 @@ fn insert_file(
             });
             Arc::new(project_file(
                 &model,
+                input.source,
                 input.path,
                 source_paths,
                 path_analyzer,
@@ -1536,9 +1805,6 @@ fn insert_file(
             ))
         });
     let analysis = path_provider.retain_analysis(analysis);
-    let complete = projection.complete;
-    variables.insert_facts(key.clone(), projection.variables.clone());
-    graph.insert(key.clone(), projection.calls.clone());
     let file = IndexedWorkspaceFile {
         analysis,
         projection,
@@ -1562,129 +1828,234 @@ fn insert_file(
             retained.pop_first();
         }
     }
+    PreparedWorkspaceFile { key, file }
+}
+
+/// Inserts a prepared file into the graph, the variable index and the file
+/// table, returning whether its source analysis was complete.
+fn commit_file(
+    graph: &mut WorkspaceCallIndex,
+    variables: &mut WorkspaceVariableIndex,
+    files: &mut BTreeMap<PathBuf, IndexedWorkspaceFile>,
+    prepared: PreparedWorkspaceFile,
+) -> bool {
+    let PreparedWorkspaceFile { key, file } = prepared;
+    let complete = file.projection.complete;
+    variables.insert_facts(key.clone(), file.projection.variables.clone());
+    graph.insert(key.clone(), file.projection.calls.clone());
     files.insert(key, file);
     complete
 }
 
 fn project_file(
     model: &SemanticModel,
+    source: &str,
     path: &Path,
     source_paths: &SourcePathResolution,
     path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
     path_provider: &WorkspacePathProvider<'_>,
 ) -> WorkspaceFileProjection {
     let mut dependencies = vec![path.to_path_buf()];
-    let resolved_paths = path_analyzer.resolve(model, path, path_provider);
+    let mut resolved_paths = path_analyzer.resolve(model, path, path_provider);
     dependencies.extend(resolved_paths.dependency_paths().cloned());
+
+    // Framework loads: a bootstrap `source` loads the framework's own files,
+    // and plugin or module statements load their entrypoints. Both are known
+    // from the framework's layout rather than from the operand text.
+    let framework_loads =
+        crate::handlers::zsh_frameworks::framework_loads(model, source, path, path_provider);
+    let mut framework_sequences = BTreeMap::new();
+    let mut framework_edges = Vec::new();
     let mut sources = Vec::new();
-    let edges = model
-        .source_refs()
-        .iter()
-        .flat_map(|source_ref| {
-            let scope = model.scope_at(source_ref.span.start.offset());
-            if let Some(sequence) = resolved_paths.sequence(source_ref) {
-                let sequence = sequence
-                    .iter()
-                    .map(|path| canonical_path(path))
-                    .collect::<Vec<_>>();
-                sources.push(WorkspaceSourceDetails {
-                    span: source_ref.span,
-                    path_span: source_ref.path_span,
-                    directive_span: source_ref.directive_path_span,
-                    target: None,
-                    candidates: Vec::new(),
-                    sequence: Some(sequence.clone()),
-                    reason: SourceResolutionReason::Resolved,
-                    conditional: true,
-                    in_function: model.enclosing_function_scope(scope).is_some(),
-                });
-                return sequence
-                    .into_iter()
-                    .map(|path| CallFactSourceEdge {
-                        path,
-                        span: source_ref.span,
-                        conditional: true,
-                        completion_visible: false,
-                    })
-                    .collect::<Vec<_>>();
+    let mut complete = true;
+    for load in framework_loads {
+        dependencies.extend(load.dependencies.iter().cloned());
+        complete &= !load.truncated;
+        let files = load
+            .files
+            .iter()
+            .map(|file| canonical_path(file))
+            .collect::<Vec<_>>();
+        if let Some(source_ref) = model
+            .source_refs()
+            .iter()
+            .find(|source_ref| source_ref.span.start.offset() == load.span.start.offset())
+        {
+            resolved_paths.insert_sequence(source_ref, files);
+            framework_sequences.insert(source_ref.span.start.offset(), load.framework);
+            continue;
+        }
+        let scope = model.scope_at(load.span.start.offset());
+        let conditional = model.flow_context_at(&load.span).is_some_and(|context| {
+            context.in_block || context.loop_depth > 0 || context.in_subshell
+        });
+        sources.push(WorkspaceSourceDetails {
+            span: load.span,
+            path_span: load.span,
+            directive_span: None,
+            target: None,
+            candidates: Vec::new(),
+            sequence: Some(files.clone()),
+            reason: SourceResolutionReason::Resolved,
+            conditional,
+            in_function: model.enclosing_function_scope(scope).is_some(),
+            framework: Some(load.framework),
+        });
+        framework_edges.extend(files.into_iter().map(|file| {
+            CallFactSourceEdge {
+                path: file,
+                span: load.span,
+                conditional,
+                completion_visible: !conditional
+                    && model.enclosing_function_scope(scope).is_none()
+                    && model
+                        .innermost_transient_scope_within_function(scope)
+                        .is_none(),
             }
-            let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
-                candidate.map(PathBuf::from).into_iter().collect()
-            } else {
-                path_provider.source_ref_candidates(path, source_ref)
-            };
-            if resolved_paths.candidate(source_ref).is_none()
-                && candidates.is_empty()
-                && let Some(candidate) = model.current_file_source_candidate(source_ref, path)
-            {
-                candidates.push(candidate);
-            }
-            let mut checked = Vec::new();
-            let target = candidates
-                .into_iter()
-                .inspect(|candidate| {
-                    dependencies.push(candidate.clone());
-                    checked.push(candidate.clone());
-                })
-                .find_map(|candidate| {
-                    let snapshot = path_provider.snapshot(&candidate);
-                    snapshot.is_file.then(|| snapshot.canonical_path.clone())
-                });
-            let reason = if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull) {
-                SourceResolutionReason::Ignored
-            } else if let Some(target) = &target {
-                if path_provider.source(target).is_some() {
-                    SourceResolutionReason::Resolved
-                } else {
-                    SourceResolutionReason::Unreadable
-                }
-            } else if !resolved_paths.is_complete() {
-                SourceResolutionReason::AnalysisLimit
-            } else if matches!(resolved_paths.candidate(source_ref), Some(None))
-                || (checked.is_empty()
-                    && matches!(
-                        source_ref.kind,
-                        SourceRefKind::SingleVariableStaticTail { .. }
-                    ))
-            {
-                SourceResolutionReason::UnknownValue
-            } else if checked.is_empty() {
-                SourceResolutionReason::Dynamic
-            } else {
-                SourceResolutionReason::Missing
-            };
+        }));
+    }
+    // Inside a framework's own bootstrap the dynamic loads are the
+    // framework's contract, already attached to the statement that sources
+    // it; they must not invalidate the environment a second time.
+    let bootstrap_contract = crate::handlers::zsh_frameworks::bootstrap_file_framework(path);
+
+    let mut edges = framework_edges;
+    for source_ref in model.source_refs() {
+        let scope = model.scope_at(source_ref.span.start.offset());
+        let in_function = model.enclosing_function_scope(scope).is_some();
+        let completion_visible = !source_ref.conditionally_executed
+            && !in_function
+            && model
+                .innermost_transient_scope_within_function(scope)
+                .is_none();
+        if let Some(sequence) = resolved_paths.sequence(source_ref) {
+            let sequence = sequence
+                .iter()
+                .map(|path| canonical_path(path))
+                .collect::<Vec<_>>();
+            let framework = framework_sequences
+                .get(&source_ref.span.start.offset())
+                .cloned();
+            // A loop's iterations are conditional; a framework bootstrap is
+            // as conditional as the statement itself.
+            let conditional = framework.is_none() || source_ref.conditionally_executed;
             sources.push(WorkspaceSourceDetails {
                 span: source_ref.span,
                 path_span: source_ref.path_span,
                 directive_span: source_ref.directive_path_span,
-                target: target.clone(),
-                candidates: checked,
-                sequence: None,
-                reason,
-                conditional: source_ref.conditionally_executed,
-                in_function: model.enclosing_function_scope(scope).is_some(),
+                target: None,
+                candidates: Vec::new(),
+                sequence: Some(sequence.clone()),
+                reason: SourceResolutionReason::Resolved,
+                conditional,
+                in_function,
+                framework,
             });
-            target
-                .into_iter()
-                .map(|target| CallFactSourceEdge {
-                    path: target,
-                    span: source_ref.span,
-                    conditional: source_ref.conditionally_executed,
-                    completion_visible: !source_ref.conditionally_executed
-                        && model.enclosing_function_scope(scope).is_none()
-                        && model
-                            .innermost_transient_scope_within_function(scope)
-                            .is_none(),
-                })
-                .collect()
-        })
-        .collect::<Vec<_>>();
+            edges.extend(sequence.into_iter().map(|path| CallFactSourceEdge {
+                path,
+                span: source_ref.span,
+                conditional,
+                completion_visible: completion_visible && !conditional,
+            }));
+            continue;
+        }
+        let mut candidates = if let Some(candidate) = resolved_paths.candidate(source_ref) {
+            candidate.map(PathBuf::from).into_iter().collect()
+        } else {
+            path_provider.source_ref_candidates(path, source_ref)
+        };
+        if resolved_paths.candidate(source_ref).is_none()
+            && candidates.is_empty()
+            && let Some(candidate) = model.current_file_source_candidate(source_ref, path)
+        {
+            candidates.push(candidate);
+        }
+        let mut checked = Vec::new();
+        let target = candidates
+            .into_iter()
+            .inspect(|candidate| {
+                dependencies.push(candidate.clone());
+                checked.push(candidate.clone());
+            })
+            .find_map(|candidate| {
+                let snapshot = path_provider.snapshot(&candidate);
+                snapshot.is_file.then(|| snapshot.canonical_path.clone())
+            });
+        let ignored = matches!(source_ref.kind, SourceRefKind::DirectiveDevNull);
+        if target.is_none()
+            && !ignored
+            && let Some(framework) = &bootstrap_contract
+        {
+            resolved_paths.insert_sequence(source_ref, Vec::new());
+            sources.push(WorkspaceSourceDetails {
+                span: source_ref.span,
+                path_span: source_ref.path_span,
+                directive_span: source_ref.directive_path_span,
+                target: None,
+                candidates: checked,
+                sequence: Some(Vec::new()),
+                reason: SourceResolutionReason::Framework,
+                conditional: source_ref.conditionally_executed,
+                in_function,
+                framework: Some(framework.clone()),
+            });
+            continue;
+        }
+        let reason = if ignored {
+            SourceResolutionReason::Ignored
+        } else if let Some(target) = &target {
+            if path_provider.source(target).is_some() {
+                SourceResolutionReason::Resolved
+            } else {
+                SourceResolutionReason::Unreadable
+            }
+        } else if !resolved_paths.is_complete() {
+            SourceResolutionReason::AnalysisLimit
+        } else if matches!(resolved_paths.candidate(source_ref), Some(None))
+            || (checked.is_empty()
+                && matches!(
+                    source_ref.kind,
+                    SourceRefKind::SingleVariableStaticTail { .. }
+                ))
+        {
+            SourceResolutionReason::UnknownValue
+        } else if checked.is_empty() {
+            SourceResolutionReason::Dynamic
+        } else {
+            SourceResolutionReason::Missing
+        };
+        sources.push(WorkspaceSourceDetails {
+            span: source_ref.span,
+            path_span: source_ref.path_span,
+            directive_span: source_ref.directive_path_span,
+            target: target.clone(),
+            candidates: checked,
+            sequence: None,
+            reason,
+            conditional: source_ref.conditionally_executed,
+            in_function,
+            framework: None,
+        });
+        edges.extend(target.into_iter().map(|target| CallFactSourceEdge {
+            path: target,
+            span: source_ref.span,
+            conditional: source_ref.conditionally_executed,
+            completion_visible,
+        }));
+    }
     let call_facts = FileCallFacts::project_with_source_edges(model, edges);
     let variables = FileVariableFacts::project(
         model,
         &resolved_paths.variable_effects(&call_facts.source_effects),
     );
+    let zsh = if model.shell_profile().dialect == shucked_parser::ShellDialect::Zsh {
+        let zdotdir = zsh_startup_directory_for(path, path_analyzer, path_provider);
+        crate::handlers::autoload::project(model, source, path, path_provider, zdotdir.as_deref())
+    } else {
+        Default::default()
+    };
     WorkspaceFileProjection {
+        zsh,
         source_paths: source_paths.clone(),
         dependencies: dependencies
             .into_iter()
@@ -1701,8 +2072,67 @@ fn project_file(
         calls: call_facts,
         sources,
         variables,
-        complete: resolved_paths.is_complete(),
+        complete: complete && resolved_paths.is_complete(),
     }
+}
+
+/// The directory zsh reads startup files from when running `path`, in the
+/// order the path analysis seeds `ZDOTDIR`: the environment, then the
+/// directory of a startup file edited in place, then the value `~/.zshenv`
+/// assigns, then the home directory.
+fn zsh_startup_directory_for(
+    path: &Path,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+    provider: &WorkspacePathProvider<'_>,
+) -> Option<PathBuf> {
+    if let Some(directory) = provider
+        .environment_variable("ZDOTDIR")
+        .map(PathBuf::from)
+        .filter(|directory| directory.is_absolute())
+    {
+        return Some(directory);
+    }
+    let startup_names = [".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"];
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| startup_names.contains(&name))
+        && let Some(parent) = path.parent().filter(|parent| parent.is_absolute())
+    {
+        return Some(parent.to_path_buf());
+    }
+    path_analyzer.zsh_startup_directory(provider)
+}
+
+/// Shell startup files that may load workspace files: the user's zsh
+/// startup files in the resolved `ZDOTDIR` (and `~/.zshenv`, which selects
+/// it) plus the bash and POSIX login and interactive files in the home
+/// directory. Only these well-known names are inspected; whatever they source
+/// joins through the normal source-edge expansion under the loader budget.
+fn startup_loader_candidates(
+    provider: &WorkspacePathProvider<'_>,
+    path_analyzer: &mut shucked_semantic::SourcePathAnalyzer,
+) -> Vec<PathBuf> {
+    let Some(home) = provider.home_dir() else {
+        return Vec::new();
+    };
+    let zdotdir = path_analyzer
+        .zsh_startup_directory(provider)
+        .unwrap_or_else(|| home.clone());
+    let mut candidates = Vec::new();
+    let mut push = |path: PathBuf| {
+        if !candidates.contains(&path) {
+            candidates.push(path);
+        }
+    };
+    push(home.join(".zshenv"));
+    for name in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+        push(zdotdir.join(name));
+    }
+    for name in [".bash_profile", ".bash_login", ".profile", ".bashrc"] {
+        push(home.join(name));
+    }
+    candidates
 }
 
 struct ClosedFileDiscovery {
@@ -2242,3 +2672,7 @@ mod tests {
 #[cfg(test)]
 #[path = "../../tests/unit/workspace_incremental.rs"]
 mod incremental_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/workspace_loaders.rs"]
+mod loader_tests;

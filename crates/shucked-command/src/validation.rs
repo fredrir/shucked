@@ -30,6 +30,10 @@ pub struct FlagSpec {
     /// Empty means value validation is not covered by this evidence.
     pub values: BTreeSet<String>,
     pub values_complete: bool,
+    /// One short imperative line for completion listings, written for the
+    /// audited version. Absent when the grammar records the name only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

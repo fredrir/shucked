@@ -47,7 +47,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Block snippets | Structural keywords expand into editable fields and dialect-appropriate closing syntax |
 | Dismissal / navigation | Escape, edits, cursor changes, focus loss, and Up/Down/PageUp/PageDown stop idle refresh |
 | Provenance | Completion details identify the provider alongside available descriptions |
-| Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable |
+| Live completers | Explicitly attached Unix Bash/Zsh/Fish sessions; current custom functions and variables, bounded and cancellable. One persistent helper per terminal relays requests; a request costs a fork of the shell, no new Node process |
 | Packages | Package names and other dynamic values come from the selected upstream completion definition |
 | Aliases | Preserve injected arguments and source ranges; standalone scripts do not inherit interactive aliases |
 | Missing commands | Debounced warning and invalid semantic classification when absence is established |
@@ -164,7 +164,7 @@ Other editors initialize trusted native execution with `{"nativeExecutionAllowed
 | Windows | Process-tree cancellation implemented; compatible private shell runtime distribution remains outstanding |
 | Unix helpers | Some definitions require standard POSIX utilities from the host |
 | Tool validation | Brew/Git inventories and selected exact-version flag grammars; unsupported versions remain Unknown |
-| Fish | Dedicated syntax/command frontend; not full Bash/Zsh lint-rule or formatting parity |
+| Fish | Dedicated syntax/command frontend; bundled TextMate grammar and language configuration (comment toggling, bracket and quote pairs, block folding); not full Bash/Zsh lint-rule or formatting parity |
 | Themes | Standard warning diagnostics plus semantic classifications; token color depends on theme |
 | Clients without refresh support | Completed results are served on the next diagnostic/token request; immediate no-edit updates require negotiated refresh support |
 | Remote validation | Workspace-host architecture; real SSH/WSL/container acceptance runs remain required |

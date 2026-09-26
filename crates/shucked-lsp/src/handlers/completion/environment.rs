@@ -147,6 +147,7 @@ impl Environment {
     pub(crate) fn invalidate(&self) {
         self.service.invalidate();
         self.native.invalidate();
+        super::offline::invalidate();
         #[cfg(test)]
         self.cache
             .lock()

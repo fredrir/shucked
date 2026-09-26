@@ -20,6 +20,23 @@ async def wait_for_code(client, uri, code):
             return diagnostics
     raise AssertionError(f"No {code} diagnostic arrived")
 
+def apply_token_edits(data, edits):
+    """Apply semantic token delta edits to a flat token array the way an editor does."""
+    applied = list(data)
+    for edit in sorted(edits, key=lambda edit: edit["start"], reverse=True):
+        applied[edit["start"]:edit["start"] + edit["deleteCount"]] = edit.get("data", [])
+    return applied
+
+def decode_tokens(data):
+    """Turn a flat token array into absolute (line, character, length, type, modifiers) tuples."""
+    tokens, line, character = [], 0, 0
+    for index in range(0, len(data), 5):
+        delta_line, delta_start, length, token_type, modifiers = data[index:index + 5]
+        line += delta_line
+        character = character + delta_start if delta_line == 0 else delta_start
+        tokens.append((line, character, length, token_type, modifiers))
+    return tokens
+
 async def test_missing_command_warning_fix_and_portable_context(shucked_binary, tmp_path):
     client = await start_host(shucked_binary, tmp_path, capabilities={"workspace": {"applyEdit": True, "workspaceEdit": {"documentChanges": True}}})
     uri = (tmp_path / "script.sh").as_uri()
@@ -67,11 +84,42 @@ async def test_install_refresh_updates_diagnostics_and_tokens_without_edit(shuck
         executable.chmod(0o755)
         await client.send_request("workspace/executeCommand", {"command": "shucked.refreshEnvironment"})
         assert not any(d.get("code") == "ENV001" for d in await client.wait_for_diagnostics(uri))
+        # A refresh without an edit still yields a delta against the previous result.
+        delta = await client.send_request("textDocument/semanticTokens/full/delta", {"textDocument": {"uri": uri}, "previousResultId": before["resultId"]})
+        assert delta["resultId"] != before["resultId"]
+        after_by_delta = apply_token_edits(before["data"], delta["edits"])
+        assert not after_by_delta[4] & 16
         after = await client.send_request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
         assert not after["data"][4] & 16
+        assert after["data"] == after_by_delta
         async with asyncio.timeout(2):
             while not any(n["method"] == "workspace/semanticTokens/refresh" for n in client._all_notifications):
                 await asyncio.sleep(.01)
+    finally:
+        await client.shutdown_and_exit()
+
+async def test_semantic_tokens_range_and_delta_round_trip(shucked_binary, tmp_path):
+    client = await start_host(shucked_binary, tmp_path)
+    uri = (tmp_path / "script.sh").as_uri()
+    try:
+        await client.open_document(uri, text="#!/bin/bash\nname=1\necho \"$name\"\nnot-installed\nexit 0\n", language_id="bash")
+        # The host inventory settles once the missing command is reported; token results
+        # are stable from then on, so the round trip below is not raced by a refresh.
+        await wait_for_code(client, uri, "ENV001")
+        full = await client.send_request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
+        assert full["resultId"]
+        ranged = await client.send_request("textDocument/semanticTokens/range", {"textDocument": {"uri": uri}, "range": {"start": {"line": 2, "character": 0}, "end": {"line": 3, "character": 0}}})
+        expected = [token for token in decode_tokens(full["data"]) if token[0] == 2]
+        assert expected and decode_tokens(ranged["data"]) == expected
+        assert ranged["data"][0] == 2, "the first range token is relative to the document start"
+        await client.change_document(uri, "#!/bin/bash\nname=1\necho \"$name\"\nnot-installed\necho done\nexit 0\n", version=2)
+        delta = await client.send_request("textDocument/semanticTokens/full/delta", {"textDocument": {"uri": uri}, "previousResultId": full["resultId"]})
+        assert len(delta["edits"]) == 1 and delta["resultId"] != full["resultId"]
+        refreshed = await client.send_request("textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
+        assert refreshed["resultId"] == delta["resultId"]
+        assert apply_token_edits(full["data"], delta["edits"]) == refreshed["data"]
+        stale = await client.send_request("textDocument/semanticTokens/full/delta", {"textDocument": {"uri": uri}, "previousResultId": "stale"})
+        assert stale["data"] == refreshed["data"]
     finally:
         await client.shutdown_and_exit()
 
