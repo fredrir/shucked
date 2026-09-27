@@ -3,52 +3,190 @@
   "version": "457.140.3",
   "source": "https://raw.githubusercontent.com/apple-oss-distributions/file_cmds/file_cmds-457.140.3/ls/ls.c",
   "flags": {
-    "-%": "none",
-    "-,": "none",
-    "--color": "optionalAttached",
-    "-1": "none",
-    "-@": "none",
-    "-A": "none",
-    "-B": "none",
-    "-C": "none",
-    "-D": "required",
-    "-F": "none",
-    "-G": "none",
-    "-H": "none",
-    "-I": "none",
-    "-L": "none",
-    "-O": "none",
-    "-P": "none",
-    "-R": "none",
-    "-S": "none",
-    "-T": "none",
-    "-U": "none",
-    "-W": "none",
-    "-X": "none",
-    "-a": "none",
-    "-b": "none",
-    "-c": "none",
-    "-d": "none",
-    "-e": "none",
-    "-f": "none",
-    "-g": "none",
-    "-h": "none",
-    "-i": "none",
-    "-k": "none",
-    "-l": "none",
-    "-m": "none",
-    "-n": "none",
-    "-o": "none",
-    "-p": "none",
-    "-q": "none",
-    "-r": "none",
-    "-s": "none",
-    "-t": "none",
-    "-u": "none",
-    "-v": "none",
-    "-w": "none",
-    "-x": "none",
-    "-y": "none"
+    "-%": {
+      "value": "none",
+      "description": "Mark dataless files with a % in long listings"
+    },
+    "-,": {
+      "value": "none",
+      "description": "Group size digits by thousands in long listings"
+    },
+    "--color": {
+      "value": "optionalAttached",
+      "description": "Colorize output: always, auto or never"
+    },
+    "-1": {
+      "value": "none",
+      "description": "List one entry per line"
+    },
+    "-@": {
+      "value": "none",
+      "description": "Show extended attribute keys and sizes in long listings"
+    },
+    "-A": {
+      "value": "none",
+      "description": "Include dot entries except . and .."
+    },
+    "-B": {
+      "value": "none",
+      "description": "Print non-printable characters as \\xxx octal escapes"
+    },
+    "-C": {
+      "value": "none",
+      "description": "Arrange entries in columns, sorted down"
+    },
+    "-D": {
+      "value": "required",
+      "description": "Format dates in long listings with a strftime pattern"
+    },
+    "-F": {
+      "value": "none",
+      "description": "Append a type indicator such as / * @ = | to each name"
+    },
+    "-G": {
+      "value": "none",
+      "description": "Colorize output on a terminal"
+    },
+    "-H": {
+      "value": "none",
+      "description": "Follow symbolic links given on the command line"
+    },
+    "-I": {
+      "value": "none",
+      "description": "Do not imply -A when running as the superuser"
+    },
+    "-L": {
+      "value": "none",
+      "description": "Follow every symbolic link and list its target"
+    },
+    "-O": {
+      "value": "none",
+      "description": "Show file flags in long listings"
+    },
+    "-P": {
+      "value": "none",
+      "description": "List symbolic links themselves rather than their targets"
+    },
+    "-R": {
+      "value": "none",
+      "description": "List subdirectories recursively"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Sort by size, largest first"
+    },
+    "-T": {
+      "value": "none",
+      "description": "Show complete time detail, including seconds and year"
+    },
+    "-U": {
+      "value": "none",
+      "description": "Use the creation time for sorting and display"
+    },
+    "-W": {
+      "value": "none",
+      "description": "Show whiteout entries"
+    },
+    "-X": {
+      "value": "none",
+      "description": "Do not descend into directories on other file systems"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Include entries whose names begin with a dot"
+    },
+    "-b": {
+      "value": "none",
+      "description": "Print non-printable characters as C-style escapes"
+    },
+    "-c": {
+      "value": "none",
+      "description": "Use the status change time for sorting and display"
+    },
+    "-d": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "-e": {
+      "value": "none",
+      "description": "Show the ACL after each entry in long listings"
+    },
+    "-f": {
+      "value": "none",
+      "description": "List entries in directory order without sorting"
+    },
+    "-g": {
+      "value": "none",
+      "description": "Long listing showing the group but not the owner"
+    },
+    "-h": {
+      "value": "none",
+      "description": "Show sizes in human-readable units"
+    },
+    "-i": {
+      "value": "none",
+      "description": "Show each file's inode number"
+    },
+    "-k": {
+      "value": "none",
+      "description": "Report block usage in kilobytes with -s"
+    },
+    "-l": {
+      "value": "none",
+      "description": "List in long format"
+    },
+    "-m": {
+      "value": "none",
+      "description": "Stream entries across the page, separated by commas"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Show numeric user and group ids in long listings"
+    },
+    "-o": {
+      "value": "none",
+      "description": "Long listing showing the owner but not the group"
+    },
+    "-p": {
+      "value": "none",
+      "description": "Append a slash to directory names"
+    },
+    "-q": {
+      "value": "none",
+      "description": "Print non-printable characters as ?"
+    },
+    "-r": {
+      "value": "none",
+      "description": "Reverse the sort order"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Show the number of blocks used by each file"
+    },
+    "-t": {
+      "value": "none",
+      "description": "Sort by modification time, newest first"
+    },
+    "-u": {
+      "value": "none",
+      "description": "Use the last access time for sorting and display"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Print non-printable characters unedited"
+    },
+    "-w": {
+      "value": "none",
+      "description": "Print non-printable characters raw, as when not on a terminal"
+    },
+    "-x": {
+      "value": "none",
+      "description": "Arrange entries in columns, sorted across"
+    },
+    "-y": {
+      "value": "none",
+      "description": "Sort names in the same direction as times under -t"
+    }
   },
   "longAbbreviations": true,
   "positionalArguments": false

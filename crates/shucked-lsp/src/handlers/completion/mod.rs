@@ -3,9 +3,12 @@ use std::path::Path;
 pub(super) mod context;
 pub(crate) mod environment;
 pub(crate) mod fish;
+mod grammar;
+mod inventory;
 mod native;
 pub(crate) mod native_process;
 mod native_zsh;
+mod offline;
 pub(crate) use native_zsh::decode_bash_candidate;
 pub(crate) mod background;
 mod service;
@@ -116,7 +119,7 @@ pub(super) fn extend(
     ),
     parameter_start: Option<usize>,
 ) -> bool {
-    let (environment, _cancellation, client) = native;
+    let (environment, cancellation, client) = native;
     let command_analysis = snapshot.command_service.analysis(snapshot);
     let local = command_analysis.local_environment;
     let scoped_environment =
@@ -257,6 +260,36 @@ pub(super) fn extend(
         });
     let mut native_arguments = false;
     let mut provider_active = false;
+    // Bundled grammars and cached inventories answer first; a native provider
+    // then enriches the same labels instead of repeating them.
+    let mut offline = offline::Offline::default();
+    let mut offline_arguments = false;
+    if !site.command
+        && !site.redirect
+        && options.include_command_arguments
+        && grammar_allowed
+        && !local_directories
+        && let Some((_, resolution)) = command_site
+        && let Some(resolved) = resolution.resolved()
+    {
+        let request = offline::Request {
+            site,
+            words,
+            resolved,
+            analysis: &command_analysis,
+            environment,
+            snapshot,
+            client,
+            position,
+            range,
+            cancellation,
+            execution: local && options.include_native && environment.native_allowed,
+        };
+        let (pending, contributed) = offline::extend(items, &mut seen, &mut offline, &request);
+        incomplete |= pending;
+        provider_active |= pending || contributed;
+        offline_arguments |= contributed;
+    }
     tracing::debug!(
         native_enabled,
         live_enabled,
@@ -287,7 +320,14 @@ pub(super) fn extend(
         if let Some(candidates) = candidates {
             incomplete |= candidates.len() >= 2000;
             for candidate in candidates.iter() {
-                if candidate.text.starts_with(&site.prefix) && seen.insert(candidate.text.clone()) {
+                if !candidate.text.starts_with(&site.prefix) {
+                    continue;
+                }
+                if offline.enrich(items, candidate) {
+                    native_arguments = true;
+                    continue;
+                }
+                if seen.insert(candidate.text.clone()) {
                     native_arguments = true;
                     let detail = if candidate.description.is_empty() {
                         candidate.provider.clone()
@@ -349,6 +389,7 @@ pub(super) fn extend(
     if options.include_paths
         && local
         && !native_arguments
+        && !offline_arguments
         && path_fallback(
             &site.prefix,
             site.command,

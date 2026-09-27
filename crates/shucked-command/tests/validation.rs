@@ -16,6 +16,7 @@ fn evidence() -> ValidationEvidence {
                     value: FlagValue::Required,
                     values: BTreeSet::from(["json".into(), "text".into()]),
                     values_complete: true,
+                    description: None,
                 },
             ),
             ("-a".into(), FlagSpec::default()),

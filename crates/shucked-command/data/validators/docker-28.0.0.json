@@ -8,24 +8,78 @@
     "https://github.com/docker/cli/blob/v28.0.0/cmd/docker/docker.go"
   ],
   "flags": {
-    "--config": "required",
-    "--context": "required",
-    "--debug": "optionalAttached",
-    "--help": "optionalAttached",
-    "--host": "required",
-    "--log-level": "required",
-    "--tls": "optionalAttached",
-    "--tlscacert": "required",
-    "--tlscert": "required",
-    "--tlskey": "required",
-    "--tlsverify": "optionalAttached",
-    "--version": "optionalAttached",
-    "-D": "optionalAttached",
-    "-H": "required",
-    "-c": "required",
-    "-h": "optionalAttached",
-    "-l": "required",
-    "-v": "optionalAttached"
+    "--config": {
+      "value": "required",
+      "description": "Use this directory for client configuration files"
+    },
+    "--context": {
+      "value": "required",
+      "description": "Use this named context instead of the default or DOCKER_HOST"
+    },
+    "--debug": {
+      "value": "optionalAttached",
+      "description": "Enable debug output"
+    },
+    "--help": {
+      "value": "optionalAttached",
+      "description": "Show usage help"
+    },
+    "--host": {
+      "value": "required",
+      "description": "Connect to this daemon socket"
+    },
+    "--log-level": {
+      "value": "required",
+      "description": "Set the logging level: debug, info, warn, error or fatal"
+    },
+    "--tls": {
+      "value": "optionalAttached",
+      "description": "Use TLS for the daemon connection without verifying the server"
+    },
+    "--tlscacert": {
+      "value": "required",
+      "description": "Trust only certificates signed by this CA file"
+    },
+    "--tlscert": {
+      "value": "required",
+      "description": "Use this TLS certificate file"
+    },
+    "--tlskey": {
+      "value": "required",
+      "description": "Use this TLS key file"
+    },
+    "--tlsverify": {
+      "value": "optionalAttached",
+      "description": "Use TLS and verify the daemon's certificate"
+    },
+    "--version": {
+      "value": "optionalAttached",
+      "description": "Show version information and exit"
+    },
+    "-D": {
+      "value": "optionalAttached",
+      "description": "Enable debug output"
+    },
+    "-H": {
+      "value": "required",
+      "description": "Connect to this daemon socket"
+    },
+    "-c": {
+      "value": "required",
+      "description": "Use this named context instead of the default or DOCKER_HOST"
+    },
+    "-h": {
+      "value": "optionalAttached",
+      "description": "Show usage help"
+    },
+    "-l": {
+      "value": "required",
+      "description": "Set the logging level: debug, info, warn, error or fatal"
+    },
+    "-v": {
+      "value": "optionalAttached",
+      "description": "Show version information and exit"
+    }
   },
   "subcommands": [
     "__complete",

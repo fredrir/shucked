@@ -91,6 +91,103 @@ fn starts_with_shebang(path: &Path) -> bool {
     matches!(file.read(&mut head), Ok(2)) && &head == b"#!"
 }
 
+/// Locations of function definitions for navigation.
+///
+/// A definition with a body selects its whole definition. An `autoload`
+/// declaration stands for the function file on `$fpath`: when one exists it
+/// is offered instead (every match with `all_matches`, otherwise the first),
+/// and the declaration itself only when no file is found.
+pub(crate) fn function_definition_locations(
+    index: &WorkspaceFunctionIndex,
+    definitions: &[shucked_semantic::WorkspaceFunctionDefinition],
+    all_matches: bool,
+) -> Vec<types::Location> {
+    let mut locations = Vec::new();
+    for definition in definitions {
+        if index.autoload_declaration(definition).is_some() {
+            let files = index.autoload_files(&definition.path, definition.definition.name.as_str());
+            let files = if all_matches {
+                files
+            } else {
+                files.into_iter().take(1).collect()
+            };
+            if !files.is_empty() {
+                locations.extend(
+                    files
+                        .iter()
+                        .filter_map(|file| file_start_location(index, file)),
+                );
+                continue;
+            }
+        }
+        if let Some(file) = index.file(&definition.path)
+            && let Some(range) = index.range_of(&definition.path, definition.definition.def_span)
+        {
+            locations.push(types::Location {
+                uri: file.editor_uri().clone(),
+                range,
+            });
+        }
+    }
+    locations
+}
+
+/// The function file(s) behind the `autoload` operand under `offset`.
+pub(crate) fn autoload_operand_locations(
+    index: &WorkspaceFunctionIndex,
+    path: &Path,
+    offset: usize,
+    all_matches: bool,
+) -> Option<Vec<types::Location>> {
+    let declaration = index.autoload_declaration_at(path, offset)?;
+    let files = index.autoload_files(path, &declaration.name);
+    let files = if all_matches {
+        files
+    } else {
+        files.into_iter().take(1).collect()
+    };
+    let locations = files
+        .iter()
+        .filter_map(|file| file_start_location(index, file))
+        .collect::<Vec<_>>();
+    (!locations.is_empty()).then_some(locations)
+}
+
+/// For a widget named by `bindkey` under `offset`: its `zle -N`
+/// registrations and the definitions of the functions implementing it.
+pub(crate) fn widget_locations(
+    index: &WorkspaceFunctionIndex,
+    path: &Path,
+    offset: usize,
+) -> Option<Vec<types::Location>> {
+    let binding = index.key_binding_at(path, offset)?;
+    let mut locations = Vec::new();
+    let mut functions = Vec::new();
+    for (registered_in, registration) in index.widget_registrations(path, binding.widget.as_str()) {
+        if let Some(file) = index.file(&registered_in)
+            && let Some(range) = index.range_of(&registered_in, registration.widget_span)
+        {
+            locations.push(types::Location {
+                uri: file.editor_uri().clone(),
+                range,
+            });
+        }
+        let function = registration.function.to_string();
+        if !functions.contains(&function) {
+            functions.push(function);
+        }
+    }
+    for function in functions {
+        let definitions = index.function_definitions_named(&function);
+        for location in function_definition_locations(index, &definitions, true) {
+            if !locations.contains(&location) {
+                locations.push(location);
+            }
+        }
+    }
+    (!locations.is_empty()).then_some(locations)
+}
+
 /// Collapse locations into the LSP response shape.
 pub(crate) fn response(locations: Vec<types::Location>) -> Option<types::GotoDefinitionResponse> {
     match locations.as_slice() {

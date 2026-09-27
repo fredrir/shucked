@@ -9,7 +9,6 @@
 pub(crate) mod paths;
 
 use std::cell::RefCell;
-use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -30,8 +29,15 @@ use crate::function_resolution::{
 };
 mod plugin_managers;
 
-pub use plugin_managers::{layout_for_plugin_framework, zsh_plugin_frameworks};
+pub use plugin_managers::{
+    ZshFrameworkBootstrap, layout_for_plugin_framework, zsh_framework_bootstraps,
+    zsh_framework_path_variables, zsh_plugin_frameworks, zsh_plugin_requests,
+};
 
+pub(crate) use plugin_managers::{
+    assignment_path_template, expand_static_home_path, render_source_path_template,
+    top_level_assignments,
+};
 use plugin_managers::{
     collect_plugin_requests, deferred_zsh_entrypoint_required_reads, sorted_dependency_paths,
 };
@@ -383,7 +389,19 @@ fn collect_source_closure_contracts_with_cache(
     imported_bindings.extend(loader_imports);
 
     if let Some(plugin_resolver) = context.plugin_resolver {
-        for request in collect_plugin_requests(model, file, source, source_path, plugin_resolver) {
+        let home_dir = context
+            .source_path_file_provider
+            .map_or_else(crate::source_resolve::home_dir, |provider| {
+                provider.home_dir()
+            });
+        for request in collect_plugin_requests(
+            model,
+            file,
+            source,
+            source_path,
+            home_dir.as_deref(),
+            plugin_resolver,
+        ) {
             let scope = model.scope_at(request.span.start.offset());
             let resolution = plugin_resolver.resolve_plugin_request(source_path, &request);
             requesting_file_contract = FileContract::merge_candidate_contracts(&[

@@ -195,6 +195,27 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             "let" => self.record_let_arithmetic_assignment_targets(args),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
+            "autoload"
+                if self.shell_profile.dialect == shucked_parser::ShellDialect::Zsh
+                    && normalized.wrappers.is_empty() =>
+            {
+                // `autoload name` declares `name`: calls bind to it and the
+                // body is read from `$fpath` on first use. The declaration
+                // spans the whole command; each operand is its own binding.
+                let declaration_span = self.command_stack.last().copied().unwrap_or(command_span);
+                for (function, span) in autoload_function_operands(args, self.source) {
+                    self.add_binding(
+                        &function,
+                        BindingKind::FunctionDefinition,
+                        self.current_scope(),
+                        span,
+                        BindingOrigin::FunctionDefinition {
+                            definition_span: declaration_span,
+                        },
+                        BindingAttributes::AUTOLOAD,
+                    );
+                }
+            }
             "source" | "." => {
                 if normalized.wrappers.is_empty()
                     && let Some(argument) = args.first().copied()
@@ -562,6 +583,51 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             _ => DescribeDynamicStart::Descriptor,
         }
     }
+}
+
+/// The function names an `autoload` command declares, with their operand
+/// spans.
+///
+/// Options come first (`-Uz`, `+X`, `-k`, `-t`, ...) and end at `--`. `-w`
+/// names compiled word-code files and `-m` names patterns, so neither form
+/// declares functions. A name with a directory part (`autoload /path/to/fn`)
+/// declares its last component. Dynamic operands are skipped.
+fn autoload_function_operands(args: &[&Word], source: &str) -> Vec<(Name, Span)> {
+    let mut names = Vec::new();
+    let mut parsing_options = true;
+    for word in args {
+        let Some(text) = static_word_text(word, source) else {
+            continue;
+        };
+        if parsing_options {
+            if text == "--" {
+                parsing_options = false;
+                continue;
+            }
+            if text.len() > 1 && (text.starts_with('-') || text.starts_with('+')) {
+                if text[1..].contains(['w', 'm']) {
+                    return Vec::new();
+                }
+                continue;
+            }
+            parsing_options = false;
+        }
+        let name = text.rsplit('/').next().unwrap_or(&text);
+        if is_zsh_function_name(name) {
+            names.push((Name::from(name), word.span));
+        }
+    }
+    names
+}
+
+/// Zsh function names may contain characters that are not valid in
+/// variable names (`add-zsh-hook`, `prompt_pure_setup`, `.hidden`).
+fn is_zsh_function_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(['-', '+'])
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':' | '.'))
 }
 
 fn zstyle_target(args: &[&Word], source: &str) -> Option<(Name, Span, BindingAttributes)> {

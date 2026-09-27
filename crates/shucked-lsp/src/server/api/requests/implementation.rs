@@ -83,10 +83,13 @@ fn implementation(
     let index = path
         .as_ref()
         .and_then(|_| workspace_function_index(&workspace));
-    if let (Some(index), Some(path)) = (&index, &path)
-        && let Some(locations) = navigation::source_operand_locations(index, path, offset)
-    {
-        return Ok(navigation::response(locations));
+    if let (Some(index), Some(path)) = (&index, &path) {
+        if let Some(locations) = navigation::source_operand_locations(index, path, offset) {
+            return Ok(navigation::response(locations));
+        }
+        if let Some(locations) = navigation::widget_locations(index, path, offset) {
+            return Ok(navigation::response(locations));
+        }
     }
     let target = analysis.semantic().editor_query().target_at_offset(offset);
     let Some(target) = target else {
@@ -112,7 +115,7 @@ fn implementation(
                 (&a.path, a.definition.def_span.start.offset())
                     .cmp(&(&b.path, b.definition.def_span.start.offset()))
             });
-            let locations = index.function_locations(&definitions);
+            let locations = navigation::function_definition_locations(&index, &definitions, true);
             if locations.is_empty() {
                 if let Some(location) = navigation::command_script_location(&snapshot, offset) {
                     return Ok(Some(types::GotoDefinitionResponse::Scalar(location)));
@@ -128,8 +131,11 @@ fn implementation(
             ) =>
         {
             let name = analysis.semantic().binding(*binding_id).name.clone();
-            let locations =
-                index.function_locations(&index.function_definitions_named(name.as_str()));
+            let locations = navigation::function_definition_locations(
+                &index,
+                &index.function_definitions_named(name.as_str()),
+                true,
+            );
             if locations.is_empty() {
                 return local();
             }

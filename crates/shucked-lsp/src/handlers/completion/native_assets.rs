@@ -27,7 +27,7 @@ pub(in super::super) fn root() -> Option<PathBuf> {
 }
 
 /// The OS cache directory for the server, mirroring the CLI's resolution.
-fn cache_directory() -> Option<PathBuf> {
+pub(in super::super) fn cache_directory() -> Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("SHUCKED_CACHE_DIR")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())

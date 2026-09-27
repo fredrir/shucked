@@ -1,4 +1,6 @@
-# Definitions are streamed directly into a private worker, never stored in files.
+# Definitions are streamed into a persistent helper (live-helper.cjs, started
+# below) over a private FIFO, never stored in files. The helper runs them in a
+# private fish together with the completion command and reports the result.
 function __shucked_live_fish_state
     # Event handlers must not run while private state is reconstructed.
     set -l handlers
@@ -34,23 +36,43 @@ function __shucked_live_fish_state
     end
 end
 function __shucked_live_fish_request
+    set -l request "$SHUCKED_LIVE_DIRECTORY/request"
+    set -l fifo "$SHUCKED_LIVE_DIRECTORY/live.fifo"
+    test -f "$request"; and test -p "$fifo"; or return
     set -l fields
-    env ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_READ" | while read --null -l field
+    while read --null -l field
         set -a fields "$field"
-    end
+    end < "$request"
     test (count $fields) -ge 5; or return
     string match -rq '^[a-f0-9]{32}$' -- "$fields[1]"; or return
     test "$fields[2]" = "$__shucked_generation"; or return
-    __shucked_live_fish_state | env ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_FISH" "$fields[1]" "$fields[2]" (status fish-path) "$fields[3]" $fields[5..] >/dev/null 2>&1 &
-    set -l pid $last_pid
-    disown $pid 2>/dev/null
-    env ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_RESULT" started "$fields[1]" "$fields[2]" "$pid" </dev/null >/dev/null 2>&1
+    # A signal delivered twice for one request must not start a second worker.
+    test "$fields[1]" != "$__shucked_live_served"; or return
+    set -g __shucked_live_served "$fields[1]"
+    # Each editor word is escaped before the private fish sees it; nothing is evaluated here.
+    set -l line (string escape -- $fields[5..] "$fields[3]" | string join ' ')
+    begin
+        builtin printf 'R\0%s\0%s\0F\0' "$fields[1]" 0
+        __shucked_live_fish_state
+        builtin printf 'complete -C %s\n' (string escape -- "$line")
+        builtin printf '\0E\0'
+    end > "$fifo" &
+    disown 2>/dev/null
 end
 set -g __shucked_live_signal ''
-# Fish allows multiple signal handlers; reserve a signal only when none exist.
-if test -z (functions --handlers-type signal | string collect)
-    function __shucked_live_fish_signal --on-signal USR1
-        __shucked_live_fish_request >/dev/null 2>&1
+set -g __shucked_live_served ''
+if set -q SHUCKED_LIVE_HELPER; and set -q SHUCKED_LIVE_DIRECTORY; and not set -q __shucked_live_helper_pid
+    # Fish allows multiple signal handlers; reserve a signal only when none exist.
+    if test -z (functions --handlers-type signal | string collect)
+        function __shucked_live_fish_signal --on-signal USR1
+            __shucked_live_fish_request >/dev/null 2>&1
+        end
+        set -g __shucked_live_signal SIGUSR1
     end
-    set -g __shucked_live_signal SIGUSR1
+    if test -n "$__shucked_live_signal"
+        # The helper watches its parent and exits when this shell does.
+        env ELECTRON_RUN_AS_NODE=1 "$SHUCKED_NODE" "$SHUCKED_LIVE_HELPER" fish $fish_pid "$__shucked_live_signal" (status fish-path) </dev/null >/dev/null 2>&1 &
+        set -g __shucked_live_helper_pid $last_pid
+        disown $__shucked_live_helper_pid 2>/dev/null
+    end
 end

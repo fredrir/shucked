@@ -79,7 +79,7 @@ fn fixture_snapshot(
 fn tokens_for(root: &Path, fixture: &str, language_id: &str) -> (String, SemanticTokens) {
     let source = fixture_source(fixture);
     let snapshot = fixture_snapshot(root, fixture, language_id, &source);
-    let tokens = semantic_tokens_full(snapshot)
+    let tokens = semantic_tokens_full(&snapshot)
         .expect("semantic tokens should not fail")
         .expect("the fixture dialect should produce tokens");
     (source, tokens)
@@ -292,7 +292,7 @@ fn literal_text_inside_strings_is_the_only_string_token() {
     let root = tempfile::tempdir().unwrap();
     let source = "echo \"a $(date) ${x:-d} $((1)) $y b\"\n";
     let snapshot = fixture_snapshot(root.path(), "strings.sh", "shellscript", source);
-    let tokens = semantic_tokens_full(snapshot).unwrap().unwrap();
+    let tokens = semantic_tokens_full(&snapshot).unwrap().unwrap();
     let rendered = render(source, &decode(&tokens));
     let strings = rendered
         .lines()
@@ -319,7 +319,7 @@ fn keywords_in_gaps_are_not_found_inside_comments() {
     let root = tempfile::tempdir().unwrap();
     let source = "if true; then\n  echo a\n  # not an else here\nelse\n  echo b\nfi\n";
     let snapshot = fixture_snapshot(root.path(), "gaps.sh", "shellscript", source);
-    let tokens = semantic_tokens_full(snapshot).unwrap().unwrap();
+    let tokens = semantic_tokens_full(&snapshot).unwrap().unwrap();
     let rendered = render(source, &decode(&tokens));
     assert!(rendered.contains("3:0 4 keyword \"else\""), "{rendered}");
     assert!(rendered.contains("2:2 18 comment"), "{rendered}");
@@ -335,7 +335,7 @@ fn existing_expectations_for_keywords_functions_and_arithmetic_still_hold() {
     let root = tempfile::tempdir().unwrap();
     let source = "greet() {\n  local name=$1\n  echo \"hello $name\"\n}\ngreet \"world\"\nval=$(( 40 + 2 ))\n";
     let snapshot = fixture_snapshot(root.path(), "legacy.sh", "shellscript", source);
-    let tokens = semantic_tokens_full(snapshot).unwrap().unwrap();
+    let tokens = semantic_tokens_full(&snapshot).unwrap().unwrap();
     let rendered = render(source, &decode(&tokens));
     assert!(
         rendered.contains("0:0 5 function[declaration,definition] \"greet\""),

@@ -57,7 +57,9 @@ pub(super) use prepare_rename::PrepareRename;
 pub(super) use references::References;
 pub(super) use rename::Rename;
 pub(super) use selection_range::SelectionRanges;
-pub(super) use semantic_tokens::SemanticTokensFull;
+pub(super) use semantic_tokens::{
+    SemanticTokensFull, SemanticTokensFullDelta, SemanticTokensRange,
+};
 pub(super) use shutdown::ShutdownHandler;
 pub(super) use workspace_diagnostic::WorkspaceDiagnostic;
 pub(super) use workspace_symbol::WorkspaceSymbols;

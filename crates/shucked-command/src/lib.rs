@@ -11,6 +11,7 @@ pub mod metadata;
 pub mod process;
 mod provider;
 mod resolver;
+pub mod subcommands;
 mod validation;
 
 pub use context::*;

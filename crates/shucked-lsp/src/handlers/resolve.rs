@@ -415,6 +415,10 @@ fn attribute_labels(attributes: BindingAttributes) -> Vec<&'static str> {
             BindingAttributes::DECLARATION_INITIALIZED,
             "initialized by declaration",
         ),
+        (
+            BindingAttributes::AUTOLOAD,
+            "autoloaded from $fpath on first call",
+        ),
     ]
     .into_iter()
     .filter_map(|(flag, label)| attributes.contains(flag).then_some(label))

@@ -54,6 +54,7 @@ pub use workspace_variables::{
     WorkspaceVariableIndex, WorkspaceVariableOccurrence, WorkspaceVariableTarget,
     WorkspaceVariableUsage, canonical_workspace_path, variable_target,
 };
+mod zsh_facts;
 mod zsh_options;
 mod zsh_plugin_framework;
 
@@ -130,8 +131,11 @@ pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 pub use shucked_parser::{
     OptionValue, ShellDialect, ShellProfile, ZshEmulationMode, ZshOptionState,
 };
-/// Zsh plugin framework layout helpers.
-pub use source_closure::{layout_for_plugin_framework, zsh_plugin_frameworks};
+/// Zsh plugin framework layout helpers and per-file plugin load discovery.
+pub use source_closure::{
+    ZshFrameworkBootstrap, layout_for_plugin_framework, zsh_framework_bootstraps,
+    zsh_framework_path_variables, zsh_plugin_frameworks, zsh_plugin_requests,
+};
 /// Source-reference records and resolution state.
 pub use source_ref::{
     SourceDirectiveInfo, SourceDirectiveOrigin, SourceRef, SourceRefDiagnosticClass, SourceRefKind,
@@ -144,6 +148,12 @@ pub use source_resolve::{
 };
 /// Value-flow query object built over semantic bindings, call sites, CFG, and dataflow.
 pub use value_flow::SemanticValueFlow;
+/// Static zsh runtime configuration facts: `fpath` assignments, widgets and
+/// key bindings.
+pub use zsh_facts::{
+    ZshFunctionPathAssignment, ZshKeyBinding, ZshWidgetFacts, ZshWidgetRegistration,
+    zsh_function_path_assignments, zsh_widget_facts,
+};
 /// Zsh plugin framework traits and name aliases.
 pub use zsh_plugin_framework::{
     ZshPluginFramework, resolve_zsh_plugin_entrypoint, resolve_zsh_plugin_source_paths,
@@ -1131,7 +1141,9 @@ impl SemanticModel {
         &self.bindings
     }
 
-    /// Yield every binding with `BindingKind::FunctionDefinition`.
+    /// Yield every function definition with a body in this file: the
+    /// `BindingKind::FunctionDefinition` bindings that are not `autoload`
+    /// declarations (see [`Self::autoloaded_function_bindings`]).
     ///
     /// Backed by a lazily-built index so repeat calls avoid rescanning the
     /// full `bindings()` slice.
@@ -1139,11 +1151,25 @@ impl SemanticModel {
         let ids = self.function_definition_binding_ids.get_or_init(|| {
             self.bindings
                 .iter()
-                .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+                .filter(|binding| {
+                    matches!(binding.kind, BindingKind::FunctionDefinition)
+                        && !binding.attributes.contains(BindingAttributes::AUTOLOAD)
+                })
                 .map(|binding| binding.id)
                 .collect()
         });
         ids.iter().map(|id| &self.bindings[id.index()])
+    }
+
+    /// Functions a zsh `autoload` command declares for loading from `$fpath`
+    /// on first call. They bind calls like a definition but have no body in
+    /// this file; the binding's span is the operand and its definition span
+    /// the whole `autoload` command.
+    pub fn autoloaded_function_bindings(&self) -> impl Iterator<Item = &Binding> + '_ {
+        self.bindings.iter().filter(|binding| {
+            matches!(binding.kind, BindingKind::FunctionDefinition)
+                && binding.attributes.contains(BindingAttributes::AUTOLOAD)
+        })
     }
 
     /// Returns all semantic references discovered in the file.

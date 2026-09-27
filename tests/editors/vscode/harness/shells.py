@@ -1,9 +1,11 @@
 """Real interactive shells with the Shucked hooks loaded, driven without an editor.
 
-The hooks report prompt metadata and live completion results by running small
-Node helpers that connect to a Unix socket. :class:`HookListener` plays the
-extension's part of that exchange, and :class:`ShellSession` runs the shell on a
-pseudo-terminal so it behaves exactly as it would inside a terminal panel.
+The prompt hook reports metadata by running a small Node helper that connects
+to a Unix socket once; the live completion hook starts one persistent helper
+per shell that keeps its connection open and exchanges newline-delimited JSON
+frames. :class:`HookListener` plays the extension's part of both exchanges, and
+:class:`ShellSession` runs the shell on a pseudo-terminal so it behaves exactly
+as it would inside a terminal panel.
 """
 
 from __future__ import annotations
@@ -14,7 +16,6 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import socket
 import tempfile
 import threading
@@ -34,7 +35,12 @@ Message = dict[str, Any]
 
 
 class HookListener:
-    """Collects the JSON messages hook helpers send over the session socket."""
+    """Collects the JSON frames hook helpers send over the session socket.
+
+    One-shot senders (the prompt hook) close after a frame; the live helper
+    keeps its connection, which stays available as :attr:`helper` for frames
+    the extension would send.
+    """
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -45,6 +51,9 @@ class HookListener:
         self._messages: list[Message] = []
         self._lock = threading.Lock()
         self._closed = threading.Event()
+        self._connections: list[socket.socket] = []
+        self.helper: socket.socket | None = None
+        self.helper_closed = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
@@ -56,14 +65,33 @@ class HookListener:
                 continue
             except OSError:
                 return
-            with connection:
-                connection.settimeout(2)
-                data = bytearray()
-                with contextlib.suppress(OSError):
-                    while chunk := connection.recv(65536):
-                        data.extend(chunk)
-            with contextlib.suppress(ValueError), self._lock:
-                self._messages.append(json.loads(data))
+            self._connections.append(connection)
+            threading.Thread(target=self._read, args=(connection,), daemon=True).start()
+
+    def _read(self, connection: socket.socket) -> None:
+        data = bytearray()
+        is_helper = False
+        with contextlib.suppress(OSError):
+            while chunk := connection.recv(65536):
+                data.extend(chunk)
+                while (newline := data.find(b"\n")) >= 0:
+                    line, data = bytes(data[:newline]), data[newline + 1 :]
+                    with contextlib.suppress(ValueError):
+                        message = json.loads(line)
+                        if message.get("kind") == "liveHelper" and message.get("phase") == "hello":
+                            is_helper = True
+                            self.helper = connection
+                        with self._lock:
+                            self._messages.append(message)
+        if is_helper and self.helper is connection:
+            self.helper_closed.set()
+        with contextlib.suppress(OSError):
+            connection.close()
+
+    def send(self, message: Message) -> None:
+        """Send a frame to the live helper, as the extension does."""
+        assert self.helper is not None, "the live helper has not connected"
+        self.helper.sendall(json.dumps(message).encode() + b"\n")
 
     @property
     def messages(self) -> list[Message]:
@@ -75,6 +103,9 @@ class HookListener:
 
     def close(self) -> None:
         self._closed.set()
+        for connection in self._connections:
+            with contextlib.suppress(OSError):
+                connection.close()
         self._server.close()
         self._thread.join(timeout=2)
 
@@ -106,7 +137,7 @@ class ShellSession:
             if value:
                 return value
             if time.monotonic() >= deadline:
-                phases = [message.get("phase", "metadata") for message in self.listener.messages]
+                phases = [message.get("phase", message.get("kind", "metadata")) for message in self.listener.messages]
                 raise WaitTimeout(f"{self.shell}: {description} timed out; terminal={bytes(self.output[-2000:])!r}; messages={phases}")
             time.sleep(0.05)
 
@@ -118,9 +149,22 @@ class ShellSession:
         return self.wait_message(
             "prompt metadata",
             lambda message: (
-                message.get("shell") == self.shell and message.get("liveCompletion") is True and message.get("generation", 0) > after
+                "cwd" in message
+                and message.get("shell") == self.shell
+                and message.get("liveCompletion") is True
+                and message.get("generation", 0) > after
             ),
             timeout,
+        )
+
+    def prompts(self) -> list[Message]:
+        """Every prompt metadata frame received so far."""
+        return [message for message in self.listener.messages if "cwd" in message]
+
+    def helper(self, timeout: float = 6.0) -> Message:
+        """The live helper's greeting; it starts with the shell and connects on its own."""
+        return self.wait_message(
+            "live helper greeting", lambda message: message.get("kind") == "liveHelper" and message.get("phase") == "hello", timeout
         )
 
     def at_prompt(self, prompt: bytes = b"READY>") -> bool:
@@ -138,11 +182,12 @@ class ShellSession:
             if len(self.output) == size and self.at_prompt():
                 return
 
-    def request(self, query: str, generation: int, prefix: str, words: list[str], signal_name: str) -> None:
-        """Write a private live completion request and signal the shell, as the extension does."""
-        fields = [query, str(generation), prefix, str(len(words)), *words]
-        (self.directory / f"request-{query}").write_bytes(("\0".join(fields) + "\0").encode())
-        os.kill(self.pid, getattr(signal, signal_name))
+    def request(self, query: str, generation: int, prefix: str, words: list[str]) -> None:
+        """Ask the live helper for a completion, as the extension does; it signals the shell itself."""
+        self.listener.send({"kind": "request", "query": query, "generation": generation, "prefix": prefix, "words": words})
+
+    def cancel(self, query: str) -> None:
+        self.listener.send({"kind": "cancel", "query": query})
 
     def reply(self, query: str, timeout: float = 3.0) -> Message:
         return self.wait_message(
@@ -193,9 +238,7 @@ def interactive(shell: str, script: str, integration: Path, node: str):
         "SHUCKED_SESSION_TOKEN": SESSION_TOKEN,
         "SHUCKED_LIVE_ALLOWED": "1",
         "SHUCKED_LIVE_DIRECTORY": str(directory),
-        "SHUCKED_LIVE_READ": str(integration / "live-read.cjs"),
-        "SHUCKED_LIVE_RESULT": str(integration / "live-result.cjs"),
-        "SHUCKED_LIVE_FISH": str(integration / "live-fish.cjs"),
+        "SHUCKED_LIVE_HELPER": str(integration / "live-helper.cjs"),
         "SHUCKED_CAPTURE": str(integration / "capture.cjs"),
         "SHUCKED_NODE": node,
     }

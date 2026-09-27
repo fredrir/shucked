@@ -3,90 +3,342 @@
   "version": "9.7",
   "source": "https://raw.githubusercontent.com/coreutils/coreutils/v9.7/src/ls.c",
   "flags": {
-    "--all": "none",
-    "--almost-all": "none",
-    "--author": "none",
-    "--block-size": "required",
-    "--classify": "optionalAttached",
-    "--color": "optionalAttached",
-    "--context": "none",
-    "--dereference": "none",
-    "--dereference-command-line": "none",
-    "--dereference-command-line-symlink-to-dir": "none",
-    "--directory": "none",
-    "--dired": "none",
-    "--escape": "none",
-    "--file-type": "none",
-    "--format": "required",
-    "--full-time": "none",
-    "--group-directories-first": "none",
-    "--help": "none",
-    "--hide": "required",
-    "--hide-control-chars": "none",
-    "--human-readable": "none",
-    "--hyperlink": "optionalAttached",
-    "--ignore": "required",
-    "--ignore-backups": "none",
-    "--indicator-style": "required",
-    "--inode": "none",
-    "--kibibytes": "none",
-    "--literal": "none",
-    "--no-group": "none",
-    "--numeric-uid-gid": "none",
-    "--quote-name": "none",
-    "--quoting-style": "required",
-    "--recursive": "none",
-    "--reverse": "none",
-    "--show-control-chars": "none",
-    "--si": "none",
-    "--size": "none",
-    "--sort": "required",
-    "--tabsize": "required",
-    "--time": "required",
-    "--time-style": "required",
-    "--version": "none",
-    "--width": "required",
-    "--zero": "none",
-    "-1": "none",
-    "-A": "none",
-    "-B": "none",
-    "-C": "none",
-    "-D": "none",
-    "-F": "none",
-    "-G": "none",
-    "-H": "none",
-    "-I": "required",
-    "-L": "none",
-    "-N": "none",
-    "-Q": "none",
-    "-R": "none",
-    "-S": "none",
-    "-T": "required",
-    "-U": "none",
-    "-X": "none",
-    "-Z": "none",
-    "-a": "none",
-    "-b": "none",
-    "-c": "none",
-    "-d": "none",
-    "-f": "none",
-    "-g": "none",
-    "-h": "none",
-    "-i": "none",
-    "-k": "none",
-    "-l": "none",
-    "-m": "none",
-    "-n": "none",
-    "-o": "none",
-    "-p": "none",
-    "-q": "none",
-    "-r": "none",
-    "-s": "none",
-    "-t": "none",
-    "-u": "none",
-    "-v": "none",
-    "-w": "required",
-    "-x": "none"
+    "--all": {
+      "value": "none",
+      "description": "Include entries whose names begin with a dot"
+    },
+    "--almost-all": {
+      "value": "none",
+      "description": "Include dot entries except . and .."
+    },
+    "--author": {
+      "value": "none",
+      "description": "Show each file's author in long listings"
+    },
+    "--block-size": {
+      "value": "required",
+      "description": "Scale sizes by this block size before printing"
+    },
+    "--classify": {
+      "value": "optionalAttached",
+      "description": "Append a type indicator such as / * @ | = to each name"
+    },
+    "--color": {
+      "value": "optionalAttached",
+      "description": "Colorize output: always, auto or never"
+    },
+    "--context": {
+      "value": "none",
+      "description": "Show each file's security context"
+    },
+    "--dereference": {
+      "value": "none",
+      "description": "Follow symbolic links and list their targets"
+    },
+    "--dereference-command-line": {
+      "value": "none",
+      "description": "Follow symbolic links given on the command line"
+    },
+    "--dereference-command-line-symlink-to-dir": {
+      "value": "none",
+      "description": "Follow command-line symbolic links that point to directories"
+    },
+    "--directory": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "--dired": {
+      "value": "none",
+      "description": "Emit byte offsets for Emacs dired mode"
+    },
+    "--escape": {
+      "value": "none",
+      "description": "Print non-printable characters as C-style escapes"
+    },
+    "--file-type": {
+      "value": "none",
+      "description": "Append a type indicator to names, except * for executables"
+    },
+    "--format": {
+      "value": "required",
+      "description": "Choose the layout: across, commas, horizontal, long, single-column, verbose or vertical"
+    },
+    "--full-time": {
+      "value": "none",
+      "description": "Long listing with full ISO timestamps"
+    },
+    "--group-directories-first": {
+      "value": "none",
+      "description": "List directories before other entries"
+    },
+    "--help": {
+      "value": "none",
+      "description": "Show usage help and exit"
+    },
+    "--hide": {
+      "value": "required",
+      "description": "Omit entries matching this shell pattern unless -a or -A is given"
+    },
+    "--hide-control-chars": {
+      "value": "none",
+      "description": "Print non-printable characters as ?"
+    },
+    "--human-readable": {
+      "value": "none",
+      "description": "Show sizes in human-readable units such as 1K or 234M"
+    },
+    "--hyperlink": {
+      "value": "optionalAttached",
+      "description": "Emit file names as terminal hyperlinks: always, auto or never"
+    },
+    "--ignore": {
+      "value": "required",
+      "description": "Omit entries matching this shell pattern"
+    },
+    "--ignore-backups": {
+      "value": "none",
+      "description": "Omit entries ending in ~"
+    },
+    "--indicator-style": {
+      "value": "required",
+      "description": "Choose the type indicator style: none, slash, file-type or classify"
+    },
+    "--inode": {
+      "value": "none",
+      "description": "Show each file's inode number"
+    },
+    "--kibibytes": {
+      "value": "none",
+      "description": "Use 1024-byte blocks for disk usage"
+    },
+    "--literal": {
+      "value": "none",
+      "description": "Print entry names without quoting"
+    },
+    "--no-group": {
+      "value": "none",
+      "description": "Omit the group column in long listings"
+    },
+    "--numeric-uid-gid": {
+      "value": "none",
+      "description": "Show numeric user and group ids in long listings"
+    },
+    "--quote-name": {
+      "value": "none",
+      "description": "Enclose entry names in double quotes"
+    },
+    "--quoting-style": {
+      "value": "required",
+      "description": "Choose how names are quoted: literal, locale, shell, shell-always, shell-escape, shell-escape-always, c or escape"
+    },
+    "--recursive": {
+      "value": "none",
+      "description": "List subdirectories recursively"
+    },
+    "--reverse": {
+      "value": "none",
+      "description": "Reverse the sort order"
+    },
+    "--show-control-chars": {
+      "value": "none",
+      "description": "Print non-printable characters as is"
+    },
+    "--si": {
+      "value": "none",
+      "description": "Show sizes in human-readable units using powers of 1000"
+    },
+    "--size": {
+      "value": "none",
+      "description": "Show the allocated size of each file in blocks"
+    },
+    "--sort": {
+      "value": "required",
+      "description": "Sort by: none, size, time, version, extension, name or width"
+    },
+    "--tabsize": {
+      "value": "required",
+      "description": "Assume this tab width instead of 8"
+    },
+    "--time": {
+      "value": "required",
+      "description": "Choose which timestamp to show and sort by: atime, ctime or birth"
+    },
+    "--time-style": {
+      "value": "required",
+      "description": "Choose the timestamp format: full-iso, long-iso, iso, locale or a + format"
+    },
+    "--version": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "--width": {
+      "value": "required",
+      "description": "Assume this screen width instead of the terminal size"
+    },
+    "--zero": {
+      "value": "none",
+      "description": "End each output line with NUL instead of newline"
+    },
+    "-1": {
+      "value": "none",
+      "description": "List one entry per line"
+    },
+    "-A": {
+      "value": "none",
+      "description": "Include dot entries except . and .."
+    },
+    "-B": {
+      "value": "none",
+      "description": "Omit entries ending in ~"
+    },
+    "-C": {
+      "value": "none",
+      "description": "Arrange entries in columns, sorted down"
+    },
+    "-D": {
+      "value": "none",
+      "description": "Emit byte offsets for Emacs dired mode"
+    },
+    "-F": {
+      "value": "none",
+      "description": "Append a type indicator such as / * @ | = to each name"
+    },
+    "-G": {
+      "value": "none",
+      "description": "Omit the group column in long listings"
+    },
+    "-H": {
+      "value": "none",
+      "description": "Follow symbolic links given on the command line"
+    },
+    "-I": {
+      "value": "required",
+      "description": "Omit entries matching this shell pattern"
+    },
+    "-L": {
+      "value": "none",
+      "description": "Follow symbolic links and list their targets"
+    },
+    "-N": {
+      "value": "none",
+      "description": "Print entry names without quoting"
+    },
+    "-Q": {
+      "value": "none",
+      "description": "Enclose entry names in double quotes"
+    },
+    "-R": {
+      "value": "none",
+      "description": "List subdirectories recursively"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Sort by size, largest first"
+    },
+    "-T": {
+      "value": "required",
+      "description": "Assume this tab width instead of 8"
+    },
+    "-U": {
+      "value": "none",
+      "description": "List entries in directory order without sorting"
+    },
+    "-X": {
+      "value": "none",
+      "description": "Sort alphabetically by extension"
+    },
+    "-Z": {
+      "value": "none",
+      "description": "Show each file's security context"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Include entries whose names begin with a dot"
+    },
+    "-b": {
+      "value": "none",
+      "description": "Print non-printable characters as C-style escapes"
+    },
+    "-c": {
+      "value": "none",
+      "description": "Use the status change time for sorting and display"
+    },
+    "-d": {
+      "value": "none",
+      "description": "List directories themselves, not their contents"
+    },
+    "-f": {
+      "value": "none",
+      "description": "List all entries in directory order without sorting"
+    },
+    "-g": {
+      "value": "none",
+      "description": "Long listing without the owner column"
+    },
+    "-h": {
+      "value": "none",
+      "description": "Show sizes in human-readable units such as 1K or 234M"
+    },
+    "-i": {
+      "value": "none",
+      "description": "Show each file's inode number"
+    },
+    "-k": {
+      "value": "none",
+      "description": "Use 1024-byte blocks for disk usage"
+    },
+    "-l": {
+      "value": "none",
+      "description": "List in long format"
+    },
+    "-m": {
+      "value": "none",
+      "description": "Stream entries across the page, separated by commas"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Show numeric user and group ids in long listings"
+    },
+    "-o": {
+      "value": "none",
+      "description": "Long listing without the group column"
+    },
+    "-p": {
+      "value": "none",
+      "description": "Append a slash to directory names"
+    },
+    "-q": {
+      "value": "none",
+      "description": "Print non-printable characters as ?"
+    },
+    "-r": {
+      "value": "none",
+      "description": "Reverse the sort order"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Show the allocated size of each file in blocks"
+    },
+    "-t": {
+      "value": "none",
+      "description": "Sort by modification time, newest first"
+    },
+    "-u": {
+      "value": "none",
+      "description": "Use the last access time for sorting and display"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Sort by version numbers embedded in names"
+    },
+    "-w": {
+      "value": "required",
+      "description": "Assume this screen width instead of the terminal size"
+    },
+    "-x": {
+      "value": "none",
+      "description": "Arrange entries in columns, sorted across"
+    }
   },
   "longAbbreviations": true
 }

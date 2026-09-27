@@ -20,7 +20,7 @@ Or directly: `uv run --project tests pytest tests/editors/vscode --e2e`.
 | Directory | Needs | What it checks |
 |---|---|---|
 | `contract/` | nothing | Manifest against sources: commands have handlers, settings are declared and forwarded, activation covers every served language, trust restrictions, packaging rules |
-| `shell_integration/` | bash, zsh, fish, Node | The shipped hooks in real interactive shells on a pseudo-terminal: prompt metadata, live completion, the watchdog, existing signal handlers |
+| `shell_integration/` | bash, zsh, fish, Node | The shipped hooks in real interactive shells on a pseudo-terminal: prompt metadata, the live completion helper (requests at an idle prompt, deadline, cancellation, lifetime), existing signal handlers |
 | `api/` | VS Code, a display | Extension behaviour through the VS Code API: diagnostics, completion, hover, formatting, code actions, settings, terminals, history, trust, lifecycle, multi-root |
 | `ui/` | VS Code, a display | The workbench with real key presses: suggestion popup, key bindings, snippets, status bar, command palette, file dialogs |
 | `packaging/` | a VSIX | Archive contents, manifest, binaries, shell hooks, and a snapshot of every shipped file |

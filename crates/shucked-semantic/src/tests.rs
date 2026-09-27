@@ -5221,6 +5221,101 @@ zparseopts -D -E -F -a all -A assoc -- \\
 }
 
 #[test]
+fn autoload_declares_functions_that_bind_later_calls_in_zsh() {
+    let source = "\
+#!/bin/zsh
+autoload -Uz add-zsh-hook vcs_info
+autoload +X -U -- colors
+autoload /usr/share/zsh/functions/Misc/zmv
+autoload -w /tmp/functions.zwc
+autoload -m 'prompt_*'
+add-zsh-hook precmd vcs_info
+colors
+zmv -n '(*).txt' '$1.md'
+";
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+
+    let declared = model
+        .autoloaded_function_bindings()
+        .map(|binding| binding.name.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(declared, vec!["add-zsh-hook", "vcs_info", "colors", "zmv"]);
+    assert_eq!(model.function_definition_bindings().len(), 0);
+
+    let binding = binding_for_name(&model, "vcs_info");
+    assert!(matches!(binding.kind, BindingKind::FunctionDefinition));
+    assert!(binding.attributes.contains(BindingAttributes::AUTOLOAD));
+    assert_eq!(binding.span.slice(source), "vcs_info");
+    let BindingOrigin::FunctionDefinition { definition_span } = binding.origin else {
+        panic!(
+            "autoload declarations are function definitions: {:?}",
+            binding.origin
+        );
+    };
+    assert_eq!(
+        definition_span.slice(source).trim_end(),
+        "autoload -Uz add-zsh-hook vcs_info"
+    );
+
+    for name in ["add-zsh-hook", "colors", "zmv"] {
+        let call = model
+            .call_sites_for(&Name::from(name))
+            .first()
+            .cloned()
+            .unwrap_or_else(|| panic!("{name} should be called"));
+        let resolved = model
+            .analysis()
+            .visible_function_binding_at_call(&Name::from(name), call.name_span)
+            .unwrap_or_else(|| panic!("the call to {name} should bind to its autoload"));
+        assert_eq!(model.binding(resolved).name.as_str(), name);
+    }
+    let site = model
+        .command_site_facts()
+        .into_iter()
+        .find(|site| site.name() == Some("colors"))
+        .expect("colors should be a command site");
+    assert!(site.visible_function.is_some());
+}
+
+#[test]
+fn autoload_is_an_ordinary_command_outside_zsh() {
+    let source = "autoload -Uz compinit\ncompinit\n";
+    let model = model_with_dialect(source, ShellDialect::Bash);
+    assert_eq!(model.autoloaded_function_bindings().count(), 0);
+    assert!(model.bindings_for(&Name::from("compinit")).is_empty());
+}
+
+#[test]
+fn autoloaded_functions_reach_workspace_function_resolution() {
+    let source = "#!/bin/zsh\nautoload -Uz compinit\ncompinit -d ~/.zcompdump\n";
+    let path = std::path::PathBuf::from("/tmp/project/.zshrc");
+    let model = model_with_dialect(source, ShellDialect::Zsh);
+    let calls = FileCallFacts::project(&model, Vec::new());
+    assert_eq!(calls.definitions.len(), 1);
+    assert_eq!(calls.definitions[0].name.as_str(), "compinit");
+    assert!(calls.definitions[0].unconditional);
+    let effects = std::sync::Arc::new(FileFunctionEffects::project(
+        &model,
+        &calls,
+        &ResolvedSourcePaths::default(),
+    ));
+    let index =
+        WorkspaceFunctionIndex::build([(path.clone(), effects)].into_iter().collect(), &|| false)
+            .unwrap();
+    let call = model.call_sites_for(&Name::from("compinit"))[0].name_span;
+    let resolution = index.resolve(&path, call);
+    let definition = resolution
+        .exact()
+        .expect("the autoload declaration should bind the call exactly");
+    assert_eq!(definition.path, path);
+    assert_eq!(
+        definition.definition.selection_span.slice(source),
+        "compinit"
+    );
+    assert!(!resolution.incomplete);
+}
+
+#[test]
 fn compinit_initializes_completion_tables_in_zsh() {
     let source = "\
 #!/bin/zsh

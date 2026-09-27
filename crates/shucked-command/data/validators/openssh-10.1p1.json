@@ -3,53 +3,194 @@
   "version": "10.1p1",
   "source": "https://raw.githubusercontent.com/openssh/openssh-portable/V_10_1_P1/ssh.c",
   "flags": {
-    "-1": "none",
-    "-2": "none",
-    "-4": "none",
-    "-6": "none",
-    "-A": "none",
-    "-B": "required",
-    "-C": "none",
-    "-D": "required",
-    "-E": "required",
-    "-F": "required",
-    "-G": "none",
-    "-I": "required",
-    "-J": "required",
-    "-K": "none",
-    "-L": "required",
-    "-M": "none",
-    "-N": "none",
-    "-O": "required",
-    "-P": "required",
-    "-Q": "required",
-    "-R": "required",
-    "-S": "required",
-    "-T": "none",
-    "-V": "none",
-    "-W": "required",
-    "-X": "none",
-    "-Y": "none",
-    "-a": "none",
-    "-b": "required",
-    "-c": "required",
-    "-e": "required",
-    "-f": "none",
-    "-g": "none",
-    "-i": "required",
-    "-k": "none",
-    "-l": "required",
-    "-m": "required",
-    "-n": "none",
-    "-o": "required",
-    "-p": "required",
-    "-q": "none",
-    "-s": "none",
-    "-t": "none",
-    "-v": "none",
-    "-w": "required",
-    "-x": "none",
-    "-y": "none"
+    "-1": {
+      "value": "none",
+      "description": "Use protocol version 1 only (no longer supported)"
+    },
+    "-2": {
+      "value": "none",
+      "description": "Use protocol version 2 only"
+    },
+    "-4": {
+      "value": "none",
+      "description": "Use IPv4 addresses only"
+    },
+    "-6": {
+      "value": "none",
+      "description": "Use IPv6 addresses only"
+    },
+    "-A": {
+      "value": "none",
+      "description": "Forward the authentication agent connection"
+    },
+    "-B": {
+      "value": "required",
+      "description": "Bind to the address of this network interface"
+    },
+    "-C": {
+      "value": "none",
+      "description": "Compress all data on the connection"
+    },
+    "-D": {
+      "value": "required",
+      "description": "Open a dynamic SOCKS proxy on this local port"
+    },
+    "-E": {
+      "value": "required",
+      "description": "Append debug logs to this file instead of stderr"
+    },
+    "-F": {
+      "value": "required",
+      "description": "Read this configuration file instead of ~/.ssh/config"
+    },
+    "-G": {
+      "value": "none",
+      "description": "Print the effective configuration and exit"
+    },
+    "-I": {
+      "value": "required",
+      "description": "Load this PKCS#11 shared library for key access"
+    },
+    "-J": {
+      "value": "required",
+      "description": "Connect through this jump host first"
+    },
+    "-K": {
+      "value": "none",
+      "description": "Enable GSSAPI authentication and credential forwarding"
+    },
+    "-L": {
+      "value": "required",
+      "description": "Forward a local port to a remote address"
+    },
+    "-M": {
+      "value": "none",
+      "description": "Put the client into master mode for connection sharing"
+    },
+    "-N": {
+      "value": "none",
+      "description": "Do not run a remote command; only forward ports"
+    },
+    "-O": {
+      "value": "required",
+      "description": "Send a control command to a master process: check, forward, cancel, exit or stop"
+    },
+    "-P": {
+      "value": "required",
+      "description": "Select ssh_config sections with this tag"
+    },
+    "-Q": {
+      "value": "required",
+      "description": "Query supported algorithms: cipher, mac, kex, key, sig and more"
+    },
+    "-R": {
+      "value": "required",
+      "description": "Forward a remote port to a local address"
+    },
+    "-S": {
+      "value": "required",
+      "description": "Use this control socket for connection sharing"
+    },
+    "-T": {
+      "value": "none",
+      "description": "Do not allocate a pseudo-terminal"
+    },
+    "-V": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "-W": {
+      "value": "required",
+      "description": "Forward standard input and output to this host:port"
+    },
+    "-X": {
+      "value": "none",
+      "description": "Enable X11 forwarding"
+    },
+    "-Y": {
+      "value": "none",
+      "description": "Enable trusted X11 forwarding"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Disable forwarding of the authentication agent"
+    },
+    "-b": {
+      "value": "required",
+      "description": "Use this local address as the connection source"
+    },
+    "-c": {
+      "value": "required",
+      "description": "Use this cipher specification for the session"
+    },
+    "-e": {
+      "value": "required",
+      "description": "Use this escape character, or none"
+    },
+    "-f": {
+      "value": "none",
+      "description": "Go to the background after authentication"
+    },
+    "-g": {
+      "value": "none",
+      "description": "Allow remote hosts to connect to locally forwarded ports"
+    },
+    "-i": {
+      "value": "required",
+      "description": "Read the private key from this identity file"
+    },
+    "-k": {
+      "value": "none",
+      "description": "Disable forwarding of GSSAPI credentials"
+    },
+    "-l": {
+      "value": "required",
+      "description": "Log in as this user"
+    },
+    "-m": {
+      "value": "required",
+      "description": "Use this MAC specification for the session"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Redirect standard input from /dev/null"
+    },
+    "-o": {
+      "value": "required",
+      "description": "Set a configuration option, such as Port=2222"
+    },
+    "-p": {
+      "value": "required",
+      "description": "Connect to this port on the remote host"
+    },
+    "-q": {
+      "value": "none",
+      "description": "Quiet mode; suppress warnings and diagnostics"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Request a subsystem such as sftp on the remote host"
+    },
+    "-t": {
+      "value": "none",
+      "description": "Force allocation of a pseudo-terminal"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Verbose mode; repeat for more detail"
+    },
+    "-w": {
+      "value": "required",
+      "description": "Forward a tunnel device: local_tun[:remote_tun]"
+    },
+    "-x": {
+      "value": "none",
+      "description": "Disable X11 forwarding"
+    },
+    "-y": {
+      "value": "none",
+      "description": "Send log output to syslog instead of stderr"
+    }
   },
   "positionalArguments": false
 }

@@ -3,600 +3,2382 @@
   "version": "8.14.1",
   "source": "https://raw.githubusercontent.com/curl/curl/curl-8_14_1/src/tool_getparam.c",
   "flags": {
-    "-#": "none",
-    "--abstract-unix-socket": "required",
-    "--alpn": "none",
-    "--alt-svc": "required",
-    "--anyauth": "none",
-    "--append": "none",
-    "--aws-sigv4": "required",
-    "--basic": "none",
-    "--buffer": "none",
-    "--ca-native": "none",
-    "--cacert": "required",
-    "--capath": "required",
-    "--cert": "required",
-    "--cert-status": "none",
-    "--cert-type": "required",
-    "--ciphers": "required",
-    "--clobber": "none",
-    "--compressed": "none",
-    "--compressed-ssh": "none",
-    "--config": "required",
-    "--connect-timeout": "required",
-    "--connect-to": "required",
-    "--continue-at": "required",
-    "--cookie": "required",
-    "--cookie-jar": "required",
-    "--create-dirs": "none",
-    "--create-file-mode": "required",
-    "--crlf": "none",
-    "--crlfile": "required",
-    "--curves": "required",
-    "--data": "required",
-    "--data-ascii": "required",
-    "--data-binary": "required",
-    "--data-raw": "required",
-    "--data-urlencode": "required",
-    "--delegation": "required",
-    "--digest": "none",
-    "--disable": "none",
-    "--disable-eprt": "none",
-    "--disable-epsv": "none",
-    "--disallow-username-in-url": "none",
-    "--dns-interface": "required",
-    "--dns-ipv4-addr": "required",
-    "--dns-ipv6-addr": "required",
-    "--dns-servers": "required",
-    "--doh-cert-status": "none",
-    "--doh-insecure": "none",
-    "--dump-ca-embed": "none",
-    "--dump-header": "required",
-    "--ech": "required",
-    "--egd-file": "required",
-    "--engine": "required",
-    "--eprt": "none",
-    "--epsv": "none",
-    "--etag-compare": "required",
-    "--etag-save": "required",
-    "--expand-abstract-unix-socket": "required",
-    "--expand-alt-svc": "required",
-    "--expand-aws-sigv4": "required",
-    "--expand-cacert": "required",
-    "--expand-capath": "required",
-    "--expand-cert": "required",
-    "--expand-cert-type": "required",
-    "--expand-ciphers": "required",
-    "--expand-config": "required",
-    "--expand-connect-timeout": "required",
-    "--expand-connect-to": "required",
-    "--expand-continue-at": "required",
-    "--expand-cookie": "required",
-    "--expand-cookie-jar": "required",
-    "--expand-create-file-mode": "required",
-    "--expand-crlfile": "required",
-    "--expand-curves": "required",
-    "--expand-data": "required",
-    "--expand-data-ascii": "required",
-    "--expand-data-binary": "required",
-    "--expand-data-raw": "required",
-    "--expand-data-urlencode": "required",
-    "--expand-delegation": "required",
-    "--expand-dns-interface": "required",
-    "--expand-dns-ipv4-addr": "required",
-    "--expand-dns-ipv6-addr": "required",
-    "--expand-dns-servers": "required",
-    "--expand-dump-header": "required",
-    "--expand-ech": "required",
-    "--expand-egd-file": "required",
-    "--expand-engine": "required",
-    "--expand-etag-compare": "required",
-    "--expand-etag-save": "required",
-    "--expand-expect100-timeout": "required",
-    "--expand-form": "required",
-    "--expand-form-string": "required",
-    "--expand-ftp-account": "required",
-    "--expand-ftp-alternative-to-user": "required",
-    "--expand-ftp-method": "required",
-    "--expand-ftp-port": "required",
-    "--expand-ftp-ssl-ccc-mode": "required",
-    "--expand-happy-eyeballs-timeout-ms": "required",
-    "--expand-haproxy-clientip": "required",
-    "--expand-header": "required",
-    "--expand-help": "required",
-    "--expand-hostpubmd5": "required",
-    "--expand-hostpubsha256": "required",
-    "--expand-hsts": "required",
-    "--expand-interface": "required",
-    "--expand-ip-tos": "required",
-    "--expand-ipfs-gateway": "required",
-    "--expand-json": "required",
-    "--expand-keepalive-cnt": "required",
-    "--expand-keepalive-time": "required",
-    "--expand-key": "required",
-    "--expand-key-type": "required",
-    "--expand-krb": "required",
-    "--expand-krb4": "required",
-    "--expand-libcurl": "required",
-    "--expand-limit-rate": "required",
-    "--expand-local-port": "required",
-    "--expand-login-options": "required",
-    "--expand-mail-auth": "required",
-    "--expand-mail-from": "required",
-    "--expand-mail-rcpt": "required",
-    "--expand-max-filesize": "required",
-    "--expand-max-redirs": "required",
-    "--expand-max-time": "required",
-    "--expand-netrc-file": "required",
-    "--expand-noproxy": "required",
-    "--expand-oauth2-bearer": "required",
-    "--expand-output": "required",
-    "--expand-output-dir": "required",
-    "--expand-parallel-max": "required",
-    "--expand-pass": "required",
-    "--expand-pinnedpubkey": "required",
-    "--expand-preproxy": "required",
-    "--expand-proto": "required",
-    "--expand-proto-default": "required",
-    "--expand-proto-redir": "required",
-    "--expand-proxy": "required",
-    "--expand-proxy-cacert": "required",
-    "--expand-proxy-capath": "required",
-    "--expand-proxy-cert": "required",
-    "--expand-proxy-cert-type": "required",
-    "--expand-proxy-ciphers": "required",
-    "--expand-proxy-crlfile": "required",
-    "--expand-proxy-header": "required",
-    "--expand-proxy-key": "required",
-    "--expand-proxy-key-type": "required",
-    "--expand-proxy-pass": "required",
-    "--expand-proxy-pinnedpubkey": "required",
-    "--expand-proxy-service-name": "required",
-    "--expand-proxy-tls13-ciphers": "required",
-    "--expand-proxy-tlsauthtype": "required",
-    "--expand-proxy-tlspassword": "required",
-    "--expand-proxy-tlsuser": "required",
-    "--expand-proxy-user": "required",
-    "--expand-proxy1.0": "required",
-    "--expand-pubkey": "required",
-    "--expand-quote": "required",
-    "--expand-random-file": "required",
-    "--expand-range": "required",
-    "--expand-rate": "required",
-    "--expand-referer": "required",
-    "--expand-request": "required",
-    "--expand-request-target": "required",
-    "--expand-resolve": "required",
-    "--expand-retry": "required",
-    "--expand-retry-delay": "required",
-    "--expand-retry-max-time": "required",
-    "--expand-sasl-authzid": "required",
-    "--expand-service-name": "required",
-    "--expand-sigalgs": "required",
-    "--expand-socks4": "required",
-    "--expand-socks4a": "required",
-    "--expand-socks5": "required",
-    "--expand-socks5-gssapi-service": "required",
-    "--expand-socks5-hostname": "required",
-    "--expand-speed-limit": "required",
-    "--expand-speed-time": "required",
-    "--expand-ssl-sessions": "required",
-    "--expand-stderr": "required",
-    "--expand-telnet-option": "required",
-    "--expand-tftp-blksize": "required",
-    "--expand-time-cond": "required",
-    "--expand-tls-max": "required",
-    "--expand-tls13-ciphers": "required",
-    "--expand-tlsauthtype": "required",
-    "--expand-tlspassword": "required",
-    "--expand-tlsuser": "required",
-    "--expand-trace": "required",
-    "--expand-trace-ascii": "required",
-    "--expand-trace-config": "required",
-    "--expand-unix-socket": "required",
-    "--expand-upload-file": "required",
-    "--expand-upload-flags": "required",
-    "--expand-url": "required",
-    "--expand-url-query": "required",
-    "--expand-user": "required",
-    "--expand-user-agent": "required",
-    "--expand-variable": "required",
-    "--expand-vlan-priority": "required",
-    "--expand-write-out": "required",
-    "--expect100-timeout": "required",
-    "--fail": "none",
-    "--fail-early": "none",
-    "--fail-with-body": "none",
-    "--false-start": "none",
-    "--form": "required",
-    "--form-escape": "none",
-    "--form-string": "required",
-    "--ftp-account": "required",
-    "--ftp-alternative-to-user": "required",
-    "--ftp-create-dirs": "none",
-    "--ftp-method": "required",
-    "--ftp-pasv": "none",
-    "--ftp-port": "required",
-    "--ftp-pret": "none",
-    "--ftp-skip-pasv-ip": "none",
-    "--ftp-ssl": "none",
-    "--ftp-ssl-ccc": "none",
-    "--ftp-ssl-ccc-mode": "required",
-    "--ftp-ssl-control": "none",
-    "--ftp-ssl-reqd": "none",
-    "--get": "none",
-    "--globoff": "none",
-    "--happy-eyeballs-timeout-ms": "required",
-    "--haproxy-clientip": "required",
-    "--haproxy-protocol": "none",
-    "--head": "none",
-    "--header": "required",
-    "--help": "required",
-    "--hostpubmd5": "required",
-    "--hostpubsha256": "required",
-    "--hsts": "required",
-    "--http0.9": "none",
-    "--http1.0": "none",
-    "--http1.1": "none",
-    "--http2": "none",
-    "--http2-prior-knowledge": "none",
-    "--http3": "none",
-    "--http3-only": "none",
-    "--ignore-content-length": "none",
-    "--include": "none",
-    "--insecure": "none",
-    "--interface": "required",
-    "--ip-tos": "required",
-    "--ipfs-gateway": "required",
-    "--ipv4": "none",
-    "--ipv6": "none",
-    "--json": "required",
-    "--junk-session-cookies": "none",
-    "--keepalive": "none",
-    "--keepalive-cnt": "required",
-    "--keepalive-time": "required",
-    "--key": "required",
-    "--key-type": "required",
-    "--krb": "required",
-    "--krb4": "required",
-    "--libcurl": "required",
-    "--limit-rate": "required",
-    "--list-only": "none",
-    "--local-port": "required",
-    "--location": "none",
-    "--location-trusted": "none",
-    "--login-options": "required",
-    "--mail-auth": "required",
-    "--mail-from": "required",
-    "--mail-rcpt": "required",
-    "--mail-rcpt-allowfails": "none",
-    "--manual": "none",
-    "--max-filesize": "required",
-    "--max-redirs": "required",
-    "--max-time": "required",
-    "--metalink": "none",
-    "--mptcp": "none",
-    "--negotiate": "none",
-    "--netrc": "none",
-    "--netrc-file": "required",
-    "--netrc-optional": "none",
-    "--next": "none",
-    "--no-alpn": "none",
-    "--no-append": "none",
-    "--no-basic": "none",
-    "--no-buffer": "none",
-    "--no-ca-native": "none",
-    "--no-cert-status": "none",
-    "--no-clobber": "none",
-    "--no-compressed": "none",
-    "--no-compressed-ssh": "none",
-    "--no-create-dirs": "none",
-    "--no-crlf": "none",
-    "--no-digest": "none",
-    "--no-disable": "none",
-    "--no-disable-eprt": "none",
-    "--no-disable-epsv": "none",
-    "--no-disallow-username-in-url": "none",
-    "--no-doh-cert-status": "none",
-    "--no-doh-insecure": "none",
-    "--no-eprt": "none",
-    "--no-epsv": "none",
-    "--no-fail": "none",
-    "--no-fail-early": "none",
-    "--no-fail-with-body": "none",
-    "--no-false-start": "none",
-    "--no-form-escape": "none",
-    "--no-ftp-create-dirs": "none",
-    "--no-ftp-pasv": "none",
-    "--no-ftp-pret": "none",
-    "--no-ftp-skip-pasv-ip": "none",
-    "--no-ftp-ssl": "none",
-    "--no-ftp-ssl-ccc": "none",
-    "--no-ftp-ssl-control": "none",
-    "--no-ftp-ssl-reqd": "none",
-    "--no-get": "none",
-    "--no-globoff": "none",
-    "--no-haproxy-protocol": "none",
-    "--no-head": "none",
-    "--no-http0.9": "none",
-    "--no-ignore-content-length": "none",
-    "--no-include": "none",
-    "--no-insecure": "none",
-    "--no-junk-session-cookies": "none",
-    "--no-keepalive": "none",
-    "--no-list-only": "none",
-    "--no-location": "none",
-    "--no-location-trusted": "none",
-    "--no-mail-rcpt-allowfails": "none",
-    "--no-manual": "none",
-    "--no-metalink": "none",
-    "--no-mptcp": "none",
-    "--no-negotiate": "none",
-    "--no-netrc": "none",
-    "--no-netrc-optional": "none",
-    "--no-npn": "none",
-    "--no-ntlm": "none",
-    "--no-ntlm-wb": "none",
-    "--no-parallel": "none",
-    "--no-parallel-immediate": "none",
-    "--no-path-as-is": "none",
-    "--no-post301": "none",
-    "--no-post302": "none",
-    "--no-post303": "none",
-    "--no-progress-bar": "none",
-    "--no-progress-meter": "none",
-    "--no-proxy-anyauth": "none",
-    "--no-proxy-basic": "none",
-    "--no-proxy-ca-native": "none",
-    "--no-proxy-digest": "none",
-    "--no-proxy-http2": "none",
-    "--no-proxy-insecure": "none",
-    "--no-proxy-negotiate": "none",
-    "--no-proxy-ntlm": "none",
-    "--no-proxy-ssl-allow-beast": "none",
-    "--no-proxy-ssl-auto-client-cert": "none",
-    "--no-proxytunnel": "none",
-    "--no-raw": "none",
-    "--no-remote-header-name": "none",
-    "--no-remote-name": "none",
-    "--no-remote-name-all": "none",
-    "--no-remote-time": "none",
-    "--no-remove-on-error": "none",
-    "--no-retry-all-errors": "none",
-    "--no-retry-connrefused": "none",
-    "--no-sasl-ir": "none",
-    "--no-sessionid": "none",
-    "--no-show-error": "none",
-    "--no-show-headers": "none",
-    "--no-silent": "none",
-    "--no-skip-existing": "none",
-    "--no-socks5-basic": "none",
-    "--no-socks5-gssapi": "none",
-    "--no-socks5-gssapi-nec": "none",
-    "--no-ssl": "none",
-    "--no-ssl-allow-beast": "none",
-    "--no-ssl-auto-client-cert": "none",
-    "--no-ssl-no-revoke": "none",
-    "--no-ssl-reqd": "none",
-    "--no-ssl-revoke-best-effort": "none",
-    "--no-styled-output": "none",
-    "--no-suppress-connect-headers": "none",
-    "--no-tcp-fastopen": "none",
-    "--no-tcp-nodelay": "none",
-    "--no-test-duphandle": "none",
-    "--no-test-event": "none",
-    "--no-tftp-no-options": "none",
-    "--no-tls-earlydata": "none",
-    "--no-tr-encoding": "none",
-    "--no-trace-ids": "none",
-    "--no-trace-time": "none",
-    "--no-use-ascii": "none",
-    "--no-verbose": "none",
-    "--no-version": "none",
-    "--no-wdebug": "none",
-    "--no-xattr": "none",
-    "--noproxy": "required",
-    "--npn": "none",
-    "--ntlm": "none",
-    "--ntlm-wb": "none",
-    "--oauth2-bearer": "required",
-    "--output": "required",
-    "--output-dir": "required",
-    "--parallel": "none",
-    "--parallel-immediate": "none",
-    "--parallel-max": "required",
-    "--pass": "required",
-    "--path-as-is": "none",
-    "--pinnedpubkey": "required",
-    "--post301": "none",
-    "--post302": "none",
-    "--post303": "none",
-    "--preproxy": "required",
-    "--progress-bar": "none",
-    "--progress-meter": "none",
-    "--proto": "required",
-    "--proto-default": "required",
-    "--proto-redir": "required",
-    "--proxy": "required",
-    "--proxy-anyauth": "none",
-    "--proxy-basic": "none",
-    "--proxy-ca-native": "none",
-    "--proxy-cacert": "required",
-    "--proxy-capath": "required",
-    "--proxy-cert": "required",
-    "--proxy-cert-type": "required",
-    "--proxy-ciphers": "required",
-    "--proxy-crlfile": "required",
-    "--proxy-digest": "none",
-    "--proxy-header": "required",
-    "--proxy-http2": "none",
-    "--proxy-insecure": "none",
-    "--proxy-key": "required",
-    "--proxy-key-type": "required",
-    "--proxy-negotiate": "none",
-    "--proxy-ntlm": "none",
-    "--proxy-pass": "required",
-    "--proxy-pinnedpubkey": "required",
-    "--proxy-service-name": "required",
-    "--proxy-ssl-allow-beast": "none",
-    "--proxy-ssl-auto-client-cert": "none",
-    "--proxy-tls13-ciphers": "required",
-    "--proxy-tlsauthtype": "required",
-    "--proxy-tlspassword": "required",
-    "--proxy-tlsuser": "required",
-    "--proxy-tlsv1": "none",
-    "--proxy-user": "required",
-    "--proxy1.0": "required",
-    "--proxytunnel": "none",
-    "--pubkey": "required",
-    "--quote": "required",
-    "--random-file": "required",
-    "--range": "required",
-    "--rate": "required",
-    "--raw": "none",
-    "--referer": "required",
-    "--remote-header-name": "none",
-    "--remote-name": "none",
-    "--remote-name-all": "none",
-    "--remote-time": "none",
-    "--remove-on-error": "none",
-    "--request": "required",
-    "--request-target": "required",
-    "--resolve": "required",
-    "--retry": "required",
-    "--retry-all-errors": "none",
-    "--retry-connrefused": "none",
-    "--retry-delay": "required",
-    "--retry-max-time": "required",
-    "--sasl-authzid": "required",
-    "--sasl-ir": "none",
-    "--service-name": "required",
-    "--sessionid": "none",
-    "--show-error": "none",
-    "--show-headers": "none",
-    "--sigalgs": "required",
-    "--silent": "none",
-    "--skip-existing": "none",
-    "--socks4": "required",
-    "--socks4a": "required",
-    "--socks5": "required",
-    "--socks5-basic": "none",
-    "--socks5-gssapi": "none",
-    "--socks5-gssapi-nec": "none",
-    "--socks5-gssapi-service": "required",
-    "--socks5-hostname": "required",
-    "--speed-limit": "required",
-    "--speed-time": "required",
-    "--ssl": "none",
-    "--ssl-allow-beast": "none",
-    "--ssl-auto-client-cert": "none",
-    "--ssl-no-revoke": "none",
-    "--ssl-reqd": "none",
-    "--ssl-revoke-best-effort": "none",
-    "--ssl-sessions": "required",
-    "--sslv2": "none",
-    "--sslv3": "none",
-    "--stderr": "required",
-    "--styled-output": "none",
-    "--suppress-connect-headers": "none",
-    "--tcp-fastopen": "none",
-    "--tcp-nodelay": "none",
-    "--telnet-option": "required",
-    "--test-duphandle": "none",
-    "--test-event": "none",
-    "--tftp-blksize": "required",
-    "--tftp-no-options": "none",
-    "--time-cond": "required",
-    "--tls-earlydata": "none",
-    "--tls-max": "required",
-    "--tls13-ciphers": "required",
-    "--tlsauthtype": "required",
-    "--tlspassword": "required",
-    "--tlsuser": "required",
-    "--tlsv1": "none",
-    "--tlsv1.0": "none",
-    "--tlsv1.1": "none",
-    "--tlsv1.2": "none",
-    "--tlsv1.3": "none",
-    "--tr-encoding": "none",
-    "--trace": "required",
-    "--trace-ascii": "required",
-    "--trace-config": "required",
-    "--trace-ids": "none",
-    "--trace-time": "none",
-    "--unix-socket": "required",
-    "--upload-file": "required",
-    "--upload-flags": "required",
-    "--url": "required",
-    "--url-query": "required",
-    "--use-ascii": "none",
-    "--user": "required",
-    "--user-agent": "required",
-    "--variable": "required",
-    "--verbose": "none",
-    "--version": "none",
-    "--vlan-priority": "required",
-    "--wdebug": "none",
-    "--write-out": "required",
-    "--xattr": "none",
-    "-0": "none",
-    "-1": "none",
-    "-2": "none",
-    "-3": "none",
-    "-4": "none",
-    "-6": "none",
-    "-:": "none",
-    "-A": "required",
-    "-B": "none",
-    "-C": "required",
-    "-D": "required",
-    "-E": "required",
-    "-F": "required",
-    "-G": "none",
-    "-H": "required",
-    "-I": "none",
-    "-J": "none",
-    "-K": "required",
-    "-L": "none",
-    "-M": "none",
-    "-N": "none",
-    "-O": "none",
-    "-P": "required",
-    "-Q": "required",
-    "-R": "none",
-    "-S": "none",
-    "-T": "required",
-    "-U": "required",
-    "-V": "none",
-    "-X": "required",
-    "-Y": "required",
-    "-Z": "none",
-    "-a": "none",
-    "-b": "required",
-    "-c": "required",
-    "-d": "required",
-    "-e": "required",
-    "-f": "none",
-    "-g": "none",
-    "-h": "required",
-    "-i": "none",
-    "-j": "none",
-    "-k": "none",
-    "-l": "none",
-    "-m": "required",
-    "-n": "none",
-    "-o": "required",
-    "-p": "none",
-    "-q": "none",
-    "-r": "required",
-    "-s": "none",
-    "-t": "required",
-    "-u": "required",
-    "-v": "none",
-    "-w": "required",
-    "-x": "required",
-    "-y": "required",
-    "-z": "required"
+    "-#": {
+      "value": "none",
+      "description": "Show progress as a simple bar"
+    },
+    "--abstract-unix-socket": {
+      "value": "required",
+      "description": "Connect through this abstract Unix domain socket"
+    },
+    "--alpn": {
+      "value": "none",
+      "description": "Offer ALPN during the TLS handshake"
+    },
+    "--alt-svc": {
+      "value": "required",
+      "description": "Enable Alt-Svc handling using this cache file"
+    },
+    "--anyauth": {
+      "value": "none",
+      "description": "Let curl pick the HTTP authentication method"
+    },
+    "--append": {
+      "value": "none",
+      "description": "Append to the target file when uploading"
+    },
+    "--aws-sigv4": {
+      "value": "required",
+      "description": "Sign requests with AWS V4 signatures using this provider spec"
+    },
+    "--basic": {
+      "value": "none",
+      "description": "Use HTTP Basic authentication"
+    },
+    "--buffer": {
+      "value": "none",
+      "description": "Buffer the output stream"
+    },
+    "--ca-native": {
+      "value": "none",
+      "description": "Trust the operating system's native CA store"
+    },
+    "--cacert": {
+      "value": "required",
+      "description": "Verify the peer with this CA certificate file"
+    },
+    "--capath": {
+      "value": "required",
+      "description": "Verify the peer with CA certificates in this directory"
+    },
+    "--cert": {
+      "value": "required",
+      "description": "Use this client certificate file and optional password"
+    },
+    "--cert-status": {
+      "value": "none",
+      "description": "Verify the server certificate status via OCSP stapling"
+    },
+    "--cert-type": {
+      "value": "required",
+      "description": "Type of the client certificate: PEM, DER, ENG or P12"
+    },
+    "--ciphers": {
+      "value": "required",
+      "description": "Use this list of TLS 1.2 and earlier ciphers"
+    },
+    "--clobber": {
+      "value": "none",
+      "description": "Overwrite existing output files"
+    },
+    "--compressed": {
+      "value": "none",
+      "description": "Request a compressed response and decompress it"
+    },
+    "--compressed-ssh": {
+      "value": "none",
+      "description": "Enable SSH compression"
+    },
+    "--config": {
+      "value": "required",
+      "description": "Read options from this file"
+    },
+    "--connect-timeout": {
+      "value": "required",
+      "description": "Give up connecting after this many seconds"
+    },
+    "--connect-to": {
+      "value": "required",
+      "description": "Connect to HOST2:PORT2 instead of HOST1:PORT1"
+    },
+    "--continue-at": {
+      "value": "required",
+      "description": "Resume a transfer at this byte offset, or - to detect it"
+    },
+    "--cookie": {
+      "value": "required",
+      "description": "Send these cookies from a string or file"
+    },
+    "--cookie-jar": {
+      "value": "required",
+      "description": "Write received cookies to this file after the transfer"
+    },
+    "--create-dirs": {
+      "value": "none",
+      "description": "Create the directories needed for local output paths"
+    },
+    "--create-file-mode": {
+      "value": "required",
+      "description": "Create remote files with these permissions"
+    },
+    "--crlf": {
+      "value": "none",
+      "description": "Convert LF to CRLF when uploading"
+    },
+    "--crlfile": {
+      "value": "required",
+      "description": "Reject peers listed in this certificate revocation list"
+    },
+    "--curves": {
+      "value": "required",
+      "description": "Use these ECDH key exchange curves"
+    },
+    "--data": {
+      "value": "required",
+      "description": "Send this data in an HTTP POST"
+    },
+    "--data-ascii": {
+      "value": "required",
+      "description": "Send this data in an HTTP POST, like --data"
+    },
+    "--data-binary": {
+      "value": "required",
+      "description": "Send this data in an HTTP POST without any processing"
+    },
+    "--data-raw": {
+      "value": "required",
+      "description": "Send this data in an HTTP POST, treating @ literally"
+    },
+    "--data-urlencode": {
+      "value": "required",
+      "description": "Send this data URL-encoded in an HTTP POST"
+    },
+    "--delegation": {
+      "value": "required",
+      "description": "Choose GSS-API credential delegation: none, policy or always"
+    },
+    "--digest": {
+      "value": "none",
+      "description": "Use HTTP Digest authentication"
+    },
+    "--disable": {
+      "value": "none",
+      "description": "Do not read the default curlrc file"
+    },
+    "--disable-eprt": {
+      "value": "none",
+      "description": "Do not use EPRT or LPRT for FTP"
+    },
+    "--disable-epsv": {
+      "value": "none",
+      "description": "Do not use EPSV for FTP"
+    },
+    "--disallow-username-in-url": {
+      "value": "none",
+      "description": "Reject URLs that contain a user name"
+    },
+    "--dns-interface": {
+      "value": "required",
+      "description": "Send DNS queries from this network interface"
+    },
+    "--dns-ipv4-addr": {
+      "value": "required",
+      "description": "Send DNS queries from this IPv4 address"
+    },
+    "--dns-ipv6-addr": {
+      "value": "required",
+      "description": "Send DNS queries from this IPv6 address"
+    },
+    "--dns-servers": {
+      "value": "required",
+      "description": "Use these DNS servers instead of the system's"
+    },
+    "--doh-cert-status": {
+      "value": "none",
+      "description": "Verify the DoH server's certificate status via OCSP stapling"
+    },
+    "--doh-insecure": {
+      "value": "none",
+      "description": "Skip certificate verification for the DoH server"
+    },
+    "--dump-ca-embed": {
+      "value": "none",
+      "description": "Write the embedded CA bundle to standard output"
+    },
+    "--dump-header": {
+      "value": "required",
+      "description": "Write received headers to this file"
+    },
+    "--ech": {
+      "value": "required",
+      "description": "Configure Encrypted Client Hello: false, grease, true or an ECH config"
+    },
+    "--egd-file": {
+      "value": "required",
+      "description": "Seed the random generator from this EGD socket"
+    },
+    "--engine": {
+      "value": "required",
+      "description": "Use this crypto engine"
+    },
+    "--eprt": {
+      "value": "none",
+      "description": "Use EPRT and LPRT for FTP"
+    },
+    "--epsv": {
+      "value": "none",
+      "description": "Use EPSV for FTP"
+    },
+    "--etag-compare": {
+      "value": "required",
+      "description": "Send If-None-Match with the ETag stored in this file"
+    },
+    "--etag-save": {
+      "value": "required",
+      "description": "Save the received ETag to this file"
+    },
+    "--expand-abstract-unix-socket": {
+      "value": "required",
+      "description": "Apply --abstract-unix-socket after expanding {{name}} variables in its value"
+    },
+    "--expand-alt-svc": {
+      "value": "required",
+      "description": "Apply --alt-svc after expanding {{name}} variables in its value"
+    },
+    "--expand-aws-sigv4": {
+      "value": "required",
+      "description": "Apply --aws-sigv4 after expanding {{name}} variables in its value"
+    },
+    "--expand-cacert": {
+      "value": "required",
+      "description": "Apply --cacert after expanding {{name}} variables in its value"
+    },
+    "--expand-capath": {
+      "value": "required",
+      "description": "Apply --capath after expanding {{name}} variables in its value"
+    },
+    "--expand-cert": {
+      "value": "required",
+      "description": "Apply --cert after expanding {{name}} variables in its value"
+    },
+    "--expand-cert-type": {
+      "value": "required",
+      "description": "Apply --cert-type after expanding {{name}} variables in its value"
+    },
+    "--expand-ciphers": {
+      "value": "required",
+      "description": "Apply --ciphers after expanding {{name}} variables in its value"
+    },
+    "--expand-config": {
+      "value": "required",
+      "description": "Apply --config after expanding {{name}} variables in its value"
+    },
+    "--expand-connect-timeout": {
+      "value": "required",
+      "description": "Apply --connect-timeout after expanding {{name}} variables in its value"
+    },
+    "--expand-connect-to": {
+      "value": "required",
+      "description": "Apply --connect-to after expanding {{name}} variables in its value"
+    },
+    "--expand-continue-at": {
+      "value": "required",
+      "description": "Apply --continue-at after expanding {{name}} variables in its value"
+    },
+    "--expand-cookie": {
+      "value": "required",
+      "description": "Apply --cookie after expanding {{name}} variables in its value"
+    },
+    "--expand-cookie-jar": {
+      "value": "required",
+      "description": "Apply --cookie-jar after expanding {{name}} variables in its value"
+    },
+    "--expand-create-file-mode": {
+      "value": "required",
+      "description": "Apply --create-file-mode after expanding {{name}} variables in its value"
+    },
+    "--expand-crlfile": {
+      "value": "required",
+      "description": "Apply --crlfile after expanding {{name}} variables in its value"
+    },
+    "--expand-curves": {
+      "value": "required",
+      "description": "Apply --curves after expanding {{name}} variables in its value"
+    },
+    "--expand-data": {
+      "value": "required",
+      "description": "Apply --data after expanding {{name}} variables in its value"
+    },
+    "--expand-data-ascii": {
+      "value": "required",
+      "description": "Apply --data-ascii after expanding {{name}} variables in its value"
+    },
+    "--expand-data-binary": {
+      "value": "required",
+      "description": "Apply --data-binary after expanding {{name}} variables in its value"
+    },
+    "--expand-data-raw": {
+      "value": "required",
+      "description": "Apply --data-raw after expanding {{name}} variables in its value"
+    },
+    "--expand-data-urlencode": {
+      "value": "required",
+      "description": "Apply --data-urlencode after expanding {{name}} variables in its value"
+    },
+    "--expand-delegation": {
+      "value": "required",
+      "description": "Apply --delegation after expanding {{name}} variables in its value"
+    },
+    "--expand-dns-interface": {
+      "value": "required",
+      "description": "Apply --dns-interface after expanding {{name}} variables in its value"
+    },
+    "--expand-dns-ipv4-addr": {
+      "value": "required",
+      "description": "Apply --dns-ipv4-addr after expanding {{name}} variables in its value"
+    },
+    "--expand-dns-ipv6-addr": {
+      "value": "required",
+      "description": "Apply --dns-ipv6-addr after expanding {{name}} variables in its value"
+    },
+    "--expand-dns-servers": {
+      "value": "required",
+      "description": "Apply --dns-servers after expanding {{name}} variables in its value"
+    },
+    "--expand-dump-header": {
+      "value": "required",
+      "description": "Apply --dump-header after expanding {{name}} variables in its value"
+    },
+    "--expand-ech": {
+      "value": "required",
+      "description": "Apply --ech after expanding {{name}} variables in its value"
+    },
+    "--expand-egd-file": {
+      "value": "required",
+      "description": "Apply --egd-file after expanding {{name}} variables in its value"
+    },
+    "--expand-engine": {
+      "value": "required",
+      "description": "Apply --engine after expanding {{name}} variables in its value"
+    },
+    "--expand-etag-compare": {
+      "value": "required",
+      "description": "Apply --etag-compare after expanding {{name}} variables in its value"
+    },
+    "--expand-etag-save": {
+      "value": "required",
+      "description": "Apply --etag-save after expanding {{name}} variables in its value"
+    },
+    "--expand-expect100-timeout": {
+      "value": "required",
+      "description": "Apply --expect100-timeout after expanding {{name}} variables in its value"
+    },
+    "--expand-form": {
+      "value": "required",
+      "description": "Apply --form after expanding {{name}} variables in its value"
+    },
+    "--expand-form-string": {
+      "value": "required",
+      "description": "Apply --form-string after expanding {{name}} variables in its value"
+    },
+    "--expand-ftp-account": {
+      "value": "required",
+      "description": "Apply --ftp-account after expanding {{name}} variables in its value"
+    },
+    "--expand-ftp-alternative-to-user": {
+      "value": "required",
+      "description": "Apply --ftp-alternative-to-user after expanding {{name}} variables in its value"
+    },
+    "--expand-ftp-method": {
+      "value": "required",
+      "description": "Apply --ftp-method after expanding {{name}} variables in its value"
+    },
+    "--expand-ftp-port": {
+      "value": "required",
+      "description": "Apply --ftp-port after expanding {{name}} variables in its value"
+    },
+    "--expand-ftp-ssl-ccc-mode": {
+      "value": "required",
+      "description": "Apply --ftp-ssl-ccc-mode after expanding {{name}} variables in its value"
+    },
+    "--expand-happy-eyeballs-timeout-ms": {
+      "value": "required",
+      "description": "Apply --happy-eyeballs-timeout-ms after expanding {{name}} variables in its value"
+    },
+    "--expand-haproxy-clientip": {
+      "value": "required",
+      "description": "Apply --haproxy-clientip after expanding {{name}} variables in its value"
+    },
+    "--expand-header": {
+      "value": "required",
+      "description": "Apply --header after expanding {{name}} variables in its value"
+    },
+    "--expand-help": {
+      "value": "required",
+      "description": "Apply --help after expanding {{name}} variables in its value"
+    },
+    "--expand-hostpubmd5": {
+      "value": "required",
+      "description": "Apply --hostpubmd5 after expanding {{name}} variables in its value"
+    },
+    "--expand-hostpubsha256": {
+      "value": "required",
+      "description": "Apply --hostpubsha256 after expanding {{name}} variables in its value"
+    },
+    "--expand-hsts": {
+      "value": "required",
+      "description": "Apply --hsts after expanding {{name}} variables in its value"
+    },
+    "--expand-interface": {
+      "value": "required",
+      "description": "Apply --interface after expanding {{name}} variables in its value"
+    },
+    "--expand-ip-tos": {
+      "value": "required",
+      "description": "Apply --ip-tos after expanding {{name}} variables in its value"
+    },
+    "--expand-ipfs-gateway": {
+      "value": "required",
+      "description": "Apply --ipfs-gateway after expanding {{name}} variables in its value"
+    },
+    "--expand-json": {
+      "value": "required",
+      "description": "Apply --json after expanding {{name}} variables in its value"
+    },
+    "--expand-keepalive-cnt": {
+      "value": "required",
+      "description": "Apply --keepalive-cnt after expanding {{name}} variables in its value"
+    },
+    "--expand-keepalive-time": {
+      "value": "required",
+      "description": "Apply --keepalive-time after expanding {{name}} variables in its value"
+    },
+    "--expand-key": {
+      "value": "required",
+      "description": "Apply --key after expanding {{name}} variables in its value"
+    },
+    "--expand-key-type": {
+      "value": "required",
+      "description": "Apply --key-type after expanding {{name}} variables in its value"
+    },
+    "--expand-krb": {
+      "value": "required",
+      "description": "Apply --krb after expanding {{name}} variables in its value"
+    },
+    "--expand-krb4": {
+      "value": "required",
+      "description": "Apply --krb4 after expanding {{name}} variables in its value"
+    },
+    "--expand-libcurl": {
+      "value": "required",
+      "description": "Apply --libcurl after expanding {{name}} variables in its value"
+    },
+    "--expand-limit-rate": {
+      "value": "required",
+      "description": "Apply --limit-rate after expanding {{name}} variables in its value"
+    },
+    "--expand-local-port": {
+      "value": "required",
+      "description": "Apply --local-port after expanding {{name}} variables in its value"
+    },
+    "--expand-login-options": {
+      "value": "required",
+      "description": "Apply --login-options after expanding {{name}} variables in its value"
+    },
+    "--expand-mail-auth": {
+      "value": "required",
+      "description": "Apply --mail-auth after expanding {{name}} variables in its value"
+    },
+    "--expand-mail-from": {
+      "value": "required",
+      "description": "Apply --mail-from after expanding {{name}} variables in its value"
+    },
+    "--expand-mail-rcpt": {
+      "value": "required",
+      "description": "Apply --mail-rcpt after expanding {{name}} variables in its value"
+    },
+    "--expand-max-filesize": {
+      "value": "required",
+      "description": "Apply --max-filesize after expanding {{name}} variables in its value"
+    },
+    "--expand-max-redirs": {
+      "value": "required",
+      "description": "Apply --max-redirs after expanding {{name}} variables in its value"
+    },
+    "--expand-max-time": {
+      "value": "required",
+      "description": "Apply --max-time after expanding {{name}} variables in its value"
+    },
+    "--expand-netrc-file": {
+      "value": "required",
+      "description": "Apply --netrc-file after expanding {{name}} variables in its value"
+    },
+    "--expand-noproxy": {
+      "value": "required",
+      "description": "Apply --noproxy after expanding {{name}} variables in its value"
+    },
+    "--expand-oauth2-bearer": {
+      "value": "required",
+      "description": "Apply --oauth2-bearer after expanding {{name}} variables in its value"
+    },
+    "--expand-output": {
+      "value": "required",
+      "description": "Apply --output after expanding {{name}} variables in its value"
+    },
+    "--expand-output-dir": {
+      "value": "required",
+      "description": "Apply --output-dir after expanding {{name}} variables in its value"
+    },
+    "--expand-parallel-max": {
+      "value": "required",
+      "description": "Apply --parallel-max after expanding {{name}} variables in its value"
+    },
+    "--expand-pass": {
+      "value": "required",
+      "description": "Apply --pass after expanding {{name}} variables in its value"
+    },
+    "--expand-pinnedpubkey": {
+      "value": "required",
+      "description": "Apply --pinnedpubkey after expanding {{name}} variables in its value"
+    },
+    "--expand-preproxy": {
+      "value": "required",
+      "description": "Apply --preproxy after expanding {{name}} variables in its value"
+    },
+    "--expand-proto": {
+      "value": "required",
+      "description": "Apply --proto after expanding {{name}} variables in its value"
+    },
+    "--expand-proto-default": {
+      "value": "required",
+      "description": "Apply --proto-default after expanding {{name}} variables in its value"
+    },
+    "--expand-proto-redir": {
+      "value": "required",
+      "description": "Apply --proto-redir after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy": {
+      "value": "required",
+      "description": "Apply --proxy after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-cacert": {
+      "value": "required",
+      "description": "Apply --proxy-cacert after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-capath": {
+      "value": "required",
+      "description": "Apply --proxy-capath after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-cert": {
+      "value": "required",
+      "description": "Apply --proxy-cert after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-cert-type": {
+      "value": "required",
+      "description": "Apply --proxy-cert-type after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-ciphers": {
+      "value": "required",
+      "description": "Apply --proxy-ciphers after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-crlfile": {
+      "value": "required",
+      "description": "Apply --proxy-crlfile after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-header": {
+      "value": "required",
+      "description": "Apply --proxy-header after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-key": {
+      "value": "required",
+      "description": "Apply --proxy-key after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-key-type": {
+      "value": "required",
+      "description": "Apply --proxy-key-type after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-pass": {
+      "value": "required",
+      "description": "Apply --proxy-pass after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-pinnedpubkey": {
+      "value": "required",
+      "description": "Apply --proxy-pinnedpubkey after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-service-name": {
+      "value": "required",
+      "description": "Apply --proxy-service-name after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-tls13-ciphers": {
+      "value": "required",
+      "description": "Apply --proxy-tls13-ciphers after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-tlsauthtype": {
+      "value": "required",
+      "description": "Apply --proxy-tlsauthtype after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-tlspassword": {
+      "value": "required",
+      "description": "Apply --proxy-tlspassword after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-tlsuser": {
+      "value": "required",
+      "description": "Apply --proxy-tlsuser after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy-user": {
+      "value": "required",
+      "description": "Apply --proxy-user after expanding {{name}} variables in its value"
+    },
+    "--expand-proxy1.0": {
+      "value": "required",
+      "description": "Apply --proxy1.0 after expanding {{name}} variables in its value"
+    },
+    "--expand-pubkey": {
+      "value": "required",
+      "description": "Apply --pubkey after expanding {{name}} variables in its value"
+    },
+    "--expand-quote": {
+      "value": "required",
+      "description": "Apply --quote after expanding {{name}} variables in its value"
+    },
+    "--expand-random-file": {
+      "value": "required",
+      "description": "Apply --random-file after expanding {{name}} variables in its value"
+    },
+    "--expand-range": {
+      "value": "required",
+      "description": "Apply --range after expanding {{name}} variables in its value"
+    },
+    "--expand-rate": {
+      "value": "required",
+      "description": "Apply --rate after expanding {{name}} variables in its value"
+    },
+    "--expand-referer": {
+      "value": "required",
+      "description": "Apply --referer after expanding {{name}} variables in its value"
+    },
+    "--expand-request": {
+      "value": "required",
+      "description": "Apply --request after expanding {{name}} variables in its value"
+    },
+    "--expand-request-target": {
+      "value": "required",
+      "description": "Apply --request-target after expanding {{name}} variables in its value"
+    },
+    "--expand-resolve": {
+      "value": "required",
+      "description": "Apply --resolve after expanding {{name}} variables in its value"
+    },
+    "--expand-retry": {
+      "value": "required",
+      "description": "Apply --retry after expanding {{name}} variables in its value"
+    },
+    "--expand-retry-delay": {
+      "value": "required",
+      "description": "Apply --retry-delay after expanding {{name}} variables in its value"
+    },
+    "--expand-retry-max-time": {
+      "value": "required",
+      "description": "Apply --retry-max-time after expanding {{name}} variables in its value"
+    },
+    "--expand-sasl-authzid": {
+      "value": "required",
+      "description": "Apply --sasl-authzid after expanding {{name}} variables in its value"
+    },
+    "--expand-service-name": {
+      "value": "required",
+      "description": "Apply --service-name after expanding {{name}} variables in its value"
+    },
+    "--expand-sigalgs": {
+      "value": "required",
+      "description": "Apply --sigalgs after expanding {{name}} variables in its value"
+    },
+    "--expand-socks4": {
+      "value": "required",
+      "description": "Apply --socks4 after expanding {{name}} variables in its value"
+    },
+    "--expand-socks4a": {
+      "value": "required",
+      "description": "Apply --socks4a after expanding {{name}} variables in its value"
+    },
+    "--expand-socks5": {
+      "value": "required",
+      "description": "Apply --socks5 after expanding {{name}} variables in its value"
+    },
+    "--expand-socks5-gssapi-service": {
+      "value": "required",
+      "description": "Apply --socks5-gssapi-service after expanding {{name}} variables in its value"
+    },
+    "--expand-socks5-hostname": {
+      "value": "required",
+      "description": "Apply --socks5-hostname after expanding {{name}} variables in its value"
+    },
+    "--expand-speed-limit": {
+      "value": "required",
+      "description": "Apply --speed-limit after expanding {{name}} variables in its value"
+    },
+    "--expand-speed-time": {
+      "value": "required",
+      "description": "Apply --speed-time after expanding {{name}} variables in its value"
+    },
+    "--expand-ssl-sessions": {
+      "value": "required",
+      "description": "Apply --ssl-sessions after expanding {{name}} variables in its value"
+    },
+    "--expand-stderr": {
+      "value": "required",
+      "description": "Apply --stderr after expanding {{name}} variables in its value"
+    },
+    "--expand-telnet-option": {
+      "value": "required",
+      "description": "Apply --telnet-option after expanding {{name}} variables in its value"
+    },
+    "--expand-tftp-blksize": {
+      "value": "required",
+      "description": "Apply --tftp-blksize after expanding {{name}} variables in its value"
+    },
+    "--expand-time-cond": {
+      "value": "required",
+      "description": "Apply --time-cond after expanding {{name}} variables in its value"
+    },
+    "--expand-tls-max": {
+      "value": "required",
+      "description": "Apply --tls-max after expanding {{name}} variables in its value"
+    },
+    "--expand-tls13-ciphers": {
+      "value": "required",
+      "description": "Apply --tls13-ciphers after expanding {{name}} variables in its value"
+    },
+    "--expand-tlsauthtype": {
+      "value": "required",
+      "description": "Apply --tlsauthtype after expanding {{name}} variables in its value"
+    },
+    "--expand-tlspassword": {
+      "value": "required",
+      "description": "Apply --tlspassword after expanding {{name}} variables in its value"
+    },
+    "--expand-tlsuser": {
+      "value": "required",
+      "description": "Apply --tlsuser after expanding {{name}} variables in its value"
+    },
+    "--expand-trace": {
+      "value": "required",
+      "description": "Apply --trace after expanding {{name}} variables in its value"
+    },
+    "--expand-trace-ascii": {
+      "value": "required",
+      "description": "Apply --trace-ascii after expanding {{name}} variables in its value"
+    },
+    "--expand-trace-config": {
+      "value": "required",
+      "description": "Apply --trace-config after expanding {{name}} variables in its value"
+    },
+    "--expand-unix-socket": {
+      "value": "required",
+      "description": "Apply --unix-socket after expanding {{name}} variables in its value"
+    },
+    "--expand-upload-file": {
+      "value": "required",
+      "description": "Apply --upload-file after expanding {{name}} variables in its value"
+    },
+    "--expand-upload-flags": {
+      "value": "required",
+      "description": "Apply --upload-flags after expanding {{name}} variables in its value"
+    },
+    "--expand-url": {
+      "value": "required",
+      "description": "Apply --url after expanding {{name}} variables in its value"
+    },
+    "--expand-url-query": {
+      "value": "required",
+      "description": "Apply --url-query after expanding {{name}} variables in its value"
+    },
+    "--expand-user": {
+      "value": "required",
+      "description": "Apply --user after expanding {{name}} variables in its value"
+    },
+    "--expand-user-agent": {
+      "value": "required",
+      "description": "Apply --user-agent after expanding {{name}} variables in its value"
+    },
+    "--expand-variable": {
+      "value": "required",
+      "description": "Apply --variable after expanding {{name}} variables in its value"
+    },
+    "--expand-vlan-priority": {
+      "value": "required",
+      "description": "Apply --vlan-priority after expanding {{name}} variables in its value"
+    },
+    "--expand-write-out": {
+      "value": "required",
+      "description": "Apply --write-out after expanding {{name}} variables in its value"
+    },
+    "--expect100-timeout": {
+      "value": "required",
+      "description": "Wait this many seconds for a 100-continue response"
+    },
+    "--fail": {
+      "value": "none",
+      "description": "Fail silently on HTTP errors without output"
+    },
+    "--fail-early": {
+      "value": "none",
+      "description": "Stop at the first failed transfer"
+    },
+    "--fail-with-body": {
+      "value": "none",
+      "description": "Fail on HTTP errors but still write the response body"
+    },
+    "--false-start": {
+      "value": "none",
+      "description": "Use TLS False Start"
+    },
+    "--form": {
+      "value": "required",
+      "description": "Add a multipart form field; @ reads a file, < reads content"
+    },
+    "--form-escape": {
+      "value": "none",
+      "description": "Escape quotes and backslashes in multipart form names with backslashes"
+    },
+    "--form-string": {
+      "value": "required",
+      "description": "Add a multipart form field, treating @ and < literally"
+    },
+    "--ftp-account": {
+      "value": "required",
+      "description": "Send this account string when FTP asks for one"
+    },
+    "--ftp-alternative-to-user": {
+      "value": "required",
+      "description": "Send this command when the FTP USER command fails"
+    },
+    "--ftp-create-dirs": {
+      "value": "none",
+      "description": "Create missing remote directories on FTP and SFTP"
+    },
+    "--ftp-method": {
+      "value": "required",
+      "description": "Choose how FTP changes directories: multicwd, nocwd or singlecwd"
+    },
+    "--ftp-pasv": {
+      "value": "none",
+      "description": "Use passive mode for FTP"
+    },
+    "--ftp-port": {
+      "value": "required",
+      "description": "Use active FTP with this local address or interface"
+    },
+    "--ftp-pret": {
+      "value": "none",
+      "description": "Send PRET before PASV for drftpd servers"
+    },
+    "--ftp-skip-pasv-ip": {
+      "value": "none",
+      "description": "Ignore the IP address returned by PASV"
+    },
+    "--ftp-ssl": {
+      "value": "none",
+      "description": "Try TLS for FTP and continue without it if refused"
+    },
+    "--ftp-ssl-ccc": {
+      "value": "none",
+      "description": "Clear the FTP command channel after authenticating"
+    },
+    "--ftp-ssl-ccc-mode": {
+      "value": "required",
+      "description": "Choose the CCC mode: active or passive"
+    },
+    "--ftp-ssl-control": {
+      "value": "none",
+      "description": "Require TLS for the FTP control connection only"
+    },
+    "--ftp-ssl-reqd": {
+      "value": "none",
+      "description": "Require TLS for FTP"
+    },
+    "--get": {
+      "value": "none",
+      "description": "Send the data with GET instead of POST"
+    },
+    "--globoff": {
+      "value": "none",
+      "description": "Treat {} and [] in URLs literally"
+    },
+    "--happy-eyeballs-timeout-ms": {
+      "value": "required",
+      "description": "Wait this many milliseconds before trying the other IP family"
+    },
+    "--haproxy-clientip": {
+      "value": "required",
+      "description": "Send this client IP in the HAProxy PROXY protocol header"
+    },
+    "--haproxy-protocol": {
+      "value": "none",
+      "description": "Send a HAProxy PROXY protocol v1 header"
+    },
+    "--head": {
+      "value": "none",
+      "description": "Fetch headers only with a HEAD request"
+    },
+    "--header": {
+      "value": "required",
+      "description": "Send this extra header; @ reads headers from a file"
+    },
+    "--help": {
+      "value": "required",
+      "description": "Show help for all options or a category"
+    },
+    "--hostpubmd5": {
+      "value": "required",
+      "description": "Accept only the SSH host key with this MD5 fingerprint"
+    },
+    "--hostpubsha256": {
+      "value": "required",
+      "description": "Accept only the SSH host key with this SHA-256 fingerprint"
+    },
+    "--hsts": {
+      "value": "required",
+      "description": "Enable HSTS using this cache file"
+    },
+    "--http0.9": {
+      "value": "none",
+      "description": "Accept HTTP/0.9 responses"
+    },
+    "--http1.0": {
+      "value": "none",
+      "description": "Use HTTP/1.0"
+    },
+    "--http1.1": {
+      "value": "none",
+      "description": "Use HTTP/1.1"
+    },
+    "--http2": {
+      "value": "none",
+      "description": "Try HTTP/2"
+    },
+    "--http2-prior-knowledge": {
+      "value": "none",
+      "description": "Use HTTP/2 without an upgrade negotiation"
+    },
+    "--http3": {
+      "value": "none",
+      "description": "Try HTTP/3, falling back to earlier versions"
+    },
+    "--http3-only": {
+      "value": "none",
+      "description": "Use HTTP/3 without fallback"
+    },
+    "--ignore-content-length": {
+      "value": "none",
+      "description": "Ignore the Content-Length header"
+    },
+    "--include": {
+      "value": "none",
+      "description": "Include response headers in the output"
+    },
+    "--insecure": {
+      "value": "none",
+      "description": "Skip TLS certificate verification"
+    },
+    "--interface": {
+      "value": "required",
+      "description": "Use this network interface or address as the source"
+    },
+    "--ip-tos": {
+      "value": "required",
+      "description": "Set the IP type-of-service or traffic class field"
+    },
+    "--ipfs-gateway": {
+      "value": "required",
+      "description": "Use this gateway for ipfs:// and ipns:// URLs"
+    },
+    "--ipv4": {
+      "value": "none",
+      "description": "Resolve names to IPv4 addresses only"
+    },
+    "--ipv6": {
+      "value": "none",
+      "description": "Resolve names to IPv6 addresses only"
+    },
+    "--json": {
+      "value": "required",
+      "description": "Send this JSON data with matching Content-Type and Accept headers"
+    },
+    "--junk-session-cookies": {
+      "value": "none",
+      "description": "Discard session cookies read from a file"
+    },
+    "--keepalive": {
+      "value": "none",
+      "description": "Send TCP keepalive probes on the connection"
+    },
+    "--keepalive-cnt": {
+      "value": "required",
+      "description": "Send this many keepalive probes before giving up"
+    },
+    "--keepalive-time": {
+      "value": "required",
+      "description": "Wait this many seconds between keepalive probes"
+    },
+    "--key": {
+      "value": "required",
+      "description": "Use this private key file"
+    },
+    "--key-type": {
+      "value": "required",
+      "description": "Type of the private key: PEM, DER or ENG"
+    },
+    "--krb": {
+      "value": "required",
+      "description": "Use Kerberos for FTP at this level: clear, safe, confidential or private"
+    },
+    "--krb4": {
+      "value": "required",
+      "description": "Use Kerberos for FTP; legacy alias of --krb"
+    },
+    "--libcurl": {
+      "value": "required",
+      "description": "Write a C program that performs this transfer to this file"
+    },
+    "--limit-rate": {
+      "value": "required",
+      "description": "Cap the transfer speed, such as 1M or 500k"
+    },
+    "--list-only": {
+      "value": "none",
+      "description": "List names only when listing directories"
+    },
+    "--local-port": {
+      "value": "required",
+      "description": "Use a local port from this number or range"
+    },
+    "--location": {
+      "value": "none",
+      "description": "Follow HTTP redirects"
+    },
+    "--location-trusted": {
+      "value": "none",
+      "description": "Follow redirects and send credentials to other hosts too"
+    },
+    "--login-options": {
+      "value": "required",
+      "description": "Set server login options, such as AUTH=PLAIN"
+    },
+    "--mail-auth": {
+      "value": "required",
+      "description": "Use this address as the originator of an SMTP message"
+    },
+    "--mail-from": {
+      "value": "required",
+      "description": "Send mail from this address"
+    },
+    "--mail-rcpt": {
+      "value": "required",
+      "description": "Send mail to this address; may be repeated"
+    },
+    "--mail-rcpt-allowfails": {
+      "value": "none",
+      "description": "Continue sending mail when some recipients fail"
+    },
+    "--manual": {
+      "value": "none",
+      "description": "Show the full manual"
+    },
+    "--max-filesize": {
+      "value": "required",
+      "description": "Refuse downloads larger than this many bytes"
+    },
+    "--max-redirs": {
+      "value": "required",
+      "description": "Follow at most this many redirects"
+    },
+    "--max-time": {
+      "value": "required",
+      "description": "Give up the whole transfer after this many seconds"
+    },
+    "--metalink": {
+      "value": "none",
+      "description": "Accepted for compatibility; Metalink support was removed"
+    },
+    "--mptcp": {
+      "value": "none",
+      "description": "Use Multipath TCP"
+    },
+    "--negotiate": {
+      "value": "none",
+      "description": "Use HTTP Negotiate (SPNEGO) authentication"
+    },
+    "--netrc": {
+      "value": "none",
+      "description": "Read credentials from the .netrc file"
+    },
+    "--netrc-file": {
+      "value": "required",
+      "description": "Read credentials from this netrc file"
+    },
+    "--netrc-optional": {
+      "value": "none",
+      "description": "Use .netrc credentials when present without requiring them"
+    },
+    "--next": {
+      "value": "none",
+      "description": "Start a new set of options and URLs"
+    },
+    "--no-alpn": {
+      "value": "none",
+      "description": "Do not offer ALPN"
+    },
+    "--no-append": {
+      "value": "none",
+      "description": "Turn off --append"
+    },
+    "--no-basic": {
+      "value": "none",
+      "description": "Turn off --basic"
+    },
+    "--no-buffer": {
+      "value": "none",
+      "description": "Do not buffer the output stream"
+    },
+    "--no-ca-native": {
+      "value": "none",
+      "description": "Turn off --ca-native"
+    },
+    "--no-cert-status": {
+      "value": "none",
+      "description": "Turn off --cert-status"
+    },
+    "--no-clobber": {
+      "value": "none",
+      "description": "Do not overwrite existing output files"
+    },
+    "--no-compressed": {
+      "value": "none",
+      "description": "Turn off --compressed"
+    },
+    "--no-compressed-ssh": {
+      "value": "none",
+      "description": "Turn off --compressed-ssh"
+    },
+    "--no-create-dirs": {
+      "value": "none",
+      "description": "Turn off --create-dirs"
+    },
+    "--no-crlf": {
+      "value": "none",
+      "description": "Turn off --crlf"
+    },
+    "--no-digest": {
+      "value": "none",
+      "description": "Turn off --digest"
+    },
+    "--no-disable": {
+      "value": "none",
+      "description": "Turn off --disable"
+    },
+    "--no-disable-eprt": {
+      "value": "none",
+      "description": "Turn off --disable-eprt"
+    },
+    "--no-disable-epsv": {
+      "value": "none",
+      "description": "Turn off --disable-epsv"
+    },
+    "--no-disallow-username-in-url": {
+      "value": "none",
+      "description": "Turn off --disallow-username-in-url"
+    },
+    "--no-doh-cert-status": {
+      "value": "none",
+      "description": "Turn off --doh-cert-status"
+    },
+    "--no-doh-insecure": {
+      "value": "none",
+      "description": "Turn off --doh-insecure"
+    },
+    "--no-eprt": {
+      "value": "none",
+      "description": "Do not use EPRT or LPRT for FTP"
+    },
+    "--no-epsv": {
+      "value": "none",
+      "description": "Do not use EPSV for FTP"
+    },
+    "--no-fail": {
+      "value": "none",
+      "description": "Turn off --fail"
+    },
+    "--no-fail-early": {
+      "value": "none",
+      "description": "Turn off --fail-early"
+    },
+    "--no-fail-with-body": {
+      "value": "none",
+      "description": "Turn off --fail-with-body"
+    },
+    "--no-false-start": {
+      "value": "none",
+      "description": "Turn off --false-start"
+    },
+    "--no-form-escape": {
+      "value": "none",
+      "description": "Turn off --form-escape"
+    },
+    "--no-ftp-create-dirs": {
+      "value": "none",
+      "description": "Turn off --ftp-create-dirs"
+    },
+    "--no-ftp-pasv": {
+      "value": "none",
+      "description": "Turn off --ftp-pasv"
+    },
+    "--no-ftp-pret": {
+      "value": "none",
+      "description": "Turn off --ftp-pret"
+    },
+    "--no-ftp-skip-pasv-ip": {
+      "value": "none",
+      "description": "Turn off --ftp-skip-pasv-ip"
+    },
+    "--no-ftp-ssl": {
+      "value": "none",
+      "description": "Turn off --ftp-ssl"
+    },
+    "--no-ftp-ssl-ccc": {
+      "value": "none",
+      "description": "Turn off --ftp-ssl-ccc"
+    },
+    "--no-ftp-ssl-control": {
+      "value": "none",
+      "description": "Turn off --ftp-ssl-control"
+    },
+    "--no-ftp-ssl-reqd": {
+      "value": "none",
+      "description": "Turn off --ftp-ssl-reqd"
+    },
+    "--no-get": {
+      "value": "none",
+      "description": "Turn off --get"
+    },
+    "--no-globoff": {
+      "value": "none",
+      "description": "Turn off --globoff"
+    },
+    "--no-haproxy-protocol": {
+      "value": "none",
+      "description": "Turn off --haproxy-protocol"
+    },
+    "--no-head": {
+      "value": "none",
+      "description": "Turn off --head"
+    },
+    "--no-http0.9": {
+      "value": "none",
+      "description": "Turn off --http0.9"
+    },
+    "--no-ignore-content-length": {
+      "value": "none",
+      "description": "Turn off --ignore-content-length"
+    },
+    "--no-include": {
+      "value": "none",
+      "description": "Turn off --include"
+    },
+    "--no-insecure": {
+      "value": "none",
+      "description": "Turn off --insecure"
+    },
+    "--no-junk-session-cookies": {
+      "value": "none",
+      "description": "Turn off --junk-session-cookies"
+    },
+    "--no-keepalive": {
+      "value": "none",
+      "description": "Do not send TCP keepalive probes"
+    },
+    "--no-list-only": {
+      "value": "none",
+      "description": "Turn off --list-only"
+    },
+    "--no-location": {
+      "value": "none",
+      "description": "Turn off --location"
+    },
+    "--no-location-trusted": {
+      "value": "none",
+      "description": "Turn off --location-trusted"
+    },
+    "--no-mail-rcpt-allowfails": {
+      "value": "none",
+      "description": "Turn off --mail-rcpt-allowfails"
+    },
+    "--no-manual": {
+      "value": "none",
+      "description": "Turn off --manual"
+    },
+    "--no-metalink": {
+      "value": "none",
+      "description": "Turn off --metalink"
+    },
+    "--no-mptcp": {
+      "value": "none",
+      "description": "Turn off --mptcp"
+    },
+    "--no-negotiate": {
+      "value": "none",
+      "description": "Turn off --negotiate"
+    },
+    "--no-netrc": {
+      "value": "none",
+      "description": "Turn off --netrc"
+    },
+    "--no-netrc-optional": {
+      "value": "none",
+      "description": "Turn off --netrc-optional"
+    },
+    "--no-npn": {
+      "value": "none",
+      "description": "Do not offer NPN"
+    },
+    "--no-ntlm": {
+      "value": "none",
+      "description": "Turn off --ntlm"
+    },
+    "--no-ntlm-wb": {
+      "value": "none",
+      "description": "Turn off --ntlm-wb"
+    },
+    "--no-parallel": {
+      "value": "none",
+      "description": "Turn off --parallel"
+    },
+    "--no-parallel-immediate": {
+      "value": "none",
+      "description": "Turn off --parallel-immediate"
+    },
+    "--no-path-as-is": {
+      "value": "none",
+      "description": "Turn off --path-as-is"
+    },
+    "--no-post301": {
+      "value": "none",
+      "description": "Turn off --post301"
+    },
+    "--no-post302": {
+      "value": "none",
+      "description": "Turn off --post302"
+    },
+    "--no-post303": {
+      "value": "none",
+      "description": "Turn off --post303"
+    },
+    "--no-progress-bar": {
+      "value": "none",
+      "description": "Turn off --progress-bar"
+    },
+    "--no-progress-meter": {
+      "value": "none",
+      "description": "Hide the progress meter"
+    },
+    "--no-proxy-anyauth": {
+      "value": "none",
+      "description": "Turn off --proxy-anyauth"
+    },
+    "--no-proxy-basic": {
+      "value": "none",
+      "description": "Turn off --proxy-basic"
+    },
+    "--no-proxy-ca-native": {
+      "value": "none",
+      "description": "Turn off --proxy-ca-native"
+    },
+    "--no-proxy-digest": {
+      "value": "none",
+      "description": "Turn off --proxy-digest"
+    },
+    "--no-proxy-http2": {
+      "value": "none",
+      "description": "Turn off --proxy-http2"
+    },
+    "--no-proxy-insecure": {
+      "value": "none",
+      "description": "Turn off --proxy-insecure"
+    },
+    "--no-proxy-negotiate": {
+      "value": "none",
+      "description": "Turn off --proxy-negotiate"
+    },
+    "--no-proxy-ntlm": {
+      "value": "none",
+      "description": "Turn off --proxy-ntlm"
+    },
+    "--no-proxy-ssl-allow-beast": {
+      "value": "none",
+      "description": "Turn off --proxy-ssl-allow-beast"
+    },
+    "--no-proxy-ssl-auto-client-cert": {
+      "value": "none",
+      "description": "Turn off --proxy-ssl-auto-client-cert"
+    },
+    "--no-proxytunnel": {
+      "value": "none",
+      "description": "Turn off --proxytunnel"
+    },
+    "--no-raw": {
+      "value": "none",
+      "description": "Turn off --raw"
+    },
+    "--no-remote-header-name": {
+      "value": "none",
+      "description": "Turn off --remote-header-name"
+    },
+    "--no-remote-name": {
+      "value": "none",
+      "description": "Turn off --remote-name"
+    },
+    "--no-remote-name-all": {
+      "value": "none",
+      "description": "Turn off --remote-name-all"
+    },
+    "--no-remote-time": {
+      "value": "none",
+      "description": "Turn off --remote-time"
+    },
+    "--no-remove-on-error": {
+      "value": "none",
+      "description": "Turn off --remove-on-error"
+    },
+    "--no-retry-all-errors": {
+      "value": "none",
+      "description": "Turn off --retry-all-errors"
+    },
+    "--no-retry-connrefused": {
+      "value": "none",
+      "description": "Turn off --retry-connrefused"
+    },
+    "--no-sasl-ir": {
+      "value": "none",
+      "description": "Turn off --sasl-ir"
+    },
+    "--no-sessionid": {
+      "value": "none",
+      "description": "Do not reuse TLS session IDs"
+    },
+    "--no-show-error": {
+      "value": "none",
+      "description": "Turn off --show-error"
+    },
+    "--no-show-headers": {
+      "value": "none",
+      "description": "Turn off --show-headers"
+    },
+    "--no-silent": {
+      "value": "none",
+      "description": "Turn off --silent"
+    },
+    "--no-skip-existing": {
+      "value": "none",
+      "description": "Turn off --skip-existing"
+    },
+    "--no-socks5-basic": {
+      "value": "none",
+      "description": "Turn off --socks5-basic"
+    },
+    "--no-socks5-gssapi": {
+      "value": "none",
+      "description": "Turn off --socks5-gssapi"
+    },
+    "--no-socks5-gssapi-nec": {
+      "value": "none",
+      "description": "Turn off --socks5-gssapi-nec"
+    },
+    "--no-ssl": {
+      "value": "none",
+      "description": "Turn off --ssl"
+    },
+    "--no-ssl-allow-beast": {
+      "value": "none",
+      "description": "Turn off --ssl-allow-beast"
+    },
+    "--no-ssl-auto-client-cert": {
+      "value": "none",
+      "description": "Turn off --ssl-auto-client-cert"
+    },
+    "--no-ssl-no-revoke": {
+      "value": "none",
+      "description": "Turn off --ssl-no-revoke"
+    },
+    "--no-ssl-reqd": {
+      "value": "none",
+      "description": "Turn off --ssl-reqd"
+    },
+    "--no-ssl-revoke-best-effort": {
+      "value": "none",
+      "description": "Turn off --ssl-revoke-best-effort"
+    },
+    "--no-styled-output": {
+      "value": "none",
+      "description": "Do not use bold for header names"
+    },
+    "--no-suppress-connect-headers": {
+      "value": "none",
+      "description": "Turn off --suppress-connect-headers"
+    },
+    "--no-tcp-fastopen": {
+      "value": "none",
+      "description": "Turn off --tcp-fastopen"
+    },
+    "--no-tcp-nodelay": {
+      "value": "none",
+      "description": "Turn off --tcp-nodelay"
+    },
+    "--no-test-duphandle": {
+      "value": "none",
+      "description": "Turn off --test-duphandle"
+    },
+    "--no-test-event": {
+      "value": "none",
+      "description": "Turn off --test-event"
+    },
+    "--no-tftp-no-options": {
+      "value": "none",
+      "description": "Turn off --tftp-no-options"
+    },
+    "--no-tls-earlydata": {
+      "value": "none",
+      "description": "Turn off --tls-earlydata"
+    },
+    "--no-tr-encoding": {
+      "value": "none",
+      "description": "Turn off --tr-encoding"
+    },
+    "--no-trace-ids": {
+      "value": "none",
+      "description": "Turn off --trace-ids"
+    },
+    "--no-trace-time": {
+      "value": "none",
+      "description": "Turn off --trace-time"
+    },
+    "--no-use-ascii": {
+      "value": "none",
+      "description": "Turn off --use-ascii"
+    },
+    "--no-verbose": {
+      "value": "none",
+      "description": "Do not show request and response details"
+    },
+    "--no-version": {
+      "value": "none",
+      "description": "Turn off --version"
+    },
+    "--no-wdebug": {
+      "value": "none",
+      "description": "Turn off --wdebug"
+    },
+    "--no-xattr": {
+      "value": "none",
+      "description": "Turn off --xattr"
+    },
+    "--noproxy": {
+      "value": "required",
+      "description": "Do not use a proxy for these hosts, or * for all"
+    },
+    "--npn": {
+      "value": "none",
+      "description": "Offer NPN during the TLS handshake (no longer supported)"
+    },
+    "--ntlm": {
+      "value": "none",
+      "description": "Use HTTP NTLM authentication"
+    },
+    "--ntlm-wb": {
+      "value": "none",
+      "description": "Use NTLM authentication through winbind (no longer supported)"
+    },
+    "--oauth2-bearer": {
+      "value": "required",
+      "description": "Send this OAuth 2.0 bearer token"
+    },
+    "--output": {
+      "value": "required",
+      "description": "Write output to this file instead of standard output"
+    },
+    "--output-dir": {
+      "value": "required",
+      "description": "Write output files into this directory"
+    },
+    "--parallel": {
+      "value": "none",
+      "description": "Perform transfers in parallel"
+    },
+    "--parallel-immediate": {
+      "value": "none",
+      "description": "Prefer starting new parallel transfers over multiplexing"
+    },
+    "--parallel-max": {
+      "value": "required",
+      "description": "Run at most this many transfers in parallel"
+    },
+    "--pass": {
+      "value": "required",
+      "description": "Use this passphrase for the private key"
+    },
+    "--path-as-is": {
+      "value": "none",
+      "description": "Send the URL path without resolving . and .. segments"
+    },
+    "--pinnedpubkey": {
+      "value": "required",
+      "description": "Accept only a server public key matching this file or sha256// hash"
+    },
+    "--post301": {
+      "value": "none",
+      "description": "Keep the POST method when following a 301 redirect"
+    },
+    "--post302": {
+      "value": "none",
+      "description": "Keep the POST method when following a 302 redirect"
+    },
+    "--post303": {
+      "value": "none",
+      "description": "Keep the POST method when following a 303 redirect"
+    },
+    "--preproxy": {
+      "value": "required",
+      "description": "Connect through this SOCKS proxy before the main proxy"
+    },
+    "--progress-bar": {
+      "value": "none",
+      "description": "Show progress as a simple bar"
+    },
+    "--progress-meter": {
+      "value": "none",
+      "description": "Show the progress meter"
+    },
+    "--proto": {
+      "value": "required",
+      "description": "Allow only these protocols, such as =http,https"
+    },
+    "--proto-default": {
+      "value": "required",
+      "description": "Use this protocol for URLs without a scheme"
+    },
+    "--proto-redir": {
+      "value": "required",
+      "description": "Allow only these protocols when following redirects"
+    },
+    "--proxy": {
+      "value": "required",
+      "description": "Use this proxy, such as [protocol://]host[:port]"
+    },
+    "--proxy-anyauth": {
+      "value": "none",
+      "description": "Let curl pick the proxy authentication method"
+    },
+    "--proxy-basic": {
+      "value": "none",
+      "description": "Use Basic authentication with the proxy"
+    },
+    "--proxy-ca-native": {
+      "value": "none",
+      "description": "Trust the operating system's native CA store for the proxy"
+    },
+    "--proxy-cacert": {
+      "value": "required",
+      "description": "Verify the HTTPS proxy with this CA certificate file"
+    },
+    "--proxy-capath": {
+      "value": "required",
+      "description": "Verify the HTTPS proxy with CA certificates in this directory"
+    },
+    "--proxy-cert": {
+      "value": "required",
+      "description": "Use this client certificate for the HTTPS proxy"
+    },
+    "--proxy-cert-type": {
+      "value": "required",
+      "description": "Type of the proxy client certificate: PEM, DER, ENG or P12"
+    },
+    "--proxy-ciphers": {
+      "value": "required",
+      "description": "Use this list of TLS 1.2 and earlier ciphers for the HTTPS proxy"
+    },
+    "--proxy-crlfile": {
+      "value": "required",
+      "description": "Reject HTTPS proxies listed in this certificate revocation list"
+    },
+    "--proxy-digest": {
+      "value": "none",
+      "description": "Use Digest authentication with the proxy"
+    },
+    "--proxy-header": {
+      "value": "required",
+      "description": "Send this extra header to the proxy"
+    },
+    "--proxy-http2": {
+      "value": "none",
+      "description": "Try HTTP/2 with the HTTPS proxy"
+    },
+    "--proxy-insecure": {
+      "value": "none",
+      "description": "Skip TLS certificate verification for the HTTPS proxy"
+    },
+    "--proxy-key": {
+      "value": "required",
+      "description": "Use this private key for the HTTPS proxy"
+    },
+    "--proxy-key-type": {
+      "value": "required",
+      "description": "Type of the proxy private key: PEM, DER or ENG"
+    },
+    "--proxy-negotiate": {
+      "value": "none",
+      "description": "Use Negotiate (SPNEGO) authentication with the proxy"
+    },
+    "--proxy-ntlm": {
+      "value": "none",
+      "description": "Use NTLM authentication with the proxy"
+    },
+    "--proxy-pass": {
+      "value": "required",
+      "description": "Use this passphrase for the proxy private key"
+    },
+    "--proxy-pinnedpubkey": {
+      "value": "required",
+      "description": "Accept only an HTTPS proxy public key matching this file or hash"
+    },
+    "--proxy-service-name": {
+      "value": "required",
+      "description": "Use this SPNEGO service name for the proxy"
+    },
+    "--proxy-ssl-allow-beast": {
+      "value": "none",
+      "description": "Tolerate the BEAST weakness for the HTTPS proxy"
+    },
+    "--proxy-ssl-auto-client-cert": {
+      "value": "none",
+      "description": "Let the TLS backend pick a client certificate for the HTTPS proxy"
+    },
+    "--proxy-tls13-ciphers": {
+      "value": "required",
+      "description": "Use this list of TLS 1.3 ciphersuites for the HTTPS proxy"
+    },
+    "--proxy-tlsauthtype": {
+      "value": "required",
+      "description": "Use this TLS authentication type for the HTTPS proxy"
+    },
+    "--proxy-tlspassword": {
+      "value": "required",
+      "description": "Use this TLS-SRP password for the HTTPS proxy"
+    },
+    "--proxy-tlsuser": {
+      "value": "required",
+      "description": "Use this TLS-SRP user name for the HTTPS proxy"
+    },
+    "--proxy-tlsv1": {
+      "value": "none",
+      "description": "Use TLS 1.x with the HTTPS proxy"
+    },
+    "--proxy-user": {
+      "value": "required",
+      "description": "Authenticate to the proxy as user:password"
+    },
+    "--proxy1.0": {
+      "value": "required",
+      "description": "Use this HTTP/1.0 proxy"
+    },
+    "--proxytunnel": {
+      "value": "none",
+      "description": "Tunnel through the proxy with CONNECT"
+    },
+    "--pubkey": {
+      "value": "required",
+      "description": "Use this SSH public key file"
+    },
+    "--quote": {
+      "value": "required",
+      "description": "Send this command to the FTP or SFTP server before the transfer"
+    },
+    "--random-file": {
+      "value": "required",
+      "description": "Seed the random generator from this file"
+    },
+    "--range": {
+      "value": "required",
+      "description": "Fetch only this byte range, such as 0-499"
+    },
+    "--rate": {
+      "value": "required",
+      "description": "Start at most this many transfers per time unit, such as 10/m"
+    },
+    "--raw": {
+      "value": "none",
+      "description": "Pass HTTP content through without content or transfer decoding"
+    },
+    "--referer": {
+      "value": "required",
+      "description": "Send this Referer header; ;auto sets it when following redirects"
+    },
+    "--remote-header-name": {
+      "value": "none",
+      "description": "Name the output file from the Content-Disposition header"
+    },
+    "--remote-name": {
+      "value": "none",
+      "description": "Name the output file after the remote file"
+    },
+    "--remote-name-all": {
+      "value": "none",
+      "description": "Apply --remote-name to every URL"
+    },
+    "--remote-time": {
+      "value": "none",
+      "description": "Set the local file's timestamp from the remote file"
+    },
+    "--remove-on-error": {
+      "value": "none",
+      "description": "Delete the output file when the transfer fails"
+    },
+    "--request": {
+      "value": "required",
+      "description": "Use this request method, such as PUT or DELETE"
+    },
+    "--request-target": {
+      "value": "required",
+      "description": "Send this request target instead of the URL path"
+    },
+    "--resolve": {
+      "value": "required",
+      "description": "Use this address for HOST:PORT, such as example.com:443:127.0.0.1"
+    },
+    "--retry": {
+      "value": "required",
+      "description": "Retry a failed transfer this many times"
+    },
+    "--retry-all-errors": {
+      "value": "none",
+      "description": "Retry on any error, not only transient ones"
+    },
+    "--retry-connrefused": {
+      "value": "none",
+      "description": "Also retry when the connection is refused"
+    },
+    "--retry-delay": {
+      "value": "required",
+      "description": "Wait this many seconds between retries"
+    },
+    "--retry-max-time": {
+      "value": "required",
+      "description": "Retry only for this many seconds in total"
+    },
+    "--sasl-authzid": {
+      "value": "required",
+      "description": "Use this SASL authorization identity"
+    },
+    "--sasl-ir": {
+      "value": "none",
+      "description": "Send the initial SASL response immediately"
+    },
+    "--service-name": {
+      "value": "required",
+      "description": "Use this SPNEGO service name"
+    },
+    "--sessionid": {
+      "value": "none",
+      "description": "Reuse TLS session IDs"
+    },
+    "--show-error": {
+      "value": "none",
+      "description": "Show an error message even when silent"
+    },
+    "--show-headers": {
+      "value": "none",
+      "description": "Include response headers in the output"
+    },
+    "--sigalgs": {
+      "value": "required",
+      "description": "Use these TLS signature algorithms"
+    },
+    "--silent": {
+      "value": "none",
+      "description": "Silent mode; hide progress and errors"
+    },
+    "--skip-existing": {
+      "value": "none",
+      "description": "Skip downloads whose local file already exists"
+    },
+    "--socks4": {
+      "value": "required",
+      "description": "Use this SOCKS4 proxy"
+    },
+    "--socks4a": {
+      "value": "required",
+      "description": "Use this SOCKS4a proxy"
+    },
+    "--socks5": {
+      "value": "required",
+      "description": "Use this SOCKS5 proxy, resolving names locally"
+    },
+    "--socks5-basic": {
+      "value": "none",
+      "description": "Use user name and password authentication with the SOCKS5 proxy"
+    },
+    "--socks5-gssapi": {
+      "value": "none",
+      "description": "Use GSS-API authentication with the SOCKS5 proxy"
+    },
+    "--socks5-gssapi-nec": {
+      "value": "none",
+      "description": "Use the NEC variant of SOCKS5 GSS-API protection negotiation"
+    },
+    "--socks5-gssapi-service": {
+      "value": "required",
+      "description": "Use this service name for SOCKS5 GSS-API"
+    },
+    "--socks5-hostname": {
+      "value": "required",
+      "description": "Use this SOCKS5 proxy, resolving names on the proxy"
+    },
+    "--speed-limit": {
+      "value": "required",
+      "description": "Abort when the speed stays below this many bytes per second"
+    },
+    "--speed-time": {
+      "value": "required",
+      "description": "Apply --speed-limit over this many seconds"
+    },
+    "--ssl": {
+      "value": "none",
+      "description": "Try TLS and continue without it if refused"
+    },
+    "--ssl-allow-beast": {
+      "value": "none",
+      "description": "Tolerate the BEAST weakness in TLS"
+    },
+    "--ssl-auto-client-cert": {
+      "value": "none",
+      "description": "Let the TLS backend pick a client certificate"
+    },
+    "--ssl-no-revoke": {
+      "value": "none",
+      "description": "Skip certificate revocation checks (Schannel)"
+    },
+    "--ssl-reqd": {
+      "value": "none",
+      "description": "Require TLS"
+    },
+    "--ssl-revoke-best-effort": {
+      "value": "none",
+      "description": "Ignore missing or offline revocation lists (Schannel)"
+    },
+    "--ssl-sessions": {
+      "value": "required",
+      "description": "Load and save TLS session tickets in this file"
+    },
+    "--sslv2": {
+      "value": "none",
+      "description": "Use SSLv2 (no longer supported)"
+    },
+    "--sslv3": {
+      "value": "none",
+      "description": "Use SSLv3 (no longer supported)"
+    },
+    "--stderr": {
+      "value": "required",
+      "description": "Write error output to this file; - means standard output"
+    },
+    "--styled-output": {
+      "value": "none",
+      "description": "Use bold for header names in terminal output"
+    },
+    "--suppress-connect-headers": {
+      "value": "none",
+      "description": "Hide the proxy CONNECT response headers"
+    },
+    "--tcp-fastopen": {
+      "value": "none",
+      "description": "Use TCP Fast Open"
+    },
+    "--tcp-nodelay": {
+      "value": "none",
+      "description": "Set TCP_NODELAY on the connection"
+    },
+    "--telnet-option": {
+      "value": "required",
+      "description": "Set a telnet option, such as TTYPE=vt100"
+    },
+    "--test-duphandle": {
+      "value": "none",
+      "description": "Duplicate the transfer handle before use (testing only)"
+    },
+    "--test-event": {
+      "value": "none",
+      "description": "Use the event-based API (testing only)"
+    },
+    "--tftp-blksize": {
+      "value": "required",
+      "description": "Use this TFTP block size"
+    },
+    "--tftp-no-options": {
+      "value": "none",
+      "description": "Do not send TFTP option requests"
+    },
+    "--time-cond": {
+      "value": "required",
+      "description": "Transfer only when the remote file is newer or older than this time or file"
+    },
+    "--tls-earlydata": {
+      "value": "none",
+      "description": "Send TLS 1.3 early data"
+    },
+    "--tls-max": {
+      "value": "required",
+      "description": "Use at most this TLS version: 1.0, 1.1, 1.2 or 1.3"
+    },
+    "--tls13-ciphers": {
+      "value": "required",
+      "description": "Use this list of TLS 1.3 ciphersuites"
+    },
+    "--tlsauthtype": {
+      "value": "required",
+      "description": "Use this TLS authentication type, such as SRP"
+    },
+    "--tlspassword": {
+      "value": "required",
+      "description": "Use this TLS-SRP password"
+    },
+    "--tlsuser": {
+      "value": "required",
+      "description": "Use this TLS-SRP user name"
+    },
+    "--tlsv1": {
+      "value": "none",
+      "description": "Use TLS 1.x"
+    },
+    "--tlsv1.0": {
+      "value": "none",
+      "description": "Use at least TLS 1.0"
+    },
+    "--tlsv1.1": {
+      "value": "none",
+      "description": "Use at least TLS 1.1"
+    },
+    "--tlsv1.2": {
+      "value": "none",
+      "description": "Use at least TLS 1.2"
+    },
+    "--tlsv1.3": {
+      "value": "none",
+      "description": "Use at least TLS 1.3"
+    },
+    "--tr-encoding": {
+      "value": "none",
+      "description": "Request a compressed transfer encoding and decode it"
+    },
+    "--trace": {
+      "value": "required",
+      "description": "Write a full trace of all traffic to this file"
+    },
+    "--trace-ascii": {
+      "value": "required",
+      "description": "Write an ASCII trace of all traffic to this file"
+    },
+    "--trace-config": {
+      "value": "required",
+      "description": "Choose the trace components, such as all or ids,time"
+    },
+    "--trace-ids": {
+      "value": "none",
+      "description": "Add transfer and connection ids to trace output"
+    },
+    "--trace-time": {
+      "value": "none",
+      "description": "Add timestamps to trace output"
+    },
+    "--unix-socket": {
+      "value": "required",
+      "description": "Connect through this Unix domain socket"
+    },
+    "--upload-file": {
+      "value": "required",
+      "description": "Upload this local file to the URL"
+    },
+    "--upload-flags": {
+      "value": "required",
+      "description": "Set IMAP upload flags, such as Seen or Answered"
+    },
+    "--url": {
+      "value": "required",
+      "description": "Transfer this URL"
+    },
+    "--url-query": {
+      "value": "required",
+      "description": "Append this URL-encoded query parameter to the URL"
+    },
+    "--use-ascii": {
+      "value": "none",
+      "description": "Transfer in ASCII mode"
+    },
+    "--user": {
+      "value": "required",
+      "description": "Authenticate as user:password"
+    },
+    "--user-agent": {
+      "value": "required",
+      "description": "Send this User-Agent header"
+    },
+    "--variable": {
+      "value": "required",
+      "description": "Define a variable as name=value or name@file"
+    },
+    "--verbose": {
+      "value": "none",
+      "description": "Show request and response details"
+    },
+    "--version": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "--vlan-priority": {
+      "value": "required",
+      "description": "Set the VLAN priority of outgoing packets"
+    },
+    "--wdebug": {
+      "value": "none",
+      "description": "Enable debug output for the Watt-32 stack"
+    },
+    "--write-out": {
+      "value": "required",
+      "description": "Print this format string after the transfer, such as %{http_code}"
+    },
+    "--xattr": {
+      "value": "none",
+      "description": "Store metadata in the output file's extended attributes"
+    },
+    "-0": {
+      "value": "none",
+      "description": "Use HTTP/1.0"
+    },
+    "-1": {
+      "value": "none",
+      "description": "Use TLS 1.x"
+    },
+    "-2": {
+      "value": "none",
+      "description": "Use SSLv2 (no longer supported)"
+    },
+    "-3": {
+      "value": "none",
+      "description": "Use SSLv3 (no longer supported)"
+    },
+    "-4": {
+      "value": "none",
+      "description": "Resolve names to IPv4 addresses only"
+    },
+    "-6": {
+      "value": "none",
+      "description": "Resolve names to IPv6 addresses only"
+    },
+    "-:": {
+      "value": "none",
+      "description": "Start a new set of options and URLs"
+    },
+    "-A": {
+      "value": "required",
+      "description": "Send this User-Agent header"
+    },
+    "-B": {
+      "value": "none",
+      "description": "Transfer in ASCII mode"
+    },
+    "-C": {
+      "value": "required",
+      "description": "Resume a transfer at this byte offset, or - to detect it"
+    },
+    "-D": {
+      "value": "required",
+      "description": "Write received headers to this file"
+    },
+    "-E": {
+      "value": "required",
+      "description": "Use this client certificate file and optional password"
+    },
+    "-F": {
+      "value": "required",
+      "description": "Add a multipart form field; @ reads a file, < reads content"
+    },
+    "-G": {
+      "value": "none",
+      "description": "Send the data with GET instead of POST"
+    },
+    "-H": {
+      "value": "required",
+      "description": "Send this extra header; @ reads headers from a file"
+    },
+    "-I": {
+      "value": "none",
+      "description": "Fetch headers only with a HEAD request"
+    },
+    "-J": {
+      "value": "none",
+      "description": "Name the output file from the Content-Disposition header"
+    },
+    "-K": {
+      "value": "required",
+      "description": "Read options from this file"
+    },
+    "-L": {
+      "value": "none",
+      "description": "Follow HTTP redirects"
+    },
+    "-M": {
+      "value": "none",
+      "description": "Show the full manual"
+    },
+    "-N": {
+      "value": "none",
+      "description": "Do not buffer the output stream"
+    },
+    "-O": {
+      "value": "none",
+      "description": "Name the output file after the remote file"
+    },
+    "-P": {
+      "value": "required",
+      "description": "Use active FTP with this local address or interface"
+    },
+    "-Q": {
+      "value": "required",
+      "description": "Send this command to the FTP or SFTP server before the transfer"
+    },
+    "-R": {
+      "value": "none",
+      "description": "Set the local file's timestamp from the remote file"
+    },
+    "-S": {
+      "value": "none",
+      "description": "Show an error message even when silent"
+    },
+    "-T": {
+      "value": "required",
+      "description": "Upload this local file to the URL"
+    },
+    "-U": {
+      "value": "required",
+      "description": "Authenticate to the proxy as user:password"
+    },
+    "-V": {
+      "value": "none",
+      "description": "Show version information and exit"
+    },
+    "-X": {
+      "value": "required",
+      "description": "Use this request method, such as PUT or DELETE"
+    },
+    "-Y": {
+      "value": "required",
+      "description": "Abort when the speed stays below this many bytes per second"
+    },
+    "-Z": {
+      "value": "none",
+      "description": "Perform transfers in parallel"
+    },
+    "-a": {
+      "value": "none",
+      "description": "Append to the target file when uploading"
+    },
+    "-b": {
+      "value": "required",
+      "description": "Send these cookies from a string or file"
+    },
+    "-c": {
+      "value": "required",
+      "description": "Write received cookies to this file after the transfer"
+    },
+    "-d": {
+      "value": "required",
+      "description": "Send this data in an HTTP POST"
+    },
+    "-e": {
+      "value": "required",
+      "description": "Send this Referer header; ;auto sets it when following redirects"
+    },
+    "-f": {
+      "value": "none",
+      "description": "Fail silently on HTTP errors without output"
+    },
+    "-g": {
+      "value": "none",
+      "description": "Treat {} and [] in URLs literally"
+    },
+    "-h": {
+      "value": "required",
+      "description": "Show help for all options or a category"
+    },
+    "-i": {
+      "value": "none",
+      "description": "Include response headers in the output"
+    },
+    "-j": {
+      "value": "none",
+      "description": "Discard session cookies read from a file"
+    },
+    "-k": {
+      "value": "none",
+      "description": "Skip TLS certificate verification"
+    },
+    "-l": {
+      "value": "none",
+      "description": "List names only when listing directories"
+    },
+    "-m": {
+      "value": "required",
+      "description": "Give up the whole transfer after this many seconds"
+    },
+    "-n": {
+      "value": "none",
+      "description": "Read credentials from the .netrc file"
+    },
+    "-o": {
+      "value": "required",
+      "description": "Write output to this file instead of standard output"
+    },
+    "-p": {
+      "value": "none",
+      "description": "Tunnel through the proxy with CONNECT"
+    },
+    "-q": {
+      "value": "none",
+      "description": "Do not read the default curlrc file"
+    },
+    "-r": {
+      "value": "required",
+      "description": "Fetch only this byte range, such as 0-499"
+    },
+    "-s": {
+      "value": "none",
+      "description": "Silent mode; hide progress and errors"
+    },
+    "-t": {
+      "value": "required",
+      "description": "Set a telnet option, such as TTYPE=vt100"
+    },
+    "-u": {
+      "value": "required",
+      "description": "Authenticate as user:password"
+    },
+    "-v": {
+      "value": "none",
+      "description": "Show request and response details"
+    },
+    "-w": {
+      "value": "required",
+      "description": "Print this format string after the transfer, such as %{http_code}"
+    },
+    "-x": {
+      "value": "required",
+      "description": "Use this proxy, such as [protocol://]host[:port]"
+    },
+    "-y": {
+      "value": "required",
+      "description": "Apply --speed-limit over this many seconds"
+    },
+    "-z": {
+      "value": "required",
+      "description": "Transfer only when the remote file is newer or older than this time or file"
+    }
   },
   "unsupportedFlags": [
     "--help",

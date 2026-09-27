@@ -227,7 +227,10 @@ impl FileCallFacts {
         let mut functions_by_scope: FxHashMap<ScopeId, Vec<(CallFunctionId, Span)>> =
             FxHashMap::default();
         let mut definitions = Vec::new();
-        for binding in model.function_definition_bindings() {
+        for binding in model
+            .function_definition_bindings()
+            .chain(model.autoloaded_function_bindings())
+        {
             let definition = CallFactDefinition {
                 name: binding.name.clone(),
                 def_span: binding_definition_span(binding),
