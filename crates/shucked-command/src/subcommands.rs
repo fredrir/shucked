@@ -355,7 +355,7 @@ fn detach_terminal(command: &mut Command) {
         command.pre_exec(|| {
             let tty = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_NOCTTY);
             if tty >= 0 {
-                libc::ioctl(tty, libc::TIOCNOTTY);
+                libc::ioctl(tty, libc::TIOCNOTTY as _);
                 libc::close(tty);
             }
             Ok(())
