@@ -16,7 +16,11 @@ struct PatternCursor {
 }
 
 enum PatternSegment<'a> {
-    Literal { text: &'a str, span: Span },
+    Literal {
+        text: &'a str,
+        span: Span,
+        cooked: bool,
+    },
     Word(&'a WordPartNode),
 }
 
@@ -93,10 +97,9 @@ impl<'a> PatternParser<'a> {
 
         for part in parts {
             match &part.kind {
-                WordPart::Literal(text) => segments.push(PatternSegment::Literal {
-                    text: text.as_str(input, part.span),
-                    span: part.span,
-                }),
+                WordPart::Literal(text) => {
+                    segments.push(Self::literal_segment(input, text, part.span))
+                }
                 _ => segments.push(PatternSegment::Word(part)),
             }
         }
@@ -107,6 +110,18 @@ impl<'a> PatternParser<'a> {
             full_span,
             features,
             allow_prefixed_bare_groups_without_ksh,
+        }
+    }
+
+    fn literal_segment(input: &'a str, text: &'a LiteralText, span: Span) -> PatternSegment<'a> {
+        let value = text.as_str(input, span);
+        let syntax = text.syntax_str(input, span);
+        // Pattern escapes are syntax, so parse cooked `\$`, `\`` and `\\` as written.
+        let cooked = syntax != value && unescape_expansion_literals(syntax) == value;
+        PatternSegment::Literal {
+            text: if cooked { syntax } else { value },
+            span,
+            cooked,
         }
     }
 
@@ -677,11 +692,27 @@ impl<'a> PatternParser<'a> {
     }
 
     fn literal_text(&self, span: Span, text: String) -> LiteralText {
-        if self.source_matches(span, &text) {
-            LiteralText::source()
-        } else {
-            LiteralText::owned(text)
+        if !self.source_matches(span, &text) {
+            return LiteralText::owned(text);
         }
+        if self.overlaps_cooked_literal(span) {
+            let value = unescape_expansion_literals(&text);
+            if value != text {
+                return LiteralText::cooked_source(value);
+            }
+        }
+        LiteralText::source()
+    }
+
+    fn overlaps_cooked_literal(&self, span: Span) -> bool {
+        self.segments.iter().any(|segment| {
+            matches!(
+                segment,
+                PatternSegment::Literal { span: segment_span, cooked: true, .. }
+                    if segment_span.start.offset() < span.end.offset()
+                        && span.start.offset() < segment_span.end.offset()
+            )
+        })
     }
 
     fn source_text(&self, span: Span, text: String) -> SourceText {
@@ -697,6 +728,22 @@ impl<'a> PatternParser<'a> {
             && span.end.offset() <= self.input.len()
             && span.slice(self.input) == text
     }
+}
+
+fn unescape_expansion_literals(text: &str) -> String {
+    let mut value = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\'
+            && let Some(&escaped @ ('$' | '`' | '\\')) = chars.peek()
+        {
+            value.push(escaped);
+            chars.next();
+            continue;
+        }
+        value.push(ch);
+    }
+    value
 }
 
 fn word_part_has_zsh_syntax_comma(part: &WordPart, comma_offset: usize) -> bool {

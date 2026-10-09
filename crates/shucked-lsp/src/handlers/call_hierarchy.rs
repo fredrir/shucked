@@ -63,11 +63,7 @@ pub(crate) fn prepare_call_hierarchy(
                 selection_span: Some(target.definition.selection_span),
                 call_spans: vec![call.name_span],
             };
-            let mut item = item_for(&built, &target)?;
-            if resolution.exact().is_none() {
-                item.detail = Some("Possible workspace binding".into());
-            }
-            Some(item)
+            item_for(&built, &target)
         })
         .collect::<Vec<_>>();
     if !items.is_empty() {

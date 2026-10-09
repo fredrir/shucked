@@ -276,6 +276,7 @@ impl<'a> Parser<'a> {
                 args: SmallVec::new(),
                 redirects,
                 assignments,
+                arithmetic_args: Vec::new(),
                 span: start_span.merge(self.current_span),
             }));
         }
@@ -286,12 +287,14 @@ impl<'a> Parser<'a> {
 
         let name = words.remove(0);
         let args = words;
+        let arithmetic_args = self.let_arithmetic_args(&name, &args);
 
         Ok(Some(SimpleCommand {
             name,
             args,
             redirects,
             assignments,
+            arithmetic_args,
             span: start_span.merge(self.current_span),
         }))
     }

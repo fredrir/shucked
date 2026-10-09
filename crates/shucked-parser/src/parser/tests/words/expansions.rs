@@ -1895,6 +1895,24 @@ fn test_parameter_replacement_pattern_keeps_escaped_dollar_literal() {
 }
 
 #[test]
+fn test_parameter_replacement_pattern_spans_cover_escaped_expansion_literals() {
+    let input = r#"echo ${d//[\$]x\$y/z}"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let (_, operator, _) = expect_parameter_operation_part(&command.args[0].parts[0].kind);
+    let ParameterOp::ReplaceAll { pattern, .. } = operator else {
+        panic!("expected replace-all operator");
+    };
+
+    assert_eq!(pattern_part_slices(pattern, input), vec![r"[\$]", r"x\$y"]);
+    assert!(matches!(pattern.parts[0].kind, PatternPart::CharClass(_)));
+    assert_eq!(pattern.render(input), r"[\$]x$y");
+}
+
+#[test]
 fn test_parameter_replacement_word_keeps_escaped_single_quotes_literal() {
     let input = r#"echo ${dest_dir//\'/\'\\\'\'}"#;
     let script = Parser::new(input).parse().unwrap().file;

@@ -164,6 +164,9 @@ impl<'a> Parser<'a> {
                 Self::rebase_word(&mut simple.name, base);
                 Self::rebase_words(&mut simple.args, base);
                 Self::rebase_assignments(&mut simple.assignments, base);
+                for argument in &mut simple.arithmetic_args {
+                    Self::rebase_arithmetic_expr(&mut argument.expression, base);
+                }
             }
             AstCommand::Builtin(builtin) => match builtin {
                 AstBuiltinCommand::Break(command) => {

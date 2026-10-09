@@ -247,3 +247,63 @@ fn test_parse_coproc_with_non_plain_name_candidate_defaults_to_coproc_name() {
     assert_eq!(simple.name.render_syntax(source), "'roc'");
     assert_eq!(simple.args[0].render(source), "cat");
 }
+
+fn arithmetic_arg_slices<'a>(command: &AstSimpleCommand, input: &'a str) -> Vec<(usize, &'a str)> {
+    command
+        .arithmetic_args
+        .iter()
+        .map(|argument| (argument.arg_index, argument.expression.span.slice(input)))
+        .collect()
+}
+
+#[test]
+fn test_parse_let_operands_as_arithmetic() {
+    let input = r#"let "y = c5 + 1" 'z += y' a=c5 b=a+1"#;
+    for dialect in [ShellDialect::Bash, ShellDialect::Zsh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+        let command = expect_simple(&script.body[0]);
+
+        assert_eq!(command.args.len(), 4);
+        assert_eq!(
+            arithmetic_arg_slices(command, input),
+            vec![(0, "y = c5 + 1"), (1, "z += y"), (2, "a=c5"), (3, "b=a+1")]
+        );
+        let ArithmeticExpr::Assignment { target, value, .. } =
+            &command.arithmetic_args[0].expression.kind
+        else {
+            panic!("expected arithmetic assignment");
+        };
+        assert!(matches!(target, ArithmeticLvalue::Variable(name) if name == "y"));
+        let ArithmeticExpr::Binary { left, .. } = &value.kind else {
+            panic!("expected binary value");
+        };
+        expect_variable(left, "c5");
+    }
+}
+
+#[test]
+fn test_parse_zsh_let_operand_hash_name() {
+    let input = r#"let "y = #c1""#;
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+    let command = expect_simple(&script.body[0]);
+    let ArithmeticExpr::Assignment { value, .. } = &command.arithmetic_args[0].expression.kind
+    else {
+        panic!("expected arithmetic assignment");
+    };
+    expect_zsh_char_code(value, input, "c1");
+}
+
+#[test]
+fn test_parse_let_skips_operands_that_are_not_arithmetic() {
+    let input = "let -- y=1 \"\" y=1+\necho z=1\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    assert_eq!(
+        arithmetic_arg_slices(expect_simple(&script.body[0]), input),
+        vec![(1, "y=1")]
+    );
+    assert!(expect_simple(&script.body[1]).arithmetic_args.is_empty());
+}

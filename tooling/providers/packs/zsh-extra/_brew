@@ -3111,7 +3111,6 @@ _brew() {
       local completion_func="_brew_${command//-/_}"
       _call_function ret "${completion_func}" && return ret
 
-      _message "a completion function is not defined for command or alias: ${command_or_alias}"
       return 1
     ;;
   esac

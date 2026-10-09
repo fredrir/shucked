@@ -52,13 +52,13 @@ use smallvec::SmallVec;
 use zsh_prescan::ZshOptionTimeline;
 
 use shucked_ast::{
-    AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticCommand,
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticForCommand,
-    ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment, AssignmentValue,
-    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceExpansionKind,
-    BraceQuoteContext, BraceSyntax, BraceSyntaxKind, BreakCommand as AstBreakCommand,
-    BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem, CaseTerminator,
-    Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
+    AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticArg,
+    ArithmeticCommand, ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode,
+    ArithmeticForCommand, ArithmeticLvalue, ArrayElem, ArrayExpr, ArrayKind, Assignment,
+    AssignmentValue, BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion,
+    BraceExpansionKind, BraceQuoteContext, BraceSyntax, BraceSyntaxKind,
+    BreakCommand as AstBreakCommand, BuiltinCommand as AstBuiltinCommand, CaseCommand, CaseItem,
+    CaseTerminator, Command as AstCommand, CommandSubstitutionSyntax, Comment, CompoundCommand,
     ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand, ConditionalExpr,
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,

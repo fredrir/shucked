@@ -255,11 +255,6 @@ fn conditional_definitions_return_all_candidates_and_keep_rename_strict() {
     .unwrap()
     .unwrap();
     assert_eq!(items.len(), 2);
-    assert!(
-        items
-            .iter()
-            .all(|item| item.detail.as_deref() == Some("Possible workspace binding"))
-    );
 }
 
 #[test]

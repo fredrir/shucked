@@ -5,9 +5,10 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         &mut self,
         name: &Name,
         normalized: &NormalizedCommand<'a>,
-        command_span: Span,
+        command: &'a shucked_ast::SimpleCommand,
         flow: FlowState,
     ) {
+        let command_span = command.span;
         let args = normalized.body_args();
         let name_span = normalized.body_word_span().unwrap_or(command_span);
         match name.as_str() {
@@ -192,7 +193,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
                     self.add_reference_if_bound(&argument, ReferenceKind::ImplicitRead, span);
                 }
             }
-            "let" => self.record_let_arithmetic_assignment_targets(args),
+            "let" => self.record_let_arithmetic_assignment_targets(args, command),
             "eval" => self.record_eval_argument_references(args),
             "trap" => self.record_trap_action_references(args),
             "autoload"
@@ -289,8 +290,18 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         }
     }
 
-    pub(super) fn record_let_arithmetic_assignment_targets(&mut self, args: &[&'a Word]) {
-        for argument in args {
+    pub(super) fn record_let_arithmetic_assignment_targets(
+        &mut self,
+        args: &[&'a Word],
+        command: &'a shucked_ast::SimpleCommand,
+    ) {
+        let has_parsed_expression = |word: &Word| {
+            command
+                .arithmetic_args
+                .iter()
+                .any(|argument| command.args[argument.arg_index].span == word.span)
+        };
+        for argument in args.iter().filter(|word| !has_parsed_expression(word)) {
             let Some((name, span)) = let_arithmetic_assignment_target(argument, self.source) else {
                 continue;
             };

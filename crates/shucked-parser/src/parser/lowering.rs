@@ -121,6 +121,7 @@ impl<'a> Parser<'a> {
                     name: command.name,
                     args: command.args.into_vec(),
                     assignments: command.assignments.into_boxed_slice(),
+                    arithmetic_args: command.arithmetic_args.into_boxed_slice(),
                     span: command.span,
                 }),
                 negated: false,

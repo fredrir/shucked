@@ -325,9 +325,9 @@ where
 
             let detail = custom_detail.or_else(|| {
                 Some(if sourced.is_some_and(|s| s.possible) {
-                    "Function (possible workspace binding)".to_owned()
+                    "Function".to_owned()
                 } else if sourced.is_some() {
-                    "Function (sourced)".to_owned()
+                    "Function".to_owned()
                 } else {
                     completion_kind_label(completion.kind).to_owned()
                 })

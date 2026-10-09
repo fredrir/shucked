@@ -51,6 +51,7 @@ enum TokenKind {
     Decrement,
     Bang,
     Tilde,
+    Hash,
     Ident(Name),
     Number(SourceText),
     ShellWord(Word),
@@ -318,6 +319,10 @@ impl<'a> ArithmeticParser<'a> {
                 kind: TokenKind::Tilde,
                 span,
             } => (ArithmeticUnaryOp::BitwiseNot, *span),
+            Token {
+                kind: TokenKind::Hash,
+                span,
+            } => (ArithmeticUnaryOp::ZshCharCode, *span),
             _ => return self.parse_postfix(),
         };
         self.next_token()?;
@@ -526,11 +531,10 @@ impl<'a> ArithmeticParser<'a> {
             self.lex_number(start)?
         } else if ch == '#'
             && self.dialect == ShellDialect::Zsh
-            && self
-                .char_at(start + 1)
-                .is_some_and(|next| !next.is_whitespace())
+            && let Some(next) = self.char_at(start + 1)
+            && !next.is_whitespace()
         {
-            self.lex_zsh_char_literal(start)
+            self.lex_zsh_hash(start, next)
         } else {
             match ch {
                 '(' => self.simple_token(start, ch.len_utf8(), TokenKind::LeftParen),
@@ -703,16 +707,32 @@ impl<'a> ArithmeticParser<'a> {
         })
     }
 
-    fn lex_zsh_char_literal(&mut self, start: usize) -> Token {
-        let Some(next) = self.char_at(start + 1) else {
-            unreachable!("zsh char literal requires a following character");
+    fn lex_zsh_hash(&mut self, start: usize, next: char) -> Token {
+        if is_ident_start(next) {
+            return self.simple_token(start, '#'.len_utf8(), TokenKind::Hash);
+        }
+
+        // `##x` and the deprecated `#\x` are character literals.
+        let end = if matches!(next, '#' | '\\') {
+            self.zsh_char_literal_key_end(start + 2)
+        } else {
+            start + 1 + next.len_utf8()
         };
-        let end = start + 1 + next.len_utf8();
         self.index = end;
         Token {
             kind: TokenKind::Number(SourceText::source(self.span_for(start, end))),
             span: self.span_for(start, end),
         }
+    }
+
+    fn zsh_char_literal_key_end(&self, mut index: usize) -> usize {
+        while self.input[index..].starts_with("\\M-") || self.input[index..].starts_with("\\C-") {
+            index += 3;
+        }
+        if matches!(self.char_at(index), Some('\\' | '^')) {
+            index += 1;
+        }
+        index + self.char_at(index).map_or(0, char::len_utf8)
     }
 
     fn lex_shell_word(&mut self, start: usize) -> Result<Token> {

@@ -1851,7 +1851,8 @@ pub(crate) fn collect_arithmetic_update_operator_spans(
                         ArithmeticUnaryOp::Plus
                         | ArithmeticUnaryOp::Minus
                         | ArithmeticUnaryOp::LogicalNot
-                        | ArithmeticUnaryOp::BitwiseNot => unreachable!(),
+                        | ArithmeticUnaryOp::BitwiseNot
+                        | ArithmeticUnaryOp::ZshCharCode => unreachable!(),
                     },
                     true,
                 ));

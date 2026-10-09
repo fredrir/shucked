@@ -2504,6 +2504,77 @@ print hidden &!
     assert_unchanged_with_ast(source, Some(Path::new("script.zsh")), &options);
 }
 
+#[test]
+fn preserves_escaped_expansion_literals_inside_pattern_bracket_expressions() {
+    let source = r#"if [[ $byte == [A-Za-z0-9\;/?:@\&=+\$,_.\!\~\*\(\)-] ]]; then :; fi
+if [[ $b == [\$] || $b == [a\$]x || $b == [\`]y || $b == [\\]z || $b == a\\*b ]]; then :; fi
+case $b in
+[\$]) : ;;
+x\$[ab] | [\`\\]) : ;;
+esac
+print ${b//[\$]x/y} ${b#[\$\`]*}
+"#;
+    for (dialect, path) in [
+        (ShellDialect::Bash, "script.bash"),
+        (ShellDialect::Zsh, "script.zsh"),
+    ] {
+        let options = ShellFormatOptions::default().with_dialect(dialect);
+        assert_unchanged_with_ast(source, Some(Path::new(path)), &options);
+    }
+}
+
+#[test]
+fn zsh_arithmetic_hash_char_codes_round_trip_without_parentheses() {
+    let source = r#"((chunk = #c1 << 16))
+print $((#c % $1 + 1)) $(((${#c2} ? #c2 : 0))) $((-#p + (#q) * (~#r))) $((##x + #\y)) ${arr[#c-64]}
+for ((i = #c3; i < 90; i++)); do print $i; done
+"#;
+    let options = ShellFormatOptions::default().with_dialect(ShellDialect::Zsh);
+
+    assert_unchanged_with_ast(source, Some(Path::new("script.zsh")), &options);
+    assert_formats_to(
+        "print $((#c%$1+1))\n",
+        Some(Path::new("script.zsh")),
+        &options,
+        "print $((#c % $1 + 1))\n",
+    );
+}
+
+#[test]
+fn let_operands_round_trip_unchanged() {
+    let source = r#"let "y = c5 + 1" 'z += y' a=c5 b=a+1
+let "y = (c5 > 0 ? c5 : 0), z = y"
+let y="$c5"+1 "arr[c5] = 1" i++
+"#;
+    for (dialect, path) in [
+        (ShellDialect::Bash, "script.bash"),
+        (ShellDialect::Zsh, "script.zsh"),
+    ] {
+        let options = ShellFormatOptions::default().with_dialect(dialect);
+        assert_unchanged_with_ast(source, Some(Path::new(path)), &options);
+    }
+}
+
+#[test]
+fn shift_operators_are_spaced_like_other_binary_operators() {
+    let options = ShellFormatOptions::default().with_dialect(ShellDialect::Bash);
+    assert_formats_to(
+        "echo $(( a << 16 )) $(( a>>2 ))\nx=$(( a <<= 2 ))$(date)\n",
+        None,
+        &options,
+        "echo $((a << 16)) $((a >> 2))\nx=$((a <<= 2))$(date)\n",
+    );
+    assert_unchanged_with_ast(
+        r#"echo ${x[a << 1]}$(echo hi) "<< $((a << 1))" $((arr[a<<1]))
+((a <<= 2))
+for ((i = 1 << 2; i < 9; i <<= 1)); do :; done
+let "y = $((a << 2))"
+"#,
+        None,
+        &options,
+    );
+}
+
 unchanged_cases_with_options! {
     mksh_dialect_formats_select_commands:
         ShellFormatOptions::default().with_dialect(ShellDialect::Mksh),

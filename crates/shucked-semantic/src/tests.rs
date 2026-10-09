@@ -2791,6 +2791,47 @@ fn arithmetic_shell_words_still_walk_nested_expansions() {
 }
 
 #[test]
+fn let_operands_track_arithmetic_reads_and_writes() {
+    let source = "let \"y = c5 + 1\" 'z += y' a=c5 b=a+1 i++\n";
+    for dialect in [ShellDialect::Bash, ShellDialect::Zsh] {
+        let model = model_with_dialect(source, dialect);
+        assert_arithmetic_usage(&model, "c5", 2, 0);
+        assert_arithmetic_usage(&model, "y", 1, 1);
+        assert_arithmetic_usage(&model, "z", 1, 1);
+        assert_arithmetic_usage(&model, "a", 1, 1);
+        assert_arithmetic_usage(&model, "b", 0, 1);
+        assert_arithmetic_usage(&model, "i", 1, 1);
+    }
+}
+
+#[test]
+fn zsh_let_operand_hash_name_reads_the_variable() {
+    let model = model_with_dialect("let \"y = #c1\" z=##c\n", ShellDialect::Zsh);
+    assert_arithmetic_usage(&model, "c1", 1, 0);
+    assert_arithmetic_usage(&model, "c", 0, 0);
+}
+
+#[test]
+fn let_operand_expansions_are_recorded_once() {
+    let model = model_with_dialect("let \"y = $x + 1\"\n", ShellDialect::Bash);
+    assert_eq!(
+        model
+            .references()
+            .iter()
+            .filter(|reference| reference.name == "x")
+            .count(),
+        1
+    );
+    assert_arithmetic_usage(&model, "y", 0, 1);
+}
+
+#[test]
+fn unparsable_let_operands_still_bind_their_target() {
+    let model = model_with_dialect("let y=1+\n", ShellDialect::Bash);
+    assert_arithmetic_usage(&model, "y", 0, 1);
+}
+
+#[test]
 fn substring_offset_arithmetic_tracks_postfix_updates() {
     let source = "\
 #!/bin/bash

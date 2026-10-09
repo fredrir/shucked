@@ -225,6 +225,18 @@ fn expect_number(expr: &ArithmeticExprNode, input: &str, expected: &str) {
     assert_eq!(number.slice(input), expected);
 }
 
+fn expect_zsh_char_code(expr: &ArithmeticExprNode, input: &str, expected: &str) {
+    let ArithmeticExpr::Unary {
+        op: ArithmeticUnaryOp::ZshCharCode,
+        expr: operand,
+    } = &expr.kind
+    else {
+        panic!("expected zsh char code, got {:?}", expr.kind);
+    };
+    assert_eq!(expr.span.slice(input), format!("#{expected}"));
+    expect_variable(operand, expected);
+}
+
 fn expect_shell_word(expr: &ArithmeticExprNode, input: &str, expected: &str) {
     let ArithmeticExpr::ShellWord(word) = &expr.kind else {
         panic!("expected arithmetic shell word, got {:?}", expr.kind);

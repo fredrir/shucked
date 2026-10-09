@@ -832,6 +832,99 @@ functions[iterm2_precmd]=x
     }
 
     #[test]
+    fn zsh_arithmetic_hash_name_counts_as_a_read() {
+        let source = "\
+#!/bin/zsh
+f() {
+  local in=$1 c1 c2 c3 c4 c5 chunk total unused
+  local -a arr=(1 2 3)
+  c1=${in[1]}
+  c2=${in[2]}
+  c3=${in[3]}
+  c4=${in[4]}
+  c5=${in[5]}
+  unused=1
+  (( chunk = #c1 << 16 ))
+  total=$(( (${#c2} ? #c2 : 0) + chunk ))
+  for (( i = #c3; i < 90; i++ )); do print $i; done
+  print $total ${arr[#c4 - 64]} $arr[-#c5]
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["unused"]
+        );
+    }
+
+    #[test]
+    fn let_operand_reads_count_as_uses() {
+        for (shebang, dialect) in [
+            ("#!/bin/bash", ShellDialect::Bash),
+            ("#!/bin/zsh", ShellDialect::Zsh),
+        ] {
+            let source = format!(
+                "\
+{shebang}
+f() {{
+  local c5=1 a y z dead
+  let \"y = c5 + 1\" a=y b=a+1
+  let 'z = b' dead=1
+  echo \"$z\"
+}}
+"
+            );
+            let diagnostics = test_snippet(
+                &source,
+                &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(dialect),
+            );
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .map(|diagnostic| diagnostic.span.slice(&source))
+                    .collect::<Vec<_>>(),
+                vec!["dead"]
+            );
+        }
+    }
+
+    #[test]
+    fn zsh_let_operand_hash_name_counts_as_a_read() {
+        let source = "#!/bin/zsh\nf() {\n  local c1=$1 y\n  let \"y = #c1\"\n  print $y\n}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn zsh_arithmetic_double_hash_char_literal_is_not_a_read() {
+        let source = "#!/bin/zsh\nx=1\nprint $(( ##x ))\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment).with_shell(ShellDialect::Zsh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["x"]
+        );
+    }
+
+    #[test]
     fn zsh_describe_by_name_arrays_count_as_reads() {
         let source = "\
 #!/bin/zsh

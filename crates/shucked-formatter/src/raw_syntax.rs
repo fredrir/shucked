@@ -1,4 +1,5 @@
 pub(crate) use shucked_ast::raw_shell::{QuoteState, RawShellScanner, shell_comment_can_start};
+use shucked_ast::raw_shell::{advance_escaped_shell_char, advance_shell_char};
 
 pub(crate) fn leading_shell_indent(line: &str) -> &str {
     let indent_end = line
@@ -15,7 +16,7 @@ pub(crate) struct HeredocStart<'line> {
 }
 
 pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
-    let marker = line.find("<<")?;
+    let marker = heredoc_operator_offset(line)?;
     let after_marker = &line[marker + 2..];
     if after_marker.starts_with('<') {
         return None;
@@ -34,6 +35,71 @@ pub(crate) fn heredoc_start(line: &str) -> Option<HeredocStart<'_>> {
         strip_tabs,
         operator_end: marker + if strip_tabs { 3 } else { 2 },
     })
+}
+
+fn heredoc_operator_offset(line: &str) -> Option<usize> {
+    let scanner = RawShellScanner::new(line);
+    let bytes = line.as_bytes();
+    let mut in_double_quote = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        if let Some(end) = closed_expansion_end(&scanner, line, index, in_double_quote) {
+            index = end;
+            continue;
+        }
+
+        let rest = &line[index..];
+        index = match bytes[index] {
+            b'\\' => advance_escaped_shell_char(line, index),
+            b'\'' if !in_double_quote => {
+                let end = scanner.skip_single_quoted_body(index + 1);
+                if !line[index + 1..end].ends_with('\'') {
+                    return None;
+                }
+                end
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index + 1
+            }
+            // Command substitutions start a fresh quoting context that may open a heredoc.
+            b'`' => {
+                in_double_quote = false;
+                index + 1
+            }
+            b'$' if rest.starts_with("$(") => {
+                in_double_quote = false;
+                index + 2
+            }
+            b'<' if !in_double_quote && rest.starts_with("<<") => return Some(index),
+            _ => advance_shell_char(line, index),
+        };
+    }
+    None
+}
+
+// Arithmetic and parameter expansions closed on the same line cannot open a heredoc.
+fn closed_expansion_end(
+    scanner: &RawShellScanner<'_>,
+    line: &str,
+    index: usize,
+    in_double_quote: bool,
+) -> Option<usize> {
+    let rest = &line[index..];
+    let (body, open, close) = if rest.starts_with("$((") {
+        (index + 2, b'(', b')')
+    } else if rest.starts_with("$[") {
+        (index + 2, b'[', b']')
+    } else if rest.starts_with("${") {
+        (index + 2, b'{', b'}')
+    } else if rest.starts_with("((") && !in_double_quote {
+        (index + 1, b'(', b')')
+    } else {
+        return None;
+    };
+    let end = scanner.skip_balanced_shell_construct(body, open, close)?;
+    let body = &line[body..end];
+    (!body.contains("$(") && !body.contains('`')).then_some(end)
 }
 
 pub(crate) fn common_indent_prefix<'a>(left: &'a str, right: &str) -> &'a str {

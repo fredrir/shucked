@@ -6,8 +6,8 @@ use std::{
 use smallvec::SmallVec;
 
 use shucked_ast::{
-    AnonymousFunctionCommand, Assignment, Comment, CompoundCommand, DeclOperand, FunctionDef, Name,
-    Position, Redirect, Span, TokenKind, Word,
+    AnonymousFunctionCommand, ArithmeticArg, Assignment, Comment, CompoundCommand, DeclOperand,
+    FunctionDef, Name, Position, Redirect, Span, TokenKind, Word,
 };
 
 use super::{
@@ -32,6 +32,7 @@ pub(super) struct SimpleCommand {
     pub(super) args: SmallVec<[Word; 2]>,
     pub(super) redirects: SmallVec<[Redirect; 1]>,
     pub(super) assignments: SmallVec<[Assignment; 1]>,
+    pub(super) arithmetic_args: Vec<ArithmeticArg>,
     pub(super) span: Span,
 }
 

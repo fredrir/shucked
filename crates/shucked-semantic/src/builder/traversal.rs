@@ -261,12 +261,7 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
             flow,
             &mut nested_regions,
         );
-        self.visit_words_into(
-            &command.args,
-            WordVisitKind::Expansion,
-            flow,
-            &mut nested_regions,
-        );
+        self.visit_simple_command_args_into(command, flow, &mut nested_regions);
 
         let command_words = std::iter::once(&command.name)
             .chain(command.args.iter())
@@ -306,12 +301,29 @@ impl<'a, 'idx, 'observer> SemanticModelBuilder<'a, 'idx, 'observer> {
         {
             let callee = Name::from(name);
             if resolved_command_can_affect_current_shell(&normalized) {
-                self.classify_special_simple_command(&callee, &normalized, command.span, flow);
+                self.classify_special_simple_command(&callee, &normalized, command, flow);
             }
         }
 
         self.pending_simple_normalized = Some((command.span, normalized));
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
+    }
+
+    fn visit_simple_command_args_into(
+        &mut self,
+        command: &'a shucked_ast::SimpleCommand,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        let mut arithmetic_args = command.arithmetic_args.iter().peekable();
+        for (index, word) in command.args.iter().enumerate() {
+            if let Some(argument) = arithmetic_args.next_if(|argument| argument.arg_index == index)
+            {
+                self.visit_arithmetic_expr_into(&argument.expression, flow, nested_regions);
+            } else {
+                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+            }
+        }
     }
 
     pub(super) fn visit_builtin(

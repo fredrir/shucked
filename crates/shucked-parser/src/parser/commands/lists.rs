@@ -391,6 +391,7 @@ impl<'a> Parser<'a> {
                 redirects,
                 assignments,
                 span,
+                ..
             } = command;
             return Command::Decl(Box::new(DeclClause {
                 variant,

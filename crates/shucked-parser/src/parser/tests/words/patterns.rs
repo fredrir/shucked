@@ -317,6 +317,60 @@ fn test_parse_pattern_preserves_dynamic_fragments_inside_extglob() {
 }
 
 #[test]
+fn test_parse_conditional_pattern_spans_cover_escaped_expansion_literals() {
+    let input = r#"[[ $b == [\$]x[a\`]\\*[\\]y\$ ]]"#;
+    for dialect in [ShellDialect::Bash, ShellDialect::Zsh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+        let (compound, _) = expect_compound(&script.body[0]);
+        let AstCompoundCommand::Conditional(command) = compound else {
+            panic!("expected conditional compound command");
+        };
+        let ConditionalExpr::Binary(binary) = &command.expression else {
+            panic!("expected binary conditional");
+        };
+        let ConditionalExpr::Pattern(pattern) = binary.right.as_ref() else {
+            panic!("expected pattern rhs");
+        };
+
+        assert_eq!(
+            pattern_part_slices(pattern, input),
+            vec![r"[\$]", "x", r"[a\`]", r"\\", "*", r"[\\]", r"y\$"]
+        );
+        assert!(matches!(pattern.parts[0].kind, PatternPart::CharClass(_)));
+        assert!(matches!(pattern.parts[2].kind, PatternPart::CharClass(_)));
+        assert!(matches!(pattern.parts[4].kind, PatternPart::AnyString));
+        assert!(matches!(pattern.parts[5].kind, PatternPart::CharClass(_)));
+        assert!(matches!(&pattern.parts[3].kind, PatternPart::Literal(text) if text == r"\"));
+        assert!(matches!(&pattern.parts[6].kind, PatternPart::Literal(text) if text == "y$"));
+        assert_eq!(pattern.render_syntax(input), r"[\$]x[a\`]\\*[\\]y\$");
+    }
+}
+
+#[test]
+fn test_parse_case_pattern_spans_cover_escaped_expansion_literals() {
+    let input = r#"case $b in [\$]|x\$[a]) : ;; esac"#;
+    for dialect in [ShellDialect::Bash, ShellDialect::Zsh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+        let (compound, _) = expect_compound(&script.body[0]);
+        let AstCompoundCommand::Case(command) = compound else {
+            panic!("expected case command");
+        };
+        let patterns = &command.cases[0].patterns;
+
+        assert_eq!(pattern_part_slices(&patterns[0], input), vec![r"[\$]"]);
+        assert!(matches!(
+            patterns[0].parts[0].kind,
+            PatternPart::CharClass(_)
+        ));
+        assert_eq!(
+            pattern_part_slices(&patterns[1], input),
+            vec![r"x\$", "[a]"]
+        );
+        assert_eq!(patterns[1].render(input), "x$[a]");
+    }
+}
+
+#[test]
 fn test_parse_pattern_preserves_delimiters_past_group_depth_limit() {
     let mut nested = "?(a|b)".to_string();
     for suffix in ["c", "d", "e", "f", "g", "h", "i", "j", "k"] {

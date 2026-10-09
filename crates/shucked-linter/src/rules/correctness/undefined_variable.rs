@@ -311,6 +311,24 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
+    fn quoted_let_operands_initialize_their_targets() {
+        let source = "\
+#!/bin/bash
+let \"y = 1\" 'z = y + 1'
+echo \"$y $z $missing\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$missing"]
+        );
+    }
+
+    #[test]
     fn prior_defaulting_parameter_operands_suppress_later_plain_uses() {
         let source = "\
 #!/bin/sh

@@ -298,8 +298,18 @@ pub struct SimpleCommand {
     pub args: Vec<Word>,
     /// Variable assignments before the command
     pub assignments: Box<[Assignment]>,
+    /// Arithmetic parsed from `let` operands.
+    pub arithmetic_args: Box<[ArithmeticArg]>,
     /// Source span of this command
     pub span: Span,
+}
+
+/// A `let` operand parsed as arithmetic.
+#[derive(Debug, Clone)]
+pub struct ArithmeticArg {
+    /// Index of the operand in [`SimpleCommand::args`].
+    pub arg_index: usize,
+    pub expression: ArithmeticExprNode,
 }
 
 /// A declaration builtin clause such as `declare`, `local`, `export`, `readonly`, or `typeset`.
@@ -1034,6 +1044,8 @@ pub enum ArithmeticUnaryOp {
     Minus,
     LogicalNot,
     BitwiseNot,
+    /// zsh `#name`: character code of the first character of `$name`.
+    ZshCharCode,
 }
 
 /// Postfix arithmetic operators.
@@ -4049,6 +4061,7 @@ mod tests {
             name: Word::literal(name),
             args,
             assignments: Box::default(),
+            arithmetic_args: Box::default(),
             span: Span::new(),
         }
     }

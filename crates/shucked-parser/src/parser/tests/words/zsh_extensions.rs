@@ -322,7 +322,7 @@ fn test_parse_zsh_arithmetic_command_keeps_parameter_set_probe_shell_words_intac
 }
 
 #[test]
-fn test_parse_zsh_arithmetic_command_supports_char_literal_numbers() {
+fn test_parse_zsh_arithmetic_command_supports_hash_name_char_codes() {
     let input = "(( #c < 256 / $1 * $1 ))\n(( rnd = (~(1 << 23) & rnd) << 8 | #c ))\n";
     let script = Parser::with_dialect(input, ShellDialect::Zsh)
         .parse()
@@ -338,7 +338,7 @@ fn test_parse_zsh_arithmetic_command_supports_char_literal_numbers() {
         panic!("expected binary arithmetic expression");
     };
     assert_eq!(*op, ArithmeticBinaryOp::LessThan);
-    expect_number(left, input, "#c");
+    expect_zsh_char_code(left, input, "c");
     let ArithmeticExpr::Binary {
         left: mul_left,
         op: mul_op,
@@ -384,7 +384,72 @@ fn test_parse_zsh_arithmetic_command_supports_char_literal_numbers() {
     };
     assert_eq!(*or_op, ArithmeticBinaryOp::BitwiseOr);
     assert!(matches!(or_left.kind, ArithmeticExpr::Binary { .. }));
-    expect_number(or_right, input, "#c");
+    expect_zsh_char_code(or_right, input, "c");
+}
+
+#[test]
+fn test_parse_zsh_arithmetic_hash_name_takes_the_whole_identifier() {
+    let input = "(( chunk = #c1 << 16 ))\n(( (${#c2} ? #c2 : 0) ))\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (first, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(first) = first else {
+        panic!("expected arithmetic compound command");
+    };
+    let first_expr = first.expr_ast.as_ref().expect("expected arithmetic AST");
+    let ArithmeticExpr::Assignment { value, .. } = &first_expr.kind else {
+        panic!("expected arithmetic assignment");
+    };
+    let ArithmeticExpr::Binary { left, op, right } = &value.kind else {
+        panic!("expected shift expression");
+    };
+    assert_eq!(*op, ArithmeticBinaryOp::ShiftLeft);
+    expect_zsh_char_code(left, input, "c1");
+    expect_number(right, input, "16");
+
+    let (second, _) = expect_compound(&script.body[1]);
+    let AstCompoundCommand::Arithmetic(second) = second else {
+        panic!("expected arithmetic compound command");
+    };
+    let second_expr = second.expr_ast.as_ref().expect("expected arithmetic AST");
+    let ArithmeticExpr::Parenthesized { expression } = &second_expr.kind else {
+        panic!("expected parenthesized expression");
+    };
+    let ArithmeticExpr::Conditional {
+        condition,
+        then_expr,
+        else_expr,
+    } = &expression.kind
+    else {
+        panic!("expected conditional expression");
+    };
+    expect_shell_word(condition, input, "${#c2}");
+    expect_zsh_char_code(then_expr, input, "c2");
+    expect_number(else_expr, input, "0");
+}
+
+#[test]
+fn test_parse_zsh_arithmetic_double_hash_char_literals_stay_numbers() {
+    for (input, literal) in [
+        ("(( ##x ))\n", "##x"),
+        ("(( #\\x ))\n", "#\\x"),
+        ("(( ##^A ))\n", "##^A"),
+        ("(( ##\\M-\\C-a ))\n", "##\\M-\\C-a"),
+    ] {
+        let script = Parser::with_dialect(input, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+        let (compound, _) = expect_compound(&script.body[0]);
+        let AstCompoundCommand::Arithmetic(command) = compound else {
+            panic!("expected arithmetic compound command");
+        };
+        let expr = command.expr_ast.as_ref().expect("expected arithmetic AST");
+        expect_number(expr, input, literal);
+    }
 }
 
 #[test]

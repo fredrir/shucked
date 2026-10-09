@@ -283,7 +283,11 @@ pub(super) fn arithmetic_precedence(expr: &ArithmeticExprNode) -> u8 {
         | ArithmeticExpr::Variable(_)
         | ArithmeticExpr::Indexed { .. }
         | ArithmeticExpr::ShellWord(_)
-        | ArithmeticExpr::Parenthesized { .. } => 100,
+        | ArithmeticExpr::Parenthesized { .. }
+        | ArithmeticExpr::Unary {
+            op: ArithmeticUnaryOp::ZshCharCode,
+            ..
+        } => 100,
         ArithmeticExpr::Postfix { .. } => 90,
         ArithmeticExpr::Unary { .. } => 80,
         ArithmeticExpr::Binary { op, .. } => arithmetic_precedence_value(*op),
@@ -322,6 +326,7 @@ pub(super) fn arithmetic_unary_operator(op: ArithmeticUnaryOp) -> &'static str {
         ArithmeticUnaryOp::Minus => "-",
         ArithmeticUnaryOp::LogicalNot => "!",
         ArithmeticUnaryOp::BitwiseNot => "~",
+        ArithmeticUnaryOp::ZshCharCode => "#",
     }
 }
 
