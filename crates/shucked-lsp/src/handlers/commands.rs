@@ -746,6 +746,9 @@ fn build(
         .as_ref()
         .and(snapshot.workspace_functions.as_ref())
         .and_then(crate::workspace_functions::completion_workspace_function_index);
+    let source_index_unavailable = source_analysis.is_some()
+        && snapshot.workspace_functions.is_some()
+        && source_index.is_none();
     let source_path = snapshot
         .query()
         .file_path()
@@ -799,13 +802,21 @@ fn build(
                 },
                 environment_uncertain: facts.environment_uncertain.is_some()
                     || (facts.namespace == CommandNamespace::Shell
-                        && workspace_resolution.as_ref().is_some_and(|r| {
-                            r.incomplete || !r.definitions.is_empty() && r.exact().is_none()
-                        })),
+                        && (source_index_unavailable
+                            || workspace_resolution.as_ref().is_some_and(|r| {
+                                r.incomplete || !r.definitions.is_empty() && r.exact().is_none()
+                            }))),
                 declared: declared.clone(),
                 ..Default::default()
             };
             let mut resolution = shucked_command::resolve(&context, &environment, &site);
+            if source_index_unavailable
+                && facts.namespace == CommandNamespace::Shell
+                && let CommandResolution::Unknown(unknown) = &mut resolution
+                && unknown.reason == shucked_command::UnknownReason::DynamicEnvironment
+            {
+                unknown.detail = "Workspace source analysis needs to be refreshed".into();
+            }
             if facts.namespace == CommandNamespace::Shell
                 && let Some(binding) = &workspace_resolution
                 && (binding.incomplete

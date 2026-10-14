@@ -391,6 +391,58 @@ fn login_shell_policy_feeds_analysis_through_the_session_path() {
 }
 
 #[test]
+fn login_shell_policy_recognizes_zsh_configuration_builtins() {
+    let home = tempfile::tempdir().unwrap();
+    let shell = fake_shell(home.path(), "zsh", REPORT);
+    let (service, _) = service(home.path(), &shell, true, Duration::from_secs(5));
+    service.lookup(&shell);
+    assert!(matches!(
+        wait_settled(&service, &shell),
+        LoginShellStatus::Ready(_)
+    ));
+    let commands = Arc::new(CommandService::new(true));
+    commands.install_login_shell(service);
+    let snapshot = document(
+        home.path(),
+        "#!/bin/zsh\nzstyle ':completion:*' menu select\nbindkey -e\nzle -N my-widget\n",
+        EnvironmentOptions {
+            policy: Some(POLICY.into()),
+            login_shell: Some(shell),
+            ..Default::default()
+        },
+        commands,
+    );
+    let analysis = snapshot.command_service.analysis(&snapshot);
+    assert!(matches!(
+        analysis.source,
+        EnvironmentSource::LoginShell { .. }
+    ));
+    assert_eq!(
+        analysis.context.mode,
+        shucked_command::ExecutionMode::InteractiveSession
+    );
+    assert_eq!(analysis.sites.len(), 3);
+    for (site, resolution) in &analysis.sites {
+        assert!(
+            matches!(resolution, shucked_command::CommandResolution::Resolved(command)
+            if command.kind == shucked_command::CommandKind::Builtin),
+            "{resolution:?}"
+        );
+        let hover =
+            crate::handlers::commands::hover(&snapshot, site.name_span().start.offset()).unwrap();
+        let lsp_types::HoverContents::Markup(content) = hover.contents else {
+            panic!("expected markup hover");
+        };
+        assert!(
+            content.value.contains("Resolution: Builtin"),
+            "{}",
+            content.value
+        );
+    }
+    assert!(crate::handlers::commands::diagnostics(&snapshot).is_empty());
+}
+
+#[test]
 fn oversized_terminal_state_is_truncated_not_dropped() {
     let commands = CommandService::new(true);
     let mut state = super::super::commands::ShellSessionState {

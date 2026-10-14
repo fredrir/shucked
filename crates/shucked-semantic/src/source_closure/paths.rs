@@ -182,6 +182,7 @@ enum PathEvent {
     DefineFunction(Name, Arc<PathFile>),
     Call(Name, Box<[Option<compact_str::CompactString>]>),
     Branch(Vec<Vec<PathEvent>>),
+    Return,
     Stop,
 }
 
@@ -408,7 +409,8 @@ impl PathFile {
                 events.extend(Self::sequence(model, always_body));
             }
             RecordedCommandKind::Subshell { .. } | RecordedCommandKind::Pipeline { .. } => {}
-            RecordedCommandKind::Return | RecordedCommandKind::Exit => events.push(PathEvent::Stop),
+            RecordedCommandKind::Return => events.push(PathEvent::Return),
+            RecordedCommandKind::Exit => events.push(PathEvent::Stop),
             // Repeated execution and case fallthrough need a fixed point.
             _ => events.push(PathEvent::Invalidate),
         }
@@ -425,7 +427,6 @@ struct PathEnvironment {
     unknown_functions: FxHashSet<Name>,
     unknown_dispatch: bool,
     returned: bool,
-    early_return: bool,
     unknown_arguments: bool,
 }
 
@@ -474,9 +475,21 @@ impl PathEnvironment {
             .retain(|name| !self.functions.contains_key(name));
         self.unknown_dispatch |= other.unknown_dispatch;
         self.returned |= other.returned;
-        self.early_return |= other.early_return;
         self.unknown_arguments |= other.unknown_arguments;
         self.imported |= other.imported;
+    }
+
+    fn join_returns(&mut self, returns: Option<Self>) {
+        // Returned branches stop contributing to later statements, but their
+        // state still reaches the caller of a function or sourced file.
+        if let Some(returns) = returns {
+            if self.returned {
+                *self = returns;
+            } else {
+                self.join(&returns);
+            }
+        }
+        self.returned = false;
     }
 }
 
@@ -669,7 +682,6 @@ impl SourcePathAnalyzer {
             );
             environment.imported = true;
             environment.returned = false;
-            environment.early_return = false;
         }
     }
 
@@ -744,6 +756,7 @@ impl SourcePathAnalyzer {
             environment.values.clear();
             return;
         }
+        let mut returns = None;
         self.events(
             &file.events,
             &file.profile,
@@ -751,15 +764,14 @@ impl SourcePathAnalyzer {
             root,
             provider,
             environment,
+            &mut returns,
             args,
             active,
             remaining,
             depth,
             result,
         );
-        if environment.returned || environment.early_return {
-            environment.values.clear();
-        }
+        environment.join_returns(returns);
         active.remove(&canonical);
     }
 
@@ -772,6 +784,7 @@ impl SourcePathAnalyzer {
         root: &Path,
         provider: &dyn SourcePathFileProvider,
         environment: &mut PathEnvironment,
+        returns: &mut Option<PathEnvironment>,
         args: &[Option<compact_str::CompactString>],
         active: &mut FxHashSet<PathBuf>,
         remaining: &mut usize,
@@ -872,9 +885,18 @@ impl SourcePathAnalyzer {
                     environment.unknown_dispatch = true;
                     environment.imported = true;
                 }
-                PathEvent::Stop => {
+                PathEvent::Return | PathEvent::Stop => {
+                    if matches!(event, PathEvent::Stop) {
+                        environment.values.clear();
+                        environment.functions.clear();
+                        environment.unknown_dispatch = true;
+                    }
+                    if let Some(returns) = returns {
+                        returns.join(environment);
+                    } else {
+                        *returns = Some(environment.clone());
+                    }
                     environment.returned = true;
-                    environment.values.clear();
                     break;
                 }
                 PathEvent::DefineFunction(name, body) => {
@@ -888,9 +910,8 @@ impl SourcePathAnalyzer {
                         let caller_arguments_unknown = environment.unknown_arguments;
                         environment.unknown_arguments = false;
                         let caller_returned = environment.returned;
-                        let caller_early_return = environment.early_return;
                         environment.returned = false;
-                        environment.early_return = false;
+                        let mut function_returns = None;
                         environment.locals.push(FxHashMap::default());
                         self.events(
                             &body.events,
@@ -899,17 +920,15 @@ impl SourcePathAnalyzer {
                             root,
                             provider,
                             environment,
+                            &mut function_returns,
                             call_args,
                             active,
                             remaining,
                             depth + 1,
                             result,
                         );
-                        if environment.returned || environment.early_return {
-                            environment.values.clear();
-                        }
+                        environment.join_returns(function_returns);
                         environment.returned = caller_returned;
-                        environment.early_return = caller_early_return;
                         environment.unknown_arguments = caller_arguments_unknown;
                         for (name, value) in environment.locals.pop().unwrap_or_default() {
                             environment.values.remove(&name);
@@ -928,7 +947,6 @@ impl SourcePathAnalyzer {
                 PathEvent::Branch(branches) => {
                     let before = environment.clone();
                     let mut joined: Option<PathEnvironment> = None;
-                    let mut early_return = false;
                     for branch in branches {
                         let mut branch_environment = before.clone();
                         self.events(
@@ -938,6 +956,7 @@ impl SourcePathAnalyzer {
                             root,
                             provider,
                             &mut branch_environment,
+                            returns,
                             args,
                             active,
                             remaining,
@@ -945,7 +964,6 @@ impl SourcePathAnalyzer {
                             result,
                         );
                         if branch_environment.returned {
-                            early_return = true;
                             continue;
                         }
                         if let Some(joined) = &mut joined {
@@ -956,10 +974,8 @@ impl SourcePathAnalyzer {
                     }
                     if let Some(joined) = joined {
                         *environment = joined;
-                        environment.early_return |= early_return;
                     } else {
                         environment.returned = true;
-                        environment.values.clear();
                         break;
                     }
                 }
@@ -1036,9 +1052,7 @@ impl SourcePathAnalyzer {
                             environment.unknown_arguments = false;
                         }
                         let caller_returned = environment.returned;
-                        let caller_early_return = environment.early_return;
                         environment.returned = false;
-                        environment.early_return = false;
                         self.evaluate(
                             &helper,
                             &target,
@@ -1056,7 +1070,6 @@ impl SourcePathAnalyzer {
                             result,
                         );
                         environment.returned = caller_returned;
-                        environment.early_return = caller_early_return;
                         if !source_args.is_empty() {
                             environment.unknown_arguments = caller_arguments_unknown;
                         }

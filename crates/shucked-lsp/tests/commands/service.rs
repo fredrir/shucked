@@ -40,6 +40,33 @@ fn executable(path: &std::path::Path, text: &str) {
 }
 
 #[test]
+fn zsh_configuration_builtins_have_consistent_hover_and_diagnostics() {
+    let root = tempfile::tempdir().unwrap();
+    let source = "zstyle ':completion:*' menu select\nbindkey -e\nzle -N my-widget\n";
+    for filename in [".zshrc", "45-widgets.zsh"] {
+        let snapshot = fixture(root.path(), filename, source, None);
+        let analysis = snapshot.command_service.analysis(&snapshot);
+        for (site, resolution) in &analysis.sites {
+            assert!(
+                matches!(resolution, CommandResolution::Resolved(command)
+                if command.kind == shucked_command::CommandKind::Builtin),
+                "{resolution:?}"
+            );
+            let hover = hover(&snapshot, site.name_span().start.offset()).unwrap();
+            let types::HoverContents::Markup(content) = hover.contents else {
+                panic!("expected markup hover");
+            };
+            assert!(
+                content.value.contains("Resolution: Builtin"),
+                "{}",
+                content.value
+            );
+        }
+        assert!(diagnostics(&snapshot).is_empty());
+    }
+}
+
+#[test]
 fn cheap_command_resolution_never_runs_metadata_programs() {
     let root = tempfile::tempdir().unwrap();
     let marker = root.path().join("metadata-ran");

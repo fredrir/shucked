@@ -112,6 +112,95 @@ fn module_loader_connects_commands_navigation_references_completion_and_hierarch
 }
 
 #[test]
+#[cfg(unix)]
+fn symlinked_zsh_startup_loader_resolves_numbered_module_helpers() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("dotfiles");
+    let modules = root.join("shared/zsh");
+    std::fs::create_dir_all(&modules).unwrap();
+    let globals = modules.join("00-global.zsh");
+    std::fs::write(&globals, r#"export DOTFILES="$HOME/dotfiles"
+export ZCONF="$DOTFILES/shared/zsh"
+export DOTFILES_ZSH_CACHE="$DOTFILES/.cache/zsh"
+[[ -o interactive && -r $DOTFILES_ZSH_CACHE/build/zshrc.rcs.zsh ]] && source "$DOTFILES_ZSH_CACHE/build/zshrc.rcs.zsh"
+"#).unwrap();
+    std::os::unix::fs::symlink(&globals, home.path().join(".zshenv")).unwrap();
+    let build = root.join(".cache/zsh/build");
+    std::fs::create_dir_all(&build).unwrap();
+    std::fs::write(
+        build.join("zshrc.rcs.zsh"),
+        "[[ -r /etc/zprofile ]] || return 0\nsetopt no_global_rcs\n",
+    )
+    .unwrap();
+    let loader = modules.join("01-init.zsh");
+    std::fs::write(
+        &loader,
+        r#"if [[ -z $ZSH_BUILD_SKIP && -r $DOTFILES_ZSH_CACHE/build/zshrc.zsh ]]; then
+  source "$DOTFILES_ZSH_CACHE/build/zshrc.zsh"
+  return
+fi
+if [[ -n $AGENT_SHELL ]]; then
+  source "$ZCONF/02-utils.zsh"
+  return
+fi
+for module in "$ZCONF"/{0[2-9],[1-9][0-9]}-*.zsh(N); do
+  source "$module"
+done
+"#,
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&loader, home.path().join(".zshrc")).unwrap();
+    let helper = modules.join("02-utils.zsh");
+    std::fs::write(&helper, "has_cmd() { :; }\ncached_eval() { :; }\n").unwrap();
+    let caller = modules.join("70-completions.zsh");
+    let source = "has_cmd editor\ncached_eval editor-completion editor --completions zsh\n";
+    std::fs::write(&caller, source).unwrap();
+    crate::handlers::workspace_functions::with_test_home_dir(home.path(), || {
+        let (mut session, client, _) = session(&root);
+        let uri = open(&mut session, &caller, source);
+        for (line, name) in [(0, "has_cmd"), (1, "cached_eval")] {
+            assert!(
+                is_function(&session, &uri, name),
+                "{name} must resolve through the startup loader"
+            );
+            assert_eq!(
+                definition(&session, &client, position(&uri, line, 2)).len(),
+                1
+            );
+        }
+    });
+}
+
+#[test]
+fn invalidated_source_index_does_not_report_sourced_functions_as_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("helper.zsh");
+    std::fs::write(&helper, "cached_eval() { :; }\n").unwrap();
+    std::fs::write(
+        root.path().join("init.zsh"),
+        "source ./helper.zsh\nsource ./main.zsh\n",
+    )
+    .unwrap();
+    std::fs::write(root.path().join("main.zsh"), "cached_eval\n").unwrap();
+    let (mut session, _, _) = session(root.path());
+    let uri = open(&mut session, &root.path().join("main.zsh"), "cached_eval\n");
+    let old = session.take_snapshot(uri.clone()).unwrap();
+    open(&mut session, &helper, "cached_eval() { :; }\n");
+    let analysis = old.command_service.analysis(&old);
+    let (_, resolution) = analysis
+        .sites
+        .iter()
+        .find(|(site, _)| site.name() == Some("cached_eval"))
+        .unwrap();
+    assert!(
+        matches!(resolution, CommandResolution::Unknown(_)),
+        "{resolution:?}"
+    );
+    assert!(crate::handlers::commands::diagnostics(&old).is_empty());
+    assert!(is_function(&session, &uri, "cached_eval"));
+}
+
+#[test]
 fn unsaved_helper_edits_refresh_command_results_without_touching_caller() {
     let root = tempfile::tempdir().unwrap();
     let helper = root.path().join("helper.sh");

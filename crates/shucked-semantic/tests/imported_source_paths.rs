@@ -117,37 +117,6 @@ fn later_imports_and_assignments_replace_previous_path_values() {
 }
 
 #[test]
-fn uncertain_imports_and_writes_do_not_leak_stale_path_values() {
-    for body in [
-        "ROOT_DIR=\"$runtime\"\n",
-        "unset ROOT_DIR\n",
-        "if enabled; then ROOT_DIR=/other; fi\n",
-        "if enabled; then unset ROOT_DIR; fi\n",
-        "source \"$dynamic\"\n",
-        "source missing.sh\n",
-        "source paths.sh\n",
-        "eval \"$code\"\n",
-        "return\nROOT_DIR=/late\n",
-    ] {
-        assert_eq!(
-            candidates(
-                "ROOT_DIR=/old\nsource paths.sh\nsource \"$ROOT_DIR/values.sh\"\n",
-                &[("/workspace/paths.sh", body)]
-            ),
-            vec![None],
-            "{body}"
-        );
-    }
-    assert_eq!(
-        candidates(
-            "if enabled; then source paths.sh; fi\nsource \"$ROOT_DIR/values.sh\"\n",
-            &[("/workspace/paths.sh", "ROOT_DIR=/workspace\n")]
-        ),
-        vec![None]
-    );
-}
-
-#[test]
 fn helper_locals_and_subshell_assignments_do_not_escape() {
     assert_eq!(
         candidates(

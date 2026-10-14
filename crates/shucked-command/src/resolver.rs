@@ -506,6 +506,7 @@ pub fn builtins(dialect: ShellDialect) -> Vec<&'static str> {
         ShellDialect::Zsh => names.extend([
             "[",
             "autoload",
+            "bindkey",
             "builtin",
             "bye",
             "chdir",
@@ -551,7 +552,9 @@ pub fn builtins(dialect: ShellDialect) -> Vec<&'static str> {
             "where",
             "which",
             "zcompile",
+            "zle",
             "zmodload",
+            "zstyle",
         ]),
         ShellDialect::Mksh => names.extend([
             "[", "builtin", "echo", "global", "hash", "let", "local", "print", "read", "source",
