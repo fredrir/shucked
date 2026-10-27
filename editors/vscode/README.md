@@ -5,7 +5,7 @@ Shell diagnostics, completion, formatting, navigation, and execution-context awa
 ## Execution context
 
 | Context | Behavior |
-|---|---|
+| --- | --- |
 | Workspace (default) | Resolve commands against the workspace host's exact inherited `PATH` |
 | Portable | Keep syntax and document analysis; suppress host-dependent absence warnings |
 | Captured target | Use an explicitly selected inventory offline; do not run local providers for it |
@@ -17,7 +17,7 @@ Shell diagnostics, completion, formatting, navigation, and execution-context awa
 Use **Shucked: Select Execution Context** or the context status item. Per-document selections override workspace settings. Session attachment is explicit and temporary.
 
 | Setting | Default |
-|---|---|
+| --- | --- |
 | `shucked.environment.policy` | `workspace` (`portable` opt-in) |
 | `shucked.environment.cwd` | Empty; assumed workspace directory |
 | `shucked.environment.targetInventory` | Empty |
@@ -33,7 +33,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 ## Completion and diagnostics
 
 | Source | Behavior |
-|---|---|
+| --- | --- |
 | Commands | Exact target `PATH`, applicable aliases/functions, and shell builtins |
 | Symbols | Document and sourced functions, variables, keywords, and shell options |
 | Paths | Selected launch directory; quoted/escaped names and supported home expansions |
@@ -58,7 +58,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 | Refresh | Watched changes, terminal prompts, explicit refresh, and a 30-second host refresh fallback |
 
 | Completion setting | Default |
-|---|---|
+| --- | --- |
 | `shucked.server.completion.includeEnvironment` | `true` |
 | `shucked.server.completion.includePaths` | `true` |
 | `shucked.server.completion.includeCommandArguments` | `true` |
@@ -71,7 +71,7 @@ Use **Shucked: Select Execution Context** or the context status item. Per-docume
 Managed completion workers bypass personal startup files. Creating a Shucked terminal starts a real shell with its normal trusted startup configuration. Attaching an existing terminal copies an attachment command for you to run at an idle prompt; it does not inject commands or modify dotfiles. Analysis never executes editor-buffer contents or follows sources by executing them.
 
 | Completion inspection | Action |
-|---|---|
+| --- | --- |
 | Candidate source | Read the suggestion's details |
 | Response / provider timing | Set the **Shucked** output channel log level to **Trace**, then open **Shucked: Show Language Server Logs** |
 | Protocol traffic | Set `shucked.trace.server` to `verbose` |
@@ -85,7 +85,7 @@ History suggestions are separately opt-in for accepted session commands and hist
 ## Workspace navigation
 
 | Action | Result |
-|---|---|
+| --- | --- |
 | Hover a variable | Assignment locations and consuming files, including unsaved edits |
 | Go to References | Reads of the selected assignment; includes possible reads through known conditional imports and called loaders |
 | Function hover | Definition links, loader files, workspace call sites, and incomplete-resolution details |
@@ -111,7 +111,7 @@ targets = ["deployment"]
 ```
 
 | Field | Values |
-|---|---|
+| --- | --- |
 | `kind` | `required`, `optional`, `generated`, `deployment` |
 | `files` | Optional workspace-relative glob list |
 | `targets` | Optional target-ID list |
@@ -121,7 +121,7 @@ Declarations distinguish expected dependencies from spelling mistakes; they do n
 ## Remote workspaces and targets
 
 | Environment | Server and provider host |
-|---|---|
+| --- | --- |
 | Local | Local workspace extension host |
 | Remote SSH | SSH host |
 | WSL | WSL distribution |
@@ -143,7 +143,7 @@ Other editors initialize trusted native execution with `{"nativeExecutionAllowed
 ## Commands
 
 | Command | ID |
-|---|---|
+| --- | --- |
 | Select Execution Context | `shucked.selectEnvironment` |
 | Refresh Environment | `shucked.refreshEnvironment` |
 | Create Terminal | `shucked.createTerminal` |
@@ -158,7 +158,7 @@ Other editors initialize trusted native execution with `{"nativeExecutionAllowed
 ## Coverage and distribution
 
 | Area | Current boundary |
-|---|---|
+| --- | --- |
 | Bundled engines | macOS arm64 tested; other runtime distributions require their platform gates |
 | Linux | GNU/musl source-build recipes; target-host execution required before release |
 | Windows | Process-tree cancellation implemented; compatible private shell runtime distribution remains outstanding |
@@ -174,7 +174,7 @@ See [provider builds and licenses](../../tooling/providers/README.md) and the [i
 ## Development
 
 | Task | Command |
-|---|---|
+| --- | --- |
 | Install | `npm ci` |
 | Typecheck | `npm run check-types` |
 | Lint | `npm run lint` |

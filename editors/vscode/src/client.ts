@@ -1,15 +1,15 @@
 import * as vscode from "vscode";
 import {
-  CloseAction,
-  CloseHandlerResult,
-  ErrorAction,
-  ErrorHandler,
-  ErrorHandlerResult,
-  LanguageClient,
-  LanguageClientOptions,
-  Message,
-  ServerOptions,
-  State,
+    CloseAction,
+    CloseHandlerResult,
+    ErrorAction,
+    ErrorHandler,
+    ErrorHandlerResult,
+    LanguageClient,
+    LanguageClientOptions,
+    Message,
+    ServerOptions,
+    State,
 } from "vscode-languageclient/node";
 import { resolveServerCommand, ServerCommand } from "./binary";
 import { StatusBarManager } from "./status";

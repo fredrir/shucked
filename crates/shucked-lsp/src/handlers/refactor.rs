@@ -650,15 +650,21 @@ fn extract_function_action(
     })
 }
 
-// -----------------------------------------------------------------------------
-// 7. refactor.rewrite.strictMode
-// -----------------------------------------------------------------------------
-
 fn add_strict_mode_action(
     snapshot: &DocumentSnapshot,
     analysis: &DocumentAnalysis,
-    _params: &types::CodeActionParams,
+    params: &types::CodeActionParams,
 ) -> Option<types::CodeAction> {
+    let kind = types::CodeActionKind::new("refactor.rewrite.strictMode");
+    if params.context.trigger_kind == Some(types::CodeActionTriggerKind::AUTOMATIC)
+        || !params.context.only.as_ref().is_some_and(|only| {
+            only.iter()
+                .any(|requested| action_kind_matches(requested, &kind))
+        })
+    {
+        return None;
+    }
+
     let source = analysis.source();
 
     if source.contains("set -e")
@@ -682,7 +688,7 @@ fn add_strict_mode_action(
 
     Some(types::CodeAction {
         title: "Add strict mode ('set -euo pipefail')".to_string(),
-        kind: Some(types::CodeActionKind::new("refactor.rewrite.strictMode")),
+        kind: Some(kind),
         edit: Some(workspace_edit_for_document(snapshot, vec![edit])),
         ..Default::default()
     })
@@ -1547,7 +1553,11 @@ mod tests {
         let params = CodeActionParams {
             text_document: TextDocumentIdentifier { uri },
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-            context: CodeActionContext::default(),
+            context: CodeActionContext {
+                only: Some(vec![types::CodeActionKind::REFACTOR]),
+                trigger_kind: Some(types::CodeActionTriggerKind::INVOKED),
+                ..Default::default()
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
@@ -1584,7 +1594,11 @@ mod tests {
         let params = CodeActionParams {
             text_document: TextDocumentIdentifier { uri },
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-            context: CodeActionContext::default(),
+            context: CodeActionContext {
+                only: Some(vec![types::CodeActionKind::REFACTOR]),
+                trigger_kind: Some(types::CodeActionTriggerKind::INVOKED),
+                ..Default::default()
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
@@ -1614,7 +1628,11 @@ mod tests {
         let params = CodeActionParams {
             text_document: TextDocumentIdentifier { uri },
             range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-            context: CodeActionContext::default(),
+            context: CodeActionContext {
+                only: Some(vec![types::CodeActionKind::REFACTOR]),
+                trigger_kind: Some(types::CodeActionTriggerKind::INVOKED),
+                ..Default::default()
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };

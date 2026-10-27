@@ -1227,6 +1227,67 @@ mod tests {
     }
 
     #[test]
+    fn strict_mode_requires_an_explicit_refactor_request() {
+        let (session, client, _client_receiver, uri) = make_session(
+            ClientCapabilities::default(),
+            "#!/usr/bin/env bash\necho \"hello\"\n",
+            "bash",
+            "strict-mode.sh",
+        );
+        let strict_mode_kind = types::CodeActionKind::new("refactor.rewrite.strictMode");
+
+        for (only, explicitly_requested) in [
+            (None, false),
+            (Some(vec![]), false),
+            (Some(vec![types::CodeActionKind::EMPTY]), false),
+            (Some(vec![types::CodeActionKind::QUICKFIX]), false),
+            (Some(vec![types::CodeActionKind::SOURCE]), false),
+            (Some(vec![types::CodeActionKind::REFACTOR_EXTRACT]), false),
+            (Some(vec![types::CodeActionKind::REFACTOR]), true),
+            (Some(vec![types::CodeActionKind::REFACTOR_REWRITE]), true),
+            (Some(vec![strict_mode_kind.clone()]), true),
+        ] {
+            for trigger_kind in [
+                None,
+                Some(types::CodeActionTriggerKind::INVOKED),
+                Some(types::CodeActionTriggerKind::AUTOMATIC),
+            ] {
+                for position in [Position::new(0, 0), Position::new(1, 7)] {
+                    let snapshot = session.take_snapshot(uri.clone()).unwrap();
+                    let response = code_actions(
+                        snapshot,
+                        &client,
+                        CodeActionParams {
+                            text_document: TextDocumentIdentifier { uri: uri.clone() },
+                            range: Range::new(position, position),
+                            context: CodeActionContext {
+                                only: only.clone(),
+                                trigger_kind,
+                                ..Default::default()
+                            },
+                            work_done_progress_params: Default::default(),
+                            partial_result_params: Default::default(),
+                        },
+                    )
+                    .expect("code action request should succeed")
+                    .unwrap_or_default();
+                    let actions = extract_actions(response);
+                    let has_strict_mode = actions
+                        .iter()
+                        .any(|action| action.kind.as_ref() == Some(&strict_mode_kind));
+
+                    assert_eq!(
+                        has_strict_mode,
+                        explicitly_requested
+                            && trigger_kind != Some(types::CodeActionTriggerKind::AUTOMATIC),
+                        "only={only:?}, trigger_kind={trigger_kind:?}, position={position:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn code_actions_match_parent_fix_all_kinds() {
         let capabilities = deferred_capabilities();
         let (session, client, _client_receiver, uri) =
